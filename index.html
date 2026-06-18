@@ -148,9 +148,35 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+<!--
+  Библиотеки и модель — SELF-HOST (без Google CDN, легально для РФ).
+  В РФ foreign-CDN (Cloudflare/jsDelivr) с июня 2025 режутся «трюком 16 КБ»:
+  файл обрывается после 16 КБ → tfjs (1.5 МБ) и веса модели (4.65 МБ) приходят битыми.
+  Поэтому всё лежит рядом с index.html и грузится с того же origin, что и сайт ИТМО.
+
+  Как завендорить (один раз, на машине с доступом):
+    mkdir -p vendor models/movenet
+    curl -L -o vendor/tf.min.js              https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js
+    curl -L -o vendor/pose-detection.min.js  https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js
+    curl -L -o vendor/knn-classifier.min.js  https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.6/dist/knn-classifier.min.js
+    # модель MoveNet SinglePose Lightning v4 (tfhub.dev/google CDN отдаёт 403 — берём зеркало):
+    curl -L -o models/movenet/model.json             https://cdn.jsdelivr.net/gh/vladmandic/movenet@main/models/movenet-lightning.json
+    curl -L -o models/movenet/movenet-lightning.bin  https://cdn.jsdelivr.net/gh/vladmandic/movenet@main/models/movenet-lightning.bin
+  (модель уже лежит в repo: models/movenet/ — повторно качать не нужно)
+-->
+<script src="vendor/tf.min.js"></script>
+<script src="vendor/pose-detection.min.js"></script>
+<script src="vendor/knn-classifier.min.js"></script>
+<script>
+"use strict";
+// На случай, если vendor/ ещё не завендорили (локальная отладка) — дотягиваем с jsDelivr.
+// В проде на ИТМО vendor/ ДОЛЖЕН существовать: с РФ-CDN-троттлингом fallback не доедет.
+if (typeof window.tf === 'undefined') {
+  document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.6/dist/knn-classifier.min.js"><\/scr'+'ipt>');
+}
+</script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -246,10 +272,19 @@ async function initCamera(){
   // авто-восстановление при обрыве (Continuity Camera любит отваливаться)
   stream.getVideoTracks()[0].addEventListener('ended',()=>{showToast('📷 камера отвалилась\nперезапускаю…',1500);initCamera().catch(()=>{});});
 }
+// modelUrl → грузим self-host копию MoveNet (без Google CDN).
+// По умолчанию относительный путь от index.html; можно переопределить ?model=... для теста.
+const MODEL_URL = new URLSearchParams(location.search).get('model')
+  || 'models/movenet/model.json';
 async function initModel(){
   await tf.setBackend('webgl').catch(()=>tf.setBackend('cpu')); await tf.ready();
-  detector=await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet,
-    {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING});
+  try{
+    detector=await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet,
+      {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING, modelUrl:MODEL_URL});
+  }catch(e){
+    // самая частая причина — нет файлов модели рядом / битые веса (CDN-троттлинг)
+    throw new Error('MODEL:'+(e&&e.message||e));
+  }
   knn=knnClassifier.create();
 }
 
@@ -432,7 +467,12 @@ async function boot(){
        setLoad('Гружу ИИ-модель…'); if(!DEMO){await initModel();}
        resize(); requestAnimationFrame(loop); enterTrain();
   }catch(e){ console.error(e);
-    setLoad(String(e.message||e).startsWith('CAM:')?'❌ Нет камеры. Подключи камеру/разреши доступ и повтори. ('+e.message+')':'❌ Не загрузилось ('+(e.message||e)+'). Проверь интернет и повтори.',true);
+    const m=String(e.message||e);
+    let msg;
+    if(m.startsWith('CAM:')) msg='❌ Нет камеры. Подключи камеру/разреши доступ и повтори. ('+m+')';
+    else if(m.startsWith('MODEL:')) msg='❌ ИИ-модель не загрузилась. Проверь, что файлы лежат рядом: models/movenet/model.json + movenet-lightning.bin. ('+m+')';
+    else msg='❌ Не загрузилось ('+m+'). Проверь интернет и повтори.';
+    setLoad(msg,true);
   }
 }
 $('#start').onclick=boot;
