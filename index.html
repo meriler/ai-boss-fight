@@ -42,8 +42,14 @@
   #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 12px calc(12px + var(--safe-b));
     background:linear-gradient(transparent,#000c 22%);display:flex;flex-direction:column;gap:9px}
 
-  #ailab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 12px;font-size:14px;font-weight:700;text-align:center;backdrop-filter:blur(6px)}
-  #ailab b{color:var(--accent)} #ailab .dim{color:var(--muted);font-weight:400}
+  #ailab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 12px;backdrop-filter:blur(6px)}
+  .aihead{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:5px}
+  .aibar{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .aibar .al{flex:0 0 96px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .aibar .ab{flex:1;height:10px;background:#0008;border-radius:6px;overflow:hidden}
+  .aibar .ab>i{display:block;height:100%;width:0;background:var(--muted);transition:width .12s}
+  .aibar.top .ab>i{background:var(--accent)} .aibar.top .al{color:var(--accent);font-weight:800}
+  .aibar .av{flex:0 0 36px;font-size:12px;text-align:right;color:var(--muted)} .aibar.top .av{color:var(--accent);font-weight:800}
   .chips{display:flex;gap:8px}
   .chip{flex:1;background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:8px 6px;text-align:center;
     backdrop-filter:blur(6px);transition:border-color .15s,transform .05s}
@@ -127,7 +133,7 @@
     <p>Обучи своё AI-существо трём движениям и победи босса собственным телом. Никакого кода — ты тренируешь настоящий ИИ.</p>
     <div class="skinrow" id="skins"></div>
     <button id="start" class="ok">▶️ Поехали</button>
-    <div class="badge" id="introNote">нужен доступ к камере · лучше в полный экран</div>
+    <div class="badge" id="introNote">📷 видео не уходит с устройства · ИИ учится прямо в браузере</div>
   </div>
 
   <!-- ЗАГРУЗКА -->
@@ -308,7 +314,7 @@ async function predict(){
   if(!knn||knn.getNumClasses()<1)return null;
   const t=tf.tensor(feature(lastPose.keypoints));
   const total=Object.values(knn.getClassExampleCount()).reduce((a,b)=>a+b,0)||1;
-  const r=await knn.predictClass(t,Math.min(5,total)); t.dispose(); return r;
+  const r=await knn.predictClass(t,3); t.dispose(); return r; // фикс. нечётный k — иначе перекос данных в один класс ломает предсказание
 }
 async function addExample(){
   if(DEMO){counts[activeClass]++;buildChips();gateBattle();return;}
@@ -411,10 +417,11 @@ function drawBlockyBoss(t){ // временная «майнкрафт» заг�
 // живая AI-панель: показываем, что ИИ «думает» прямо сейчас (модель = видимый объект)
 function updateAiLab(pred){
   const el=$('#ailab'); if(!el)return;
-  if(!DEMO&&(!knn||knn.getNumClasses()<1)){el.innerHTML='🤖 <b>ИИ пока пустой</b> — покажи ему примеры, и он научится';return;}
-  if(!pred){el.innerHTML='🤖 ИИ смотрит… <span class="dim">встань в кадр целиком</span>';return;}
-  const i=parseInt(pred.label,10),conf=Math.round((pred.confidences[pred.label]||0)*100),c=CLASSES[i];
-  el.innerHTML=`🤖 ИИ думает: <b>${c.emoji} ${c.name}</b> <span class="dim">${conf}%</span>`;
+  if(!DEMO&&(!knn||knn.getNumClasses()<1)){el.innerHTML='🧠 Модель пустая — покажи примеры, и она научится их различать';return;}
+  const conf=pred?pred.confidences:{}, top=pred?parseInt(pred.label,10):-1;
+  const rows=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);
+    return `<div class="aibar${i===top?' top':''}"><span class="al">${c.emoji} ${c.name}</span><span class="ab"><i style="width:${v}%"></i></span><span class="av">${v}%</span></div>`;}).join('');
+  el.innerHTML=`<div class="aihead">🧠 С чем ИИ сравнил твою позу:</div>${rows}`;
 }
 let last=performance.now(), lastPoseTS=0, smoothBuf=[], predCache=null;
 async function loop(now){
@@ -442,7 +449,7 @@ async function loop(now){
 
   // предсказание ~11fps (и в тренировке тоже — чтобы ИИ был ВИДЕН живьём)
   if((state==='train'||state==='battle')&&(loop._p=(loop._p||0)+dt)>=90){loop._p=0;predCache=await predict();}
-  if(state==='train')updateAiLab(predCache);
+  if(state==='train'||state==='battle')updateAiLab(predCache);
   if(state==='battle'&&predCache){
     const i=parseInt(predCache.label,10),conf=predCache.confidences[predCache.label]||0;
     smoothBuf.push(i);if(smoothBuf.length>5)smoothBuf.shift();
@@ -477,7 +484,7 @@ async function boot(){
 }
 $('#start').onclick=boot;
 $('#retry').onclick=boot;
-$('#again').onclick=()=>{$('#result').classList.add('hidden');bottom.classList.remove('hidden');enterTrain();};
+$('#again').onclick=()=>{if(knn)knn.clearAllClasses();counts=[0,0,0];smoothBuf=[];predCache=null;$('#result').classList.add('hidden');bottom.classList.remove('hidden');enterTrain();}; // сброс модели — следующий ребёнок учит с нуля
 toBattleBtn.onclick=startBattle;
 pauseBtn.onclick=()=>{paused=!paused;pauseBtn.textContent=paused?'▶ Дальше':'⏸ Пауза';if(paused)showToast('⏸ пауза',600);};
 
