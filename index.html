@@ -2,264 +2,434 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Boss Fight — обучи своё существо</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>AI Boss Fight</title>
 <style>
-  :root{ --bg:#0c0f16; --card:#161c27; --line:#26303f; --accent:#7aa2ff; --ok:#46e08a; --warn:#ffcf5c; --bad:#ff6b8b; --text:#eaf0f8; --muted:#8b97a8; }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:18px}
-  h1{font-size:22px;margin:0 0 2px;text-align:center}
-  .sub{color:var(--muted);margin:0 0 14px;text-align:center;font-size:14px}
-  .stage{background:var(--card);border-radius:18px;padding:14px;width:100%;max-width:820px}
-  .wrap{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3}
-  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-  canvas{position:absolute;inset:0;width:100%;height:100%}
+  :root{
+    --bg:#0b0e14; --panel:rgba(14,19,28,.82); --line:#2a3445; --accent:#7aa2ff;
+    --ok:#46e08a; --warn:#ffcf5c; --bad:#ff6b8b; --text:#eef3fb; --muted:#9aa6b8;
+    --safe-b: env(safe-area-inset-bottom,0px); --safe-t: env(safe-area-inset-top,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--text);
+    font-family:-apple-system,"Segoe UI",system-ui,sans-serif;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+  #app{position:fixed;inset:0;height:100dvh;width:100vw;overflow:hidden}
+
+  /* сцена: видео + canvas заполняют всё */
+  #stage{position:absolute;inset:0;background:#0b0e14}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #cv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
   /* верхний HUD боя */
-  #hud{position:absolute;left:0;right:0;top:0;padding:10px 12px;display:none;gap:10px;align-items:center;font-weight:700;text-shadow:0 2px 8px #000}
-  .bar{flex:1;height:14px;border-radius:8px;background:#0007;overflow:hidden;border:1px solid #fff3}
-  .bar>i{display:block;height:100%;transition:width .2s}
-  #bossbar>i{background:linear-gradient(90deg,#ff5d7a,#ff9a3c)}
-  #pbar>i{background:linear-gradient(90deg,#46e08a,#7aa2ff)}
-  #verdict{position:absolute;left:0;right:0;bottom:0;padding:10px 12px;background:linear-gradient(transparent,#000a);font-weight:700;font-size:18px;display:none}
-  #verdict .c{color:var(--muted);font-weight:400;font-size:14px}
-  #toast{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);font-size:34px;font-weight:800;text-align:center;text-shadow:0 3px 14px #000;pointer-events:none;opacity:0;transition:opacity .15s;line-height:1.25}
+  #hud{position:absolute;left:0;right:0;top:0;padding:calc(8px + var(--safe-t)) 12px 8px;display:none;
+    gap:8px;align-items:center;pointer-events:none;background:linear-gradient(#000a,transparent)}
+  .hpwrap{flex:1;display:flex;align-items:center;gap:6px;font-size:18px;font-weight:800;text-shadow:0 2px 6px #000}
+  .bar{flex:1;height:13px;border-radius:8px;background:#0008;border:1px solid #fff3;overflow:hidden}
+  .bar>i{display:block;height:100%;transition:width .18s}
+  #bhp>i{background:linear-gradient(90deg,#ff5d7a,#ff9a3c)}
+  #php>i{background:linear-gradient(90deg,#46e08a,#7aa2ff)}
+  #combo{position:absolute;top:calc(54px + var(--safe-t));right:14px;font-weight:900;font-size:20px;color:var(--warn);text-shadow:0 2px 8px #000;opacity:0;transition:opacity .2s}
+
+  /* всплывашки */
+  #toast{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:clamp(26px,9vw,46px);font-weight:900;
+    text-align:center;text-shadow:0 4px 16px #000;pointer-events:none;opacity:0;transition:opacity .12s;line-height:1.2;white-space:pre-line}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
-  .classes{display:flex;gap:10px;margin-top:12px}
-  .cls{flex:1;background:#11161e;border:2px solid var(--line);border-radius:14px;padding:11px}
-  .cls.hot{border-color:var(--accent)}
-  .cls .row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
-  .cls .emoji{width:46px;text-align:center;background:#0c1118;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 0;font-size:20px}
-  .cls .name{flex:1;min-width:0;background:#0c1118;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 9px;font-size:14px}
-  .cls .cnt{color:var(--muted);font-size:13px;margin-bottom:8px}
-  .cls .cnt b{color:var(--ok);font-size:15px}
-  button{width:100%;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;color:#fff;background:var(--accent);transition:transform .05s,opacity .2s}
-  button:active{transform:scale(.98)}
-  button:disabled{opacity:.4;cursor:not-allowed}
-  button.ghost{background:#27313f}
-  .controls{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
-  .controls button{flex:1;min-width:130px}
-  #go{background:var(--ok);color:#06160c}
-  #breakfix{background:var(--warn);color:#231a00}
-  #rec{background:var(--bad)}
-  #status{margin-top:11px;text-align:center;color:var(--muted);font-size:13px;min-height:18px}
-  .hint{color:var(--muted);font-size:12px;max-width:820px;margin:12px auto 0;text-align:center;line-height:1.5}
-  .pill{display:inline-block;background:#0c1118;border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin:2px;font-size:13px;cursor:pointer}
-  .pill.on{border-color:var(--accent);color:var(--accent)}
-  .skins{text-align:center;margin-top:8px}
+
+  /* нижняя панель управления */
+  #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 12px calc(12px + var(--safe-b));
+    background:linear-gradient(transparent,#000c 22%);display:flex;flex-direction:column;gap:9px}
+
+  .chips{display:flex;gap:8px}
+  .chip{flex:1;background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:8px 6px;text-align:center;
+    backdrop-filter:blur(6px);transition:border-color .15s,transform .05s}
+  .chip.on{border-color:var(--accent);transform:translateY(-2px)}
+  .chip .e{font-size:24px;line-height:1}
+  .chip .nm{font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip .ct{font-size:13px;font-weight:800;margin-top:1px}
+  .chip .ct b{color:var(--ok)}
+
+  .btnrow{display:flex;gap:9px}
+  button{flex:1;border:none;border-radius:14px;padding:15px 12px;font-size:16px;font-weight:800;cursor:pointer;color:#fff;
+    background:var(--accent);min-height:52px;transition:transform .05s,opacity .15s}
+  button:active{transform:scale(.97)}
+  button:disabled{opacity:.35}
+  button.ghost{background:rgba(40,50,64,.85);backdrop-filter:blur(6px)}
+  button.ok{background:var(--ok);color:#06160c}
+  button.warn{background:var(--warn);color:#231a00}
+  button.bad{background:var(--bad)}
+  #capture{font-size:18px}
+  #capture.rec{background:var(--bad);animation:pulse .6s infinite alternate}
+  @keyframes pulse{to{filter:brightness(1.25)}}
+
+  .hintline{font-size:12px;color:var(--muted);text-align:center;text-shadow:0 1px 3px #000;min-height:15px}
+
+  /* стартовый/загрузочный/итоговый оверлеи */
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;gap:14px;z-index:20;
+    background:radial-gradient(120% 90% at 50% 10%,#1a2030,#0b0e14)}
+  .screen h1{font-size:clamp(28px,9vw,44px);margin:0;letter-spacing:.5px}
+  .screen p{color:var(--muted);margin:0;max-width:340px;line-height:1.5;font-size:15px}
+  .screen .big{font-size:64px;margin-bottom:-6px}
+  .screen button{flex:0 0 auto;width:min(420px,82vw);font-size:18px}
+  .spinner{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hidden{display:none!important}
+  .nom{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 16px;font-weight:700}
+  .skinrow{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+  .sk{background:rgba(20,26,36,.8);border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:14px}
+  .sk.on{border-color:var(--accent);color:var(--accent)}
+  .badge{display:inline-block;background:#10151e;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--muted)}
 </style>
 </head>
 <body>
-  <h1>🐉 AI Boss Fight</h1>
-  <p class="sub">Обучи своё AI-существо трём движениям — и победи босса собой как контроллером.</p>
-
-  <div class="stage">
-    <div class="wrap">
-      <video id="cam" autoplay playsinline muted></video>
-      <canvas id="cv"></canvas>
-      <div id="hud">
-        <span>👹</span><div class="bar" id="bossbar"><i style="width:100%"></i></div>
-        <span style="margin-left:8px">❤️</span><div class="bar" id="pbar"><i style="width:100%"></i></div>
-      </div>
-      <div id="flash"></div>
-      <div id="toast"></div>
-      <div id="verdict"></div>
-    </div>
-
-    <div class="skins">
-      <span class="muted" style="color:var(--muted);font-size:13px">Скин эффектов: </span>
-      <span class="pill on" data-skin="magic">✨ магия</span>
-      <span class="pill" data-skin="fire">🔥 стихия</span>
-      <span class="pill" data-skin="cute">🦄 существо</span>
-    </div>
-
-    <div class="classes">
-      <div class="cls" id="c0">
-        <div class="row"><input class="emoji" value="🧍"><input class="name" value="Покой"></div>
-        <div class="cnt">примеров: <b class="n">0</b></div>
-        <button class="ghost snap" data-c="0" disabled>Снять позу</button>
-      </div>
-      <div class="cls" id="c1">
-        <div class="row"><input class="emoji" value="🛡️"><input class="name" value="Защита"></div>
-        <div class="cnt">примеров: <b class="n">0</b></div>
-        <button class="ghost snap" data-c="1" disabled>Снять позу</button>
-      </div>
-      <div class="cls" id="c2">
-        <div class="row"><input class="emoji" value="✨"><input class="name" value="УЛЬТА"></div>
-        <div class="cnt">примеров: <b class="n">0</b></div>
-        <button class="ghost snap" data-c="2" disabled>Снять позу</button>
-      </div>
-    </div>
-
-    <div class="controls">
-      <button id="go" disabled>⚔️ В бой!</button>
-      <button id="breakfix" disabled>🧪 Сломай и почини</button>
-      <button id="rec" disabled>⏺ Записать клип 15с</button>
-      <button id="reset" class="ghost" disabled>↺ Сброс</button>
-    </div>
-
-    <div id="status">Загружаю ИИ…</div>
+<div id="app">
+  <div id="stage">
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="cv"></canvas>
   </div>
 
-  <p class="hint">Набери по ~15 поз на каждое движение из разных положений (встань ближе/дальше, чуть боком). Потом «В бой»: «Покой» — ждёшь, «Защита» — блок удара босса, «УЛЬТА» — наносишь урон. Жми «Сломай и почини», чтобы понять, как ИИ учится на твоих данных.</p>
+  <div id="hud">
+    <div class="hpwrap">👹<div class="bar" id="bhp"><i style="width:100%"></i></div></div>
+    <div class="hpwrap" style="flex:.8">❤️<div class="bar" id="php"><i style="width:100%"></i></div></div>
+  </div>
+  <div id="combo"></div>
+  <div id="flash"></div>
+  <div id="toast"></div>
+
+  <!-- НИЗ: тренировка -->
+  <div id="bottom" class="hidden">
+    <div class="hintline" id="hint"></div>
+    <div class="chips" id="chips"></div>
+    <div class="btnrow" id="trainRow">
+      <button id="capture" class="ok">✋ Держи — снимай позу</button>
+    </div>
+    <div class="btnrow" id="trainRow2">
+      <button id="breakfix" class="warn ghost" disabled>🧪 Сломай и почини</button>
+      <button id="toBattle" class="ok" disabled>⚔️ В бой!</button>
+    </div>
+    <!-- бой -->
+    <div class="btnrow hidden" id="battleRow">
+      <button id="rec" class="bad">⏺ Клип 15с</button>
+      <button id="pause" class="ghost">⏸ Пауза</button>
+    </div>
+  </div>
+
+  <!-- СТАРТ -->
+  <div class="screen" id="intro">
+    <div class="big">🐉</div>
+    <h1>AI Boss Fight</h1>
+    <p>Обучи своё AI-существо трём движениям и победи босса собственным телом. Никакого кода — ты тренируешь настоящий ИИ.</p>
+    <div class="skinrow" id="skins"></div>
+    <button id="start" class="ok">▶️ Поехали</button>
+    <div class="badge" id="introNote">нужен доступ к камере · лучше в полный экран</div>
+  </div>
+
+  <!-- ЗАГРУЗКА -->
+  <div class="screen hidden" id="loading">
+    <div class="spinner"></div>
+    <p id="loadMsg">Запускаю…</p>
+    <button id="retry" class="ghost hidden">↻ Повторить</button>
+  </div>
+
+  <!-- ИТОГ -->
+  <div class="screen hidden" id="result">
+    <div class="big" id="resEmoji">🏆</div>
+    <h1 id="resTitle">Победа!</h1>
+    <div class="nom" id="resNom"></div>
+    <p id="resSub"></p>
+    <button id="resRec" class="bad">⏺ Записать клип-похвастушку</button>
+    <button id="again" class="ok">🔁 Ещё раз</button>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
 <script>
-// ── ПРОТОТИП. Сейчас pose-модель MoveNet грузится с CDN Google (для продукта — self-host весов на ИТМО).
-const video=document.getElementById('cam'), cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-const statusEl=document.getElementById('status'), toast=document.getElementById('toast'), flash=document.getElementById('flash');
-const hud=document.getElementById('hud'), verdict=document.getElementById('verdict');
-const bossFill=document.querySelector('#bossbar>i'), pFill=document.querySelector('#pbar>i');
-const clsEls=[document.getElementById('c0'),document.getElementById('c1'),document.getElementById('c2')];
-const snapBtns=[...document.querySelectorAll('.snap')];
-const goBtn=document.getElementById('go'), bfBtn=document.getElementById('breakfix'), recBtn=document.getElementById('rec'), resetBtn=document.getElementById('reset');
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const DEMO = new URLSearchParams(location.search).has('demo'); // ?demo — без камеры, фейк-позы (для теста/превью)
 
-let detector=null, knn=null, counts=[0,0,0], mode='loading';
-let lastPose=null, lastLabel=null;
-let SKIN='magic';
-const SKINS={ magic:{ult:'✨💥',hit:'⭐',color:'#a98bff'}, fire:{ult:'🔥💥',hit:'🔥',color:'#ff7a3c'}, cute:{ult:'🌈🦄',hit:'💖',color:'#ff8fcf'} };
+const cam=$('#cam'), cv=$('#cv'), ctx=cv.getContext('2d');
+const hud=$('#hud'), toast=$('#toast'), flash=$('#flash'), comboEl=$('#combo');
+const bhp=$('#bhp>i'), php=$('#php>i'), hintEl=$('#hint');
+const bottom=$('#bottom'), chipsEl=$('#chips');
+const trainRow=$('#trainRow'), trainRow2=$('#trainRow2'), battleRow=$('#battleRow');
+const captureBtn=$('#capture'), toBattleBtn=$('#toBattle'), bfBtn=$('#breakfix');
+const recBtn=$('#rec'), pauseBtn=$('#pause');
 
-// бой
-let boss={hp:100}, player={hp:100}, ultCd=0, bossTimer=0, bossWarn=0, winState=null;
+// ── скины (визуальная тема эффектов; графика будет заменена на генерёжку)
+const SKINS={
+  magic:{label:'✨ Магия',ult:'✨',hit:'⭐',col:'#a98bff',boss:'🟪'},
+  fire:{label:'🔥 Стихия',ult:'🔥',hit:'💥',col:'#ff7a3c',boss:'🟥'},
+  creature:{label:'🦄 Существо',ult:'🌈',hit:'💖',col:'#ff8fcf',boss:'🟩'},
+};
+let SKIN='creature';
 
-function setStatus(t){statusEl.textContent=t}
-function info(i){return{emoji:clsEls[i].querySelector('.emoji').value.trim()||'❓',name:clsEls[i].querySelector('.name').value.trim()||('Класс'+i)}}
+// ── классы движений
+const CLASSES=[
+  {emoji:'🧍',name:'Покой'},
+  {emoji:'🛡️',name:'Защита'},
+  {emoji:'✨',name:'УЛЬТА'},
+];
+let activeClass=2, counts=[0,0,0];
+const MIN_PER_CLASS=8;
 
-document.querySelectorAll('.pill').forEach(p=>p.addEventListener('click',()=>{
-  document.querySelectorAll('.pill').forEach(x=>x.classList.remove('on'));p.classList.add('on');SKIN=p.dataset.skin;
-}));
+let detector=null, knn=null, state='intro';
+let lastPose=null, audio=null;
 
+/* ---------- скины UI ---------- */
+function buildSkins(){
+  const r=$('#skins'); r.innerHTML='';
+  Object.entries(SKINS).forEach(([k,v])=>{
+    const el=document.createElement('div'); el.className='sk'+(k===SKIN?' on':''); el.textContent=v.label;
+    el.onclick=()=>{SKIN=k;$$('#skins .sk').forEach(x=>x.classList.remove('on'));el.classList.add('on');};
+    r.appendChild(el);
+  });
+}
+function buildChips(){
+  chipsEl.innerHTML='';
+  CLASSES.forEach((c,i)=>{
+    const el=document.createElement('div'); el.className='chip'+(i===activeClass?' on':'');
+    el.innerHTML=`<div class="e">${c.emoji}</div><div class="nm">${c.name}</div><div class="ct"><b>${counts[i]}</b></div>`;
+    el.onclick=()=>{activeClass=i;buildChips();updateHint();};
+    chipsEl.appendChild(el);
+  });
+}
+function updateHint(){
+  if(state!=='train')return;
+  const c=CLASSES[activeClass];
+  const need=CLASSES.map((c,i)=>counts[i]<MIN_PER_CLASS?`${c.emoji}${MIN_PER_CLASS-counts[i]}`:'').filter(Boolean).join('  ');
+  hintEl.textContent = need ? `Набери ещё: ${need}. Сейчас учишь: «${c.name}» — держи кнопку и двигайся.` : `Готово! Жми «В бой». Хочешь точнее — добери примеров.`;
+}
+
+/* ---------- аудио (процедурное, без файлов) ---------- */
+function initAudio(){ try{audio=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} }
+function beep(freq,dur,type='sine',vol=.2,slideTo){
+  if(!audio)return; const t=audio.currentTime;
+  const o=audio.createOscillator(),g=audio.createGain();
+  o.type=type;o.frequency.setValueAtTime(freq,t);
+  if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+  g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+dur);
+}
+const SFX={
+  ult(){beep(180,.35,'sawtooth',.25,900);beep(900,.25,'square',.12,1600);},
+  hit(){beep(120,.25,'square',.25,40);},
+  shield(){beep(700,.12,'triangle',.2,1200);beep(1200,.1,'sine',.12);},
+  charge(){beep(200,.5,'sine',.12,600);},
+  win(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.22,'triangle',.22),i*120));},
+  lose(){[400,300,200].forEach((f,i)=>setTimeout(()=>beep(f,.3,'sawtooth',.2),i*150));},
+};
+
+/* ---------- эффекты ---------- */
+let particles=[], shake=0;
+function burst(x,y,emoji,n=14){for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*6;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,emoji});}}
+function doFlash(){flash.style.transition='none';flash.style.opacity='.65';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0';});}
+function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms);}
+
+/* ---------- камера + модель ---------- */
+function setLoad(msg,showRetry){$('#loadMsg').textContent=msg;$('#retry').classList.toggle('hidden',!showRetry);}
 async function initCamera(){
+  if(DEMO)return; // в демо камера не нужна
   let stream;
-  try{ stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480},audio:false}); }
-  catch(e){ setStatus('❌ Нет камеры ('+e.name+'). На Mac mini камеры нет — подключи USB-вебку или iPhone (Continuity Camera).'); throw e; }
-  video.srcObject=stream; await new Promise(r=>video.onloadedmetadata=r); await video.play().catch(()=>{});
-  cv.width=video.videoWidth||640; cv.height=video.videoHeight||480;
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640},height:{ideal:480}},audio:false});}
+  catch(e){try{stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});}
+  catch(e2){throw new Error('CAM:'+e2.name);}}
+  cam.srcObject=stream; await new Promise(r=>cam.onloadedmetadata=r); await cam.play().catch(()=>{});
+  // авто-восстановление при обрыве (Continuity Camera любит отваливаться)
+  stream.getVideoTracks()[0].addEventListener('ended',()=>{showToast('📷 камера отвалилась\nперезапускаю…',1500);initCamera().catch(()=>{});});
 }
 async function initModel(){
   await tf.setBackend('webgl').catch(()=>tf.setBackend('cpu')); await tf.ready();
-  detector=await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet,{modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING});
+  detector=await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet,
+    {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING});
   knn=knnClassifier.create();
-  snapBtns.forEach(b=>b.disabled=false); resetBtn.disabled=false;
-  mode='train'; setStatus('Готов! Набери позы (по ~15 на каждое движение) и жми «В бой».');
-  loop();
 }
 
-// вектор признаков позы: 17 точек, нормированы по bbox (устойчиво к месту в кадре)
-function feature(kpts){
-  const xs=kpts.map(k=>k.x), ys=kpts.map(k=>k.y);
+/* ---------- поза → признаки → классификация ---------- */
+function feature(kp){const xs=kp.map(k=>k.x),ys=kp.map(k=>k.y);
   const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-  const w=(maxX-minX)||1,h=(maxY-minY)||1, f=[];
-  for(const k of kpts) f.push((k.x-minX)/w,(k.y-minY)/h);
-  return f;
-}
-function goodPose(p){ return p&&p.keypoints&&p.score!==undefined? p.score>0.2 : (p&&p.keypoints&&p.keypoints.filter(k=>k.score>0.3).length>=8); }
+  const w=(maxX-minX)||1,h=(maxY-minY)||1,f=[];for(const k of kp)f.push((k.x-minX)/w,(k.y-minY)/h);return f;}
+function poseOK(p){return p&&p.keypoints&&p.keypoints.filter(k=>k.score>0.3).length>=7;}
 
-async function addExample(i){
-  if(!lastPose) {setStatus('Тебя не видно целиком — отойди, чтобы в кадр влезли руки и торс.');return;}
-  const t=tf.tensor(feature(lastPose.keypoints)); knn.addExample(t,i); t.dispose();
-  counts[i]++; clsEls[i].querySelector('.n').textContent=counts[i];
-  goBtn.disabled=!(counts[0]>0&&counts[1]>0&&counts[2]>0);
-  bfBtn.disabled=goBtn.disabled;
+// фейковые позы для DEMO: циклически «показываем» классы
+let demoClass=0,demoT=0;
+function fakePose(){demoT++;if(demoT%70===0)demoClass=(demoClass+1)%3;
+  const base=[[.5,.15],[.52,.13],[.48,.13],[.55,.14],[.45,.14],[.62,.32],[.38,.32],[.7,.5],[.3,.5],[.72,.66],[.28,.66],[.58,.6],[.42,.6],[.6,.8],[.4,.8],[.6,.97],[.4,.97]];
+  const arms={0:base,1:[[.5,.15],[.52,.13],[.48,.13],[.55,.14],[.45,.14],[.62,.32],[.38,.32],[.55,.2],[.45,.2],[.5,.12],[.5,.12],[.58,.6],[.42,.6],[.6,.8],[.4,.8],[.6,.97],[.4,.97]],
+    2:[[.5,.15],[.52,.13],[.48,.13],[.55,.14],[.45,.14],[.62,.32],[.38,.32],[.85,.12],[.15,.12],[.95,.02],[.05,.02],[.58,.6],[.42,.6],[.6,.8],[.4,.8],[.6,.97],[.4,.97]]}[demoClass];
+  return {keypoints:arms.map(([x,y])=>({x:x*cv.width,y:y*cv.height,score:.9}))};
 }
-
-async function classify(){
-  if(!lastPose||knn.getNumClasses()<1) return null;
+async function predict(){
+  if(!lastPose)return null;
+  if(DEMO){const conf=.85;return {label:String(demoClass),confidences:{[demoClass]:conf}};}
+  if(!knn||knn.getNumClasses()<1)return null;
   const t=tf.tensor(feature(lastPose.keypoints));
-  const r=await knn.predictClass(t,Math.min(5, Object.values(knn.getClassExampleCount()).reduce((a,b)=>a+b,0)||1));
-  t.dispose(); return r;
+  const total=Object.values(knn.getClassExampleCount()).reduce((a,b)=>a+b,0)||1;
+  const r=await knn.predictClass(t,Math.min(5,total)); t.dispose(); return r;
 }
+async function addExample(){
+  if(DEMO){counts[activeClass]++;buildChips();gateBattle();return;}
+  if(!lastPose){showToast('Тебя не видно\nотойди в кадр',900);return;}
+  const t=tf.tensor(feature(lastPose.keypoints));knn.addExample(t,activeClass);t.dispose();
+  counts[activeClass]++;buildChips();gateBattle();
+}
+function gateBattle(){const ready=counts.every(c=>c>=1);toBattleBtn.disabled=!ready;bfBtn.disabled=!counts.every(c=>c>=MIN_PER_CLASS);updateHint();}
 
-function showToast(txt,ms=700){toast.textContent=txt;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms);}
-function doFlash(){flash.style.transition='none';flash.style.opacity='.7';requestAnimationFrame(()=>{flash.style.transition='opacity .35s';flash.style.opacity='0';});}
-
-// ── главный цикл
-let det=0;
-async function loop(){
-  if(detector){
-    const poses=await detector.estimatePoses(video,{maxPoses:1});
-    lastPose=(poses&&poses[0]&&goodPose(poses[0]))?poses[0]:null;
-  }
-  // рисуем кадр (зеркально) + скелет
-  ctx.save();ctx.clearRect(0,0,cv.width,cv.height);
-  ctx.translate(cv.width,0);ctx.scale(-1,1);ctx.drawImage(video,0,0,cv.width,cv.height);
-  if(lastPose){ctx.fillStyle=SKINS[SKIN].color;for(const k of lastPose.keypoints){if(k.score>0.3){ctx.beginPath();ctx.arc(k.x,k.y,5,0,7);ctx.fill();}}}
-  ctx.restore();
-
-  if(mode==='battle'){
-    const r=await classify();
-    if(r){
-      const i=parseInt(r.label,10), nm=info(i), conf=Math.round((r.confidences[r.label]||0)*100);
-      lastLabel=i;
-      verdict.style.display='block';verdict.innerHTML=nm.emoji+' '+nm.name+' <span class="c">'+conf+'%</span>';
-      if(i===2&&conf>=60&&ultCd<=0){ // УЛЬТА
-        boss.hp=Math.max(0,boss.hp-22);ultCd=40;showToast(SKINS[SKIN].ult+'\nУЛЬТА!');doFlash();
-      }
-    }
-    tickBattle();
+/* ---------- игра ---------- */
+let boss,player,ultCd,combo,score,bossPhase,phaseT,winState,paused;
+function startBattle(){
+  boss={hp:100};player={hp:100};ultCd=0;combo=0;score=0;bossPhase='idle';phaseT=90;winState=null;paused=false;
+  state='battle';hud.style.display='flex';
+  trainRow.classList.add('hidden');trainRow2.classList.add('hidden');battleRow.classList.remove('hidden');
+  chipsEl.classList.add('hidden');hintEl.textContent='БОЙ! ✨УЛЬТА — урон, 🛡️Защита — блок по ⚠️';
+  showToast('FIGHT!',900);
+}
+function tickBattle(label,conf){
+  if(paused||winState)return;
+  // УЛЬТА
+  if(label===2&&conf>=0.6&&ultCd<=0){const dmg=14+Math.min(10,combo*2);boss.hp=Math.max(0,boss.hp-dmg);
+    ultCd=34;combo++;score+=dmg;SFX.ult();doFlash();shake=12;burst(cv.width/2,cv.height*0.4,SKINS[SKIN].ult,18);
+    showToast(SKINS[SKIN].ult+(combo>1?` x${combo} КОМБО!`:' УЛЬТА!'),650);
+    comboEl.textContent='🔥'+combo;comboEl.style.opacity='1';clearTimeout(comboEl._t);comboEl._t=setTimeout(()=>comboEl.style.opacity='0',1200);}
+  else if(label!==2){if(ultCd<=0)combo=0;}
+  // фазы босса
+  phaseT--;
+  if(bossPhase==='idle'&&phaseT<=0){bossPhase='charge';phaseT=70;SFX.charge();showToast('⚠️ БОСС ГОТОВИТ УДАР\nставь 🛡️Защиту',1100);}
+  else if(bossPhase==='charge'&&phaseT<=0){bossPhase='strike';phaseT=14;}
+  else if(bossPhase==='strike'&&phaseT<=0){
+    if(label===1&&conf>=0.55){SFX.shield();showToast('🛡️ БЛОК!',650);burst(cv.width/2,cv.height*0.5,'🛡️',10);}
+    else{player.hp=Math.max(0,player.hp-16);SFX.hit();doFlash();shake=10;showToast('💢 -16',650);}
+    bossPhase='idle';phaseT=80+Math.random()*60;
   }
   if(ultCd>0)ultCd--;
+  bhp.style.width=boss.hp+'%';php.style.width=player.hp+'%';
+  if(boss.hp<=0)endBattle(true);
+  else if(player.hp<=0)endBattle(false);
+}
+function endBattle(win){
+  winState=win?'win':'lose';
+  setTimeout(()=>{
+    state='result';hud.style.display='none';bottom.classList.add('hidden');
+    $('#result').classList.remove('hidden');
+    $('#resEmoji').textContent=win?'🏆':'💀';
+    $('#resTitle').textContent=win?'ПОБЕДА!':'Босс победил';
+    // номинации (все что-то выигрывают)
+    let nom= combo>=4?'🔥 Маг-комбинатор':(score>=80?'💥 Разрушитель':(win?'🛡️ Тактик':'🎯 Боец-новичок'));
+    $('#resNom').textContent='Твоя номинация: '+nom;
+    $('#resSub').textContent=win?'Ты обучил ИИ и снёс босса своим телом. Запиши клип — и покажи друзьям.':'Дообучи модель (добери примеров) и попробуй снова — станет точнее.';
+    win?SFX.win():SFX.lose();
+  },700);
+}
+
+/* ---------- break-and-fix ---------- */
+let bfStep=0;
+const BF=[
+ 'МИССИЯ «СЛОМАЙ»: встань боком / отойди дальше / пусть в кадр зайдёт другой человек и покажи УЛЬТУ. Заметил — ИИ путается? Он выучил не движение, а тебя и фон.',
+ 'ПОЧИНИ: выбери «УЛЬТА» и добери ~10 примеров в ЭТИХ новых условиях (другой угол/свет). Держи кнопку.',
+ 'Проверь снова в бою — стало точнее? Вот так ИИ учится: на разнообразных данных. Это сделал ТЫ.',
+];
+bfBtn.onclick=()=>{showToast('🧪',300);hintEl.textContent=BF[bfStep%BF.length];bfStep++;};
+
+/* ---------- запись клипа ---------- */
+let recorder=null,wmTimer=null;
+function pickMime(){return ['video/mp4','video/webm;codecs=vp9','video/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';}
+function startRec(){
+  if(!cv.captureStream){showToast('Запись не поддержана\nсделай скрин экрана',1800);return;}
+  if(recorder&&recorder.state==='recording'){recorder.stop();return;}
+  const mime=pickMime();const stream=cv.captureStream(30);
+  try{recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);}catch(e){showToast('Запись не поддержана\nсделай скрин',1800);return;}
+  const chunks=[];recorder.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  recorder.onstop=()=>{clearInterval(wmTimer);const blob=new Blob(chunks,{type:mime||'video/webm'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='my-ai-ult.'+(mime.includes('mp4')?'mp4':'webm');a.click();
+    recBtn.classList.remove('rec');recBtn.textContent='⏺ Клип 15с';$('#resRec').textContent='⏺ Записать клип-похвастушку';
+    showToast('🎬 клип сохранён!',1500);};
+  wmTimer=setInterval(()=>{ctx.save();ctx.font='bold 16px sans-serif';ctx.fillStyle='#fff9';ctx.textAlign='right';ctx.fillText('AI Boss Fight · ИТМО',cv.width-10,cv.height-12);ctx.restore();},50);
+  recorder.start();recBtn.classList.add('rec');recBtn.textContent='⏹ запись…';$('#resRec').textContent='⏹ запись…';showToast('🎬 3·2·1',900);
+  setTimeout(()=>{if(recorder&&recorder.state==='recording')recorder.stop();},15000);
+}
+recBtn.onclick=startRec; $('#resRec').onclick=startRec;
+
+/* ---------- рендер-цикл ---------- */
+function drawBlockyBoss(t){ // временная «майнкрафт» заглушка (заменим генерёжкой)
+  const cx=cv.width/2,cy=cv.height*0.30,u=Math.min(cv.width,cv.height)*0.045;
+  const bob=Math.sin(t/350)*u*0.25;
+  const charging=(state==='battle'&&bossPhase==='charge');
+  ctx.save();ctx.translate(cx,cy+bob);
+  const body=SKIN==='fire'?'#c0392b':SKIN==='magic'?'#6c4bd8':'#2e8b57';
+  const dark=SKIN==='fire'?'#7d2018':SKIN==='magic'?'#42307f':'#1c5536';
+  if(charging){ctx.shadowColor='#ff5d7a';ctx.shadowBlur=30+Math.sin(t/60)*20;}
+  // тело-воксель
+  for(let gx=-2;gx<=2;gx++)for(let gy=-2;gy<=1;gy++){ctx.fillStyle=((gx+gy)%2)?body:dark;ctx.fillRect(gx*u-u/2,gy*u-u/2,u-1,u-1);}
+  // глаза
+  ctx.fillStyle=charging?'#ff3b3b':'#ffe23b';ctx.fillRect(-u*1.1,-u*1.6,u*0.6,u*0.6);ctx.fillRect(u*0.5,-u*1.6,u*0.6,u*0.6);
+  ctx.restore();
+}
+let last=performance.now();
+async function loop(now){
+  const dt=now-last;last=now;
+  // получить позу (троттлинг детекции ~до 22fps)
+  if(DEMO){lastPose=fakePose();}
+  else if(detector&&(loop._d=(loop._d||0)+dt)>=45){loop._d=0;
+    try{const ps=await detector.estimatePoses(cam,{maxPoses:1});lastPose=(ps&&ps[0]&&poseOK(ps[0]))?ps[0]:lastPose;}catch(e){}}
+
+  // фон/видео
+  const sh=shake>0?(Math.random()-.5)*shake:0; if(shake>0)shake*=0.85;
+  ctx.save();ctx.clearRect(0,0,cv.width,cv.height);ctx.translate(sh,sh);
+  if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height);}
+  // (видео рисуется самим <video> под canvas; на canvas — оверлеи)
+  if(state==='battle'||state==='result')drawBlockyBoss(now);
+  // скелет
+  if(lastPose&&state==='train'){ctx.fillStyle=SKINS[SKIN].col;for(const k of lastPose.keypoints)if(k.score>0.3){ctx.beginPath();ctx.arc(DEMO?k.x:cv.width-k.x,k.y,5,0,7);ctx.fill();}}
+  // частицы
+  particles=particles.filter(p=>p.life>0);ctx.font=Math.round(Math.min(cv.width,cv.height)*0.06)+'px sans-serif';ctx.textAlign='center';
+  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=0.35;p.life-=0.02;ctx.globalAlpha=Math.max(0,p.life);ctx.fillText(p.emoji,p.x,p.y);}
+  ctx.globalAlpha=1;ctx.restore();
+
+  // игровая логика
+  if(state==='battle'){const r=await predict();if(r){const i=parseInt(r.label,10),conf=r.confidences[r.label]||0;tickBattle(i,conf);}}
+
   requestAnimationFrame(loop);
 }
 
-function tickBattle(){
-  bossFill.style.width=boss.hp+'%';pFill.style.width=player.hp+'%';
-  if(winState) return;
-  bossTimer--;
-  if(bossWarn>0){ // окно удара босса
-    bossWarn--;
-    if(bossWarn===0){
-      if(lastLabel===1){showToast('🛡️ БЛОК!',600);} // защита
-      else{player.hp=Math.max(0,player.hp-18);showToast('💢 -18',600);doFlash();}
-    }
-  } else if(bossTimer<=0){
-    bossWarn=30;bossTimer=130;showToast('⚠️ БОСС БЬЁТ!\nставь Защиту',900);
-  }
-  if(boss.hp<=0){winState='win';endBattle('🏆 ПОБЕДА!\nты обучил ИИ и снёс босса');}
-  else if(player.hp<=0){winState='lose';endBattle('💀 Босс победил\nдообучи модель и попробуй снова');}
+/* ---------- управление состояниями ---------- */
+function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight;}
+function enterTrain(){
+  state='train';$('#loading').classList.add('hidden');bottom.classList.remove('hidden');
+  chipsEl.classList.remove('hidden');trainRow.classList.remove('hidden');trainRow2.classList.remove('hidden');battleRow.classList.add('hidden');
+  buildChips();updateHint();
+  showToast('Покажи УЛЬТУ и держи кнопку 👇',1600);
 }
-function endBattle(msg){showToast(msg,3000);setTimeout(()=>{mode='train';hud.style.display='none';verdict.style.display='none';setStatus('Раунд окончен. Можно дообучить модель и снова «В бой».');goBtn.disabled=false;bfBtn.disabled=false;},1200);}
+async function boot(){
+  $('#intro').classList.add('hidden');$('#loading').classList.remove('hidden');
+  initAudio();
+  try{ setLoad(DEMO?'Демо-режим…':'Запускаю камеру…'); await initCamera(); resize();
+       setLoad('Гружу ИИ-модель…'); if(!DEMO){await initModel();}
+       resize(); requestAnimationFrame(loop); enterTrain();
+  }catch(e){ console.error(e);
+    setLoad(String(e.message||e).startsWith('CAM:')?'❌ Нет камеры. Подключи камеру/разреши доступ и повтори. ('+e.message+')':'❌ Не загрузилось ('+(e.message||e)+'). Проверь интернет и повтори.',true);
+  }
+}
+$('#start').onclick=boot;
+$('#retry').onclick=boot;
+$('#again').onclick=()=>{$('#result').classList.add('hidden');bottom.classList.remove('hidden');enterTrain();};
+toBattleBtn.onclick=startBattle;
+pauseBtn.onclick=()=>{paused=!paused;pauseBtn.textContent=paused?'▶ Дальше':'⏸ Пауза';if(paused)showToast('⏸ пауза',600);};
 
-goBtn.addEventListener('click',()=>{
-  boss={hp:100};player={hp:100};ultCd=0;bossTimer=120;bossWarn=0;winState=null;
-  mode='battle';hud.style.display='flex';recBtn.disabled=false;
-  setStatus('БОЙ! «УЛЬТА» — урон, «Защита» — блок по сигналу ⚠️.');
-});
+// hold-to-capture (мышь + тач)
+let capTimer=null;
+function capStart(e){e.preventDefault();if(state!=='train')return;captureBtn.classList.add('rec');addExample();capTimer=setInterval(addExample,140);}
+function capEnd(){clearInterval(capTimer);captureBtn.classList.remove('rec');}
+captureBtn.addEventListener('pointerdown',capStart);
+captureBtn.addEventListener('pointerup',capEnd);
+captureBtn.addEventListener('pointercancel',capEnd);
+captureBtn.addEventListener('pointerleave',capEnd);
 
-// break-and-fix: встроенная миссия
-let bfStep=0;
-bfBtn.addEventListener('click',()=>{
-  const steps=[
-    'МИССИЯ «СЛОМАЙ»: встань боком / отойди дальше / пусть кто-то другой встанет в кадр и попробуй показать УЛЬТУ. Заметь — ИИ путается. Почему? Он выучил не движение, а тебя/фон.',
-    'А теперь ПОЧИНИ: добери по ~10 примеров на каждое движение в ЭТИХ новых условиях (другой свет/угол). Жми «Снять позу».',
-    'Проверь снова. Точность выросла? Вот так ИИ учится — на разнообразных данных. Это ты его обучил, а не он сам.'
-  ];
-  showToast('🧪','300');setStatus(steps[bfStep%steps.length]);bfStep++;
-});
-
-// запись клипа 15с (canvas + watermark)
-let recorder=null;
-recBtn.addEventListener('click',()=>{
-  if(recorder&&recorder.state==='recording'){recorder.stop();return;}
-  const stream=cv.captureStream(30);
-  recorder=new MediaRecorder(stream,{mimeType:'video/webm'});const chunks=[];
-  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
-  recorder.onstop=()=>{const blob=new Blob(chunks,{type:'video/webm'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='my-ai-ult.webm';a.click();recBtn.textContent='⏺ Записать клип 15с';setStatus('Клип скачан! Это и есть твой артефакт — покажи друзьям.');};
-  // вотермарка ИТМО поверх canvas на время записи
-  const wm=setInterval(()=>{ctx.save();ctx.font='bold 18px sans-serif';ctx.fillStyle='#fff9';ctx.textAlign='right';ctx.fillText('AI Boss Fight · ИТМО',cv.width-12,cv.height-14);ctx.restore();},60);
-  recorder.start();recBtn.textContent='⏹ Идёт запись… (стоп)';showToast('🎬 3..2..1',900);
-  setTimeout(()=>{clearInterval(wm);if(recorder.state==='recording')recorder.stop();},15000);
-});
-
-snapBtns.forEach(b=>b.addEventListener('click',()=>addExample(parseInt(b.dataset.c,10))));
-resetBtn.addEventListener('click',()=>{
-  if(knn)knn.clearAllClasses();counts=[0,0,0];clsEls.forEach(e=>e.querySelector('.n').textContent='0');
-  goBtn.disabled=true;bfBtn.disabled=true;recBtn.disabled=true;mode='train';hud.style.display='none';verdict.style.display='none';
-  setStatus('Сброшено. Набирай позы заново.');
-});
-
-(async()=>{ try{await initCamera();await initModel();}catch(e){console.error(e);} })();
+window.addEventListener('resize',resize);
+buildSkins();
+if(DEMO){$('#introNote').textContent='демо-режим: без камеры, позы фейковые';}
 </script>
 </body>
 </html>
