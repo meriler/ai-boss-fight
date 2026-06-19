@@ -147,7 +147,10 @@ function updateHint(){
 function setLoad(m,r){$('#loadmsg').textContent=m;$('#retry').classList.toggle('hidden',!r)}
 async function initCamera(){ if(DEMO)return;
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
-  let s;try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}catch(e){throw new Error('CAM:'+e.name)}
+  let s;
+  try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}
+  catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}  // запасной: любая камера
+            catch(e2){throw new Error('CAM:'+e2.name)} }
   cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
   s.getVideoTracks()[0].addEventListener('ended',()=>{hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
 }
