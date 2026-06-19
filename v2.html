@@ -187,26 +187,33 @@ function updateBars(p){
 }
 
 /* ---- игра-додж ---- */
-let avatarX=0.5,objs=[],lives=3,score=0,powerCd=0,powCount=0,stable=[],gameT=0;
-function startGame(){ state='game';objs=[];lives=3;score=0;powerCd=0;gameT=0;stable=[];
+let avatarX=0.5,objs=[],lives=3,score=0,powerCd=0,powCount=0,stable=[],gameT=0,powerArmed=true;
+function startGame(){ state='game';objs=[];lives=3;score=0;powerCd=0;gameT=0;stable=[];powerArmed=true;
   $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');teachrow.classList.add('hidden');
   hintEl.textContent='Двигай рукой ← → уворачивайся. Кулак = приём (сметает шары).'; showToast('ВЫЖИВАЙ!',900);
 }
 function backToTrain(){ state='train'; $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');teachrow.classList.remove('hidden');updateHint(); }
 function tickGame(p){
-  gameT++; score=Math.floor(gameT/6);
+  gameT++;
   if(lastLm) avatarX = avatarX*0.6 + (1-palmX(lastLm))*0.4; // зеркально, EMA
-  // приём по стабильному «кулаку»
+  // ПРИЁМ — одно срабатывание на сжатие: чтобы выстрелить снова, надо вернуть ладонь (перезарядка). Нельзя зажать и спамить.
   if(p){stable.push(p.label);if(stable.length>5)stable.shift();
-    const isPow=stable.filter(x=>x===0).length>=3 && (p.confidences[0]||0)>=.6;
-    if(isPow&&powerCd<=0){ powerCd=45;powCount++; const ax=avatarX*cv.width;
-      objs=objs.filter(o=>Math.abs(o.x-ax)>cv.width*0.33); SFX.power();doFlash();shake=12;
-      burst(ax,cv.height*0.8,'💥',18); showToast('💥 ПРИЁМ!',500);
+    const fistN=stable.filter(x=>x===0).length, idleN=stable.filter(x=>x===1).length;
+    if(idleN>=3) powerArmed=true;                 // вернул «ладонь/руль» → перезарядка
+    const isFist=fistN>=3 && (p.confidences[0]||0)>=.6;
+    if(isFist && powerArmed && powerCd<=0){
+      powerArmed=false; powerCd=12; powCount++;     // потратил заряд — снова только после возврата в ладонь
+      const ax=avatarX*cv.width, R=cv.width*0.18;   // небольшой радиус
+      const before=objs.length; objs=objs.filter(o=>Math.abs(o.x-ax)>R);
+      const cleared=before-objs.length; score+=cleared*10;
+      SFX.power();doFlash();shake=12;burst(ax,cv.height*0.8,'💥',16);
+      showToast(cleared?`💥 ПРИЁМ +${cleared*10}`:'💥 мимо',550);
     }}
   if(powerCd>0)powerCd--;
   if(gameT%Math.max(22,60-gameT/40)<1){objs.push({x:Math.random()*cv.width,y:-30,v:4+Math.random()*4+gameT/600})}
   const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.05;
   for(const o of objs){o.y+=o.v; if(o.y>ay-r&&o.y<ay+r&&Math.abs(o.x-ax)<r+18&&!o.hit){o.hit=true;lives--;SFX.hit();doFlash();shake=10;showToast('💢',400); if(lives<=0)endGame()}}
+  const dodged=objs.filter(o=>o.y>=cv.height+40&&!o.hit).length; if(dodged)score+=dodged*5; // увернулся → очки копятся
   objs=objs.filter(o=>o.y<cv.height+40&&!o.hit);
 }
 function endGame(){const nom=powCount>=5?'🔥 Мастер приёма':(score>=40?'🛡️ Живучий':'🎯 Новичок');
