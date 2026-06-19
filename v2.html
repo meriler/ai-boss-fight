@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Натренируй ИИ и выживи</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%A4%96</text></svg>">
+<style>
+  :root{--bg:#0b0e14;--panel:rgba(14,19,28,.86);--line:#2a3445;--accent:#7aa2ff;--ok:#46e08a;--warn:#ffcf5c;--bad:#ff6b8b;--text:#eef3fb;--muted:#9aa6b8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--text);font-family:-apple-system,"Segoe UI",system-ui,sans-serif;user-select:none}
+  #app{position:fixed;inset:0;height:100dvh;width:100vw;overflow:hidden}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #cv{position:absolute;inset:0;width:100%;height:100%}
+  .hidden{display:none!important}
+
+  /* верхняя инфо-панель */
+  #top{position:absolute;left:0;right:0;top:0;padding:10px 14px;background:linear-gradient(#000b,transparent);pointer-events:none;display:flex;gap:10px;align-items:flex-start}
+  #ai{flex:1}
+  #aihead{font-size:12px;color:var(--muted);font-weight:700;text-shadow:0 1px 3px #000;margin-bottom:4px}
+  .bar{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .bar .l{flex:0 0 120px;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
+  .bar .t{flex:1;height:12px;background:#0009;border:1px solid #fff2;border-radius:7px;overflow:hidden}
+  .bar .t>i{display:block;height:100%;width:0;background:var(--muted);transition:width .1s}
+  .bar.top .t>i{background:var(--accent)} .bar.top .l{color:var(--accent)}
+  .bar .p{flex:0 0 38px;text-align:right;font-size:13px;font-weight:800;color:var(--muted);text-shadow:0 1px 3px #000}
+  .bar.top .p{color:var(--accent)}
+  #stat{font-size:14px;font-weight:800;text-shadow:0 2px 6px #000;text-align:right;min-width:120px}
+
+  #toast{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);font-size:clamp(26px,8vw,44px);font-weight:900;text-align:center;text-shadow:0 4px 16px #000;pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line}
+  #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+
+  #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,#000d 24%);display:flex;flex-direction:column;gap:10px}
+  #hint{font-size:14px;font-weight:600;text-align:center;text-shadow:0 1px 3px #000;min-height:19px}
+  .row{display:flex;gap:10px}
+  .teach{flex:1;background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:11px 8px 12px;text-align:center;backdrop-filter:blur(6px);cursor:pointer;transition:border-color .12s,transform .05s}
+  .teach:active{transform:scale(.97)} .teach.rec{border-color:var(--ok);background:rgba(70,224,138,.18)}
+  .teach .e{font-size:30px;line-height:1.1}.teach .n{font-size:13px;color:var(--muted)}.teach .c{font-size:14px;font-weight:800;margin-top:3px}.teach .c b{color:var(--ok)}.teach .h{font-size:11px;color:var(--muted);margin-top:2px}
+  button{flex:1;border:none;border-radius:16px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#fff;background:var(--accent);min-height:54px}
+  button:active{transform:scale(.98)} button:disabled{opacity:.35}
+  button.ok{background:var(--ok);color:#06160c} button.ghost{background:rgba(40,50,64,.85);backdrop-filter:blur(6px)}
+  #reset{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:13px;text-decoration:underline;align-self:center;min-height:0;padding:2px}
+
+  .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:16px;background:radial-gradient(120% 90% at 50% 12%,#1a2030,#0b0e14)}
+  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:340px;line-height:1.5;margin:0;font-size:15px}
+  .screen button{flex:0 0 auto;width:min(420px,82vw)}
+  .badge{background:#10151e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
+  .spin{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="cv"></canvas>
+
+  <div id="top" class="hidden">
+    <div id="ai"><div id="aihead">🤖 С чем ИИ сравнил твою руку:</div><div id="bars"></div></div>
+    <div id="stat"></div>
+  </div>
+  <div id="flash"></div>
+  <div id="toast"></div>
+
+  <div id="bottom" class="hidden">
+    <div id="hint"></div>
+    <div class="row" id="teachrow"></div>
+    <div class="row" id="trainBtns">
+      <button id="toGame" class="ok" disabled>▶️ В игру</button>
+    </div>
+    <div class="row hidden" id="gameBtns">
+      <button id="again" class="ghost">↻ Заново учить</button>
+    </div>
+    <button id="reset" class="hidden">сбросить ИИ</button>
+  </div>
+
+  <div class="screen" id="intro">
+    <div class="big">🤖</div>
+    <h1>Натренируй ИИ и выживи</h1>
+    <p>Покажи руку камере и научи ИИ узнавать твой жест-приём. Потом рукой уворачивайся от падающих штук, а жестом — бей. Чем лучше научишь — тем лучше играешь.</p>
+    <button id="start" class="ok">▶️ Поехали</button>
+    <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
+  </div>
+
+  <div class="screen hidden" id="loading">
+    <div class="spin"></div><p id="loadmsg">Запускаю…</p>
+    <button id="retry" class="ghost hidden">↻ Повторить</button>
+  </div>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
+
+const $=s=>document.querySelector(s);
+const DEMO=new URLSearchParams(location.search).has('demo');
+const cam=$('#cam'),cv=$('#cv'),ctx=cv.getContext('2d');
+const topEl=$('#top'),barsEl=$('#bars'),statEl=$('#stat'),toast=$('#toast'),flash=$('#flash');
+const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toGameBtn=$('#toGame');
+
+// классы: приём (кулак) + руль/ничего (раскрытая ладонь)
+const CLASSES=[{key:'power',emoji:'✊',name:'Приём (кулак)'},{key:'idle',emoji:'🖐',name:'Руль (ладонь)'}];
+let counts=[0,0];
+let landmarker=null, state='intro', audio=null;
+let lastLm=null, lastHand=null, lastTS=0;
+
+/* ---- свой KNN (без tfjs) ---- */
+const KNN={ex:[], add(f,l){this.ex.push({f,l})}, clear(){this.ex=[]},
+  classify(f,k=3){ if(!this.ex.length)return null;
+    const d=this.ex.map(e=>({l:e.l,d:dist(f,e.f)})).sort((a,b)=>a.d-b.d).slice(0,Math.min(k,this.ex.length));
+    const v={}; for(const x of d)v[x.l]=(v[x.l]||0)+1;
+    let best=-1,bc=-1,total=0; for(const l in v){total+=v[l]; if(v[l]>bc){bc=v[l];best=+l}}
+    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/d.length;
+    return {label:best,confidences:conf};
+  }};
+function dist(a,b){let s=0;for(let i=0;i<a.length;i++){const x=a[i]-b[i];s+=x*x}return Math.sqrt(s)}
+
+/* ---- признаки руки (инвариантны к позиции и масштабу) ---- */
+function feature(lm){ // lm: 21 точек {x,y,z} в [0,1]
+  const w=lm[0]; // wrist — центр
+  const scale=Math.hypot(lm[9].x-w.x,lm[9].y-w.y)||1; // wrist→middle_mcp
+  const f=[]; for(const p of lm){ f.push((p.x-w.x)/scale,(p.y-w.y)/scale) } return f;
+}
+function palmX(lm){ // для руля: средний x по wrist+MCP, в [0,1]
+  const ids=[0,5,9,13,17]; let s=0; for(const i of ids)s+=lm[i].x; return s/ids.length;
+}
+
+/* ---- аудио ---- */
+function initAudio(){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
+function beep(fr,du,ty='sine',vol=.2,to){if(!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=ty;o.frequency.setValueAtTime(fr,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+du);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+du);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+du)}
+const SFX={power(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500)},hit(){beep(120,.25,'square',.25,40)},learn(n){beep(440+n*40,.1,'triangle',.18)}};
+
+/* ---- эффекты ---- */
+let particles=[],shake=0;
+function burst(x,y,e,n=14){for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*6;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,e})}}
+function doFlash(){flash.style.transition='none';flash.style.opacity='.6';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0'})}
+function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
+
+/* ---- UI низа ---- */
+function buildTeach(){teachrow.innerHTML='';CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;el.innerHTML=`<div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h">держи, чтобы учить</div>`;teachrow.appendChild(el)});bindHold()}
+function refresh(){[...teachrow.children].forEach((el,i)=>el.querySelector('.c b').textContent=counts[i])}
+function updateHint(){
+  if(state!=='train')return;
+  if(counts[0]===0||counts[1]===0)hintEl.textContent='Покажи приём (кулак) и держи кнопку, потом руль (ладонь). Так ты обучаешь ИИ.';
+  else if(counts[0]<6||counts[1]<6)hintEl.textContent='Двигай рукой — ИИ уже узнаёт! Мало примеров → путается. Добери ещё, меняя угол.';
+  else hintEl.textContent='ИИ узнаёт оба жеста? Жми «В игру». Точнее → добери разных примеров.';
+}
+
+/* ---- камера + модель ---- */
+function setLoad(m,r){$('#loadmsg').textContent=m;$('#retry').classList.toggle('hidden',!r)}
+async function initCamera(){ if(DEMO)return;
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
+  let s;try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}catch(e){throw new Error('CAM:'+e.name)}
+  cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
+  s.getVideoTracks()[0].addEventListener('ended',()=>{hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
+}
+async function initModel(){ if(DEMO)return;
+  const vision=await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
+  try{ landmarker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:"GPU"},numHands:1,runningMode:"VIDEO"}) }
+  catch(e){ landmarker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:"CPU"},numHands:1,runningMode:"VIDEO"}) }
+}
+function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
+
+/* ---- демо: фейковая рука (кулак/ладонь), движется по X ---- */
+let dC=0,dT=0;
+function fakeHand(){dT++;if(dT%90===0)dC=1-dC;
+  const cx=0.5+0.35*Math.sin(dT/60),cy=0.5; const open=dC===1;
+  const lm=[{x:cx,y:cy+0.18,z:0}]; // wrist
+  for(let f=0;f<5;f++){const ang=-Math.PI/2+(f-2)*0.4;const len=open?0.22:0.07;
+    for(let j=1;j<=4;j++){lm.push({x:cx+Math.cos(ang)*len*j/4,y:cy+0.18+Math.sin(ang)*len*j/4,z:0})}}
+  return {lm,hand:'Right'};
+}
+
+/* ---- предсказание ---- */
+let predCache=null;
+function predict(){ if(!lastLm)return null; return KNN.classify(feature(lastLm)); }
+function addExample(i){ if(!lastLm){showToast('Руку не видно\nподними в кадр',800);return}
+  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]); toGameBtn.disabled=!(counts[0]>0&&counts[1]>0);
+}
+
+/* ---- бар-чарт ---- */
+function updateBars(p){const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(conf[top]||0):0;
+  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
+}
+
+/* ---- игра-додж ---- */
+let avatarX=0.5,objs=[],lives=3,score=0,powerCd=0,powCount=0,stable=[],gameT=0;
+function startGame(){ state='game';objs=[];lives=3;score=0;powerCd=0;gameT=0;stable=[];
+  $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');teachrow.classList.add('hidden');
+  hintEl.textContent='Двигай рукой ← → уворачивайся. Кулак = приём (сметает шары).'; showToast('ВЫЖИВАЙ!',900);
+}
+function backToTrain(){ state='train'; $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');teachrow.classList.remove('hidden');updateHint(); }
+function tickGame(p){
+  gameT++; score=Math.floor(gameT/6);
+  if(lastLm) avatarX = avatarX*0.6 + (1-palmX(lastLm))*0.4; // зеркально, EMA
+  // приём по стабильному «кулаку»
+  if(p){stable.push(p.label);if(stable.length>5)stable.shift();
+    const isPow=stable.filter(x=>x===0).length>=3 && (p.confidences[0]||0)>=.6;
+    if(isPow&&powerCd<=0){ powerCd=45;powCount++; const ax=avatarX*cv.width;
+      objs=objs.filter(o=>Math.abs(o.x-ax)>cv.width*0.33); SFX.power();doFlash();shake=12;
+      burst(ax,cv.height*0.8,'💥',18); showToast('💥 ПРИЁМ!',500);
+    }}
+  if(powerCd>0)powerCd--;
+  if(gameT%Math.max(22,60-gameT/40)<1){objs.push({x:Math.random()*cv.width,y:-30,v:4+Math.random()*4+gameT/600})}
+  const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.05;
+  for(const o of objs){o.y+=o.v; if(o.y>ay-r&&o.y<ay+r&&Math.abs(o.x-ax)<r+18&&!o.hit){o.hit=true;lives--;SFX.hit();doFlash();shake=10;showToast('💢',400); if(lives<=0)endGame()}}
+  objs=objs.filter(o=>o.y<cv.height+40&&!o.hit);
+}
+function endGame(){const nom=powCount>=5?'🔥 Мастер приёма':(score>=40?'🛡️ Живучий':'🎯 Новичок');
+  showToast(`💀 Конец\nсчёт ${score}\n${nom}\nдообучи ИИ — выживешь дольше`,3000);
+  setTimeout(backToTrain,1600);
+}
+
+/* ---- рендер ---- */
+let last=performance.now();
+function loop(now){
+  const dt=now-last;last=now;
+  if(DEMO){const f=fakeHand();lastLm=f.lm;lastHand=f.hand;lastTS=now}
+  else if(landmarker&&cam.readyState>=2){
+    try{const r=landmarker.detectForVideo(cam,now);
+      if(r.landmarks&&r.landmarks[0]){lastLm=r.landmarks[0];lastHand=r.handedness?.[0]?.[0]?.categoryName;lastTS=now}
+      else if(now-lastTS>400)lastLm=null;
+    }catch(e){}
+  }
+  if((loop._p=(loop._p||0)+dt)>=80){loop._p=0;predCache=predict()}
+
+  const sh=shake>0?(Math.random()-.5)*shake:0;if(shake>0)shake*=0.85;
+  ctx.save();ctx.clearRect(0,0,cv.width,cv.height);ctx.translate(sh,sh);
+  if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height)}
+  else{ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);try{ctx.drawImage(cam,0,0,cv.width,cv.height)}catch(e){}ctx.restore()}
+
+  // в тренировке — скелет руки (perception виден); в игре — затемнить фон + аватар + объекты
+  if(state==='train'&&lastLm)drawHand(lastLm);
+  if(state==='game'){
+    ctx.fillStyle='rgba(8,11,18,.55)';ctx.fillRect(0,0,cv.width,cv.height);
+    const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.05;
+    ctx.fillStyle=powerCd>35?'#ffd23b':'#7aa2ff';ctx.beginPath();ctx.arc(ax,ay,r,0,7);ctx.fill();
+    ctx.fillStyle='#ff6b8b';for(const o of objs){ctx.beginPath();ctx.arc(o.x,o.y,16,0,7);ctx.fill()}
+    if(lastLm)drawHandMini(lastLm);
+    tickGame(predCache);
+  }
+  particles=particles.filter(p=>p.life>0);ctx.font=Math.round(cv.width*0.05)+'px sans-serif';ctx.textAlign='center';
+  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.02;ctx.globalAlpha=Math.max(0,p.life);ctx.fillText(p.e,p.x,p.y)}
+  ctx.globalAlpha=1;ctx.restore();
+
+  if(state==='train')updateBars(predCache);
+  if(state==='game'){updateBars(predCache);statEl.innerHTML=`❤️${'❤'.repeat(0)} ${lives} жизни<br>счёт ${score}`}
+  else if(state==='train')statEl.textContent='';
+  requestAnimationFrame(loop);
+}
+const FINGERS=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
+function px(p){return (DEMO?p.x:(1-p.x))*cv.width} function py(p){return p.y*cv.height}
+function drawHand(lm){ctx.strokeStyle='#7aa2ff';ctx.lineWidth=Math.max(2,cv.width*0.004);ctx.fillStyle='#a9c2ff';
+  for(const f of FINGERS){ctx.beginPath();for(let i=0;i<f.length;i++){const p=lm[f[i]];i?ctx.lineTo(px(p),py(p)):ctx.moveTo(px(p),py(p))}ctx.stroke()}
+  for(const p of lm){ctx.beginPath();ctx.arc(px(p),py(p),Math.max(3,cv.width*0.006),0,7);ctx.fill()}}
+function drawHandMini(lm){const s=0.28,ox=cv.width*0.72,oy=cv.height*0.04;ctx.save();ctx.globalAlpha=.85;ctx.strokeStyle='#7aa2ff';ctx.lineWidth=2;
+  const mx=p=>ox+ (DEMO?p.x:(1-p.x))*cv.width*s, my=p=>oy+p.y*cv.height*s;
+  for(const f of FINGERS){ctx.beginPath();for(let i=0;i<f.length;i++){const p=lm[f[i]];i?ctx.lineTo(mx(p),my(p)):ctx.moveTo(mx(p),my(p))}ctx.stroke()}ctx.restore()}
+
+/* ---- старт ---- */
+async function boot(){$('#intro').classList.add('hidden');$('#loading').classList.remove('hidden');initAudio();
+  try{ setLoad(DEMO?'Демо…':'Запускаю камеру…');await initCamera();resize();
+       setLoad('Гружу ИИ-руку…');await initModel();resize();
+       state='train';$('#loading').classList.add('hidden');topEl.classList.remove('hidden');bottom.classList.remove('hidden');$('#reset').classList.remove('hidden');
+       buildTeach();updateHint();requestAnimationFrame(loop);showToast('Покажи руку 🖐',1400);
+  }catch(e){console.error(e);const m=String(e.message||e);
+    setLoad(m.startsWith('CAM:')?'❌ Нет камеры. Разреши доступ/подключи камеру. ('+m+')':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
+}
+$('#start').onclick=boot;$('#retry').onclick=boot;
+toGameBtn.onclick=startGame;$('#again').onclick=backToTrain;
+$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;refresh();updateHint();toGameBtn.disabled=true};
+function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
+  const dn=e=>{e.preventDefault();if(state!=='train')return;el.classList.add('rec');addExample(i);t=setInterval(()=>addExample(i),400)};
+  const up=()=>{clearInterval(t);el.classList.remove('rec')};
+  el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
+window.addEventListener('resize',resize);
+if(DEMO)$('.badge').textContent='демо: без камеры, рука фейковая';
+</script>
+</body>
+</html>
