@@ -129,7 +129,7 @@ const SFX={power(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500
 
 /* ---- эффекты ---- */
 let particles=[],shake=0;
-function burst(x,y,e,n=14){for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*6;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,e})}}
+function burst(x,y,n,tier){const sz=cv.width*(0.012+(tier||0)*0.004);for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*7;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,c:NEON[(Math.random()*NEON.length)|0],sz})}}
 function doFlash(){flash.style.transition='none';flash.style.opacity='.6';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0'})}
 function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
 
@@ -188,32 +188,41 @@ function updateBars(p){
 
 /* ---- игра-додж ---- */
 let avatarX=0.5,objs=[],lives=3,score=0,powerCd=0,powCount=0,stable=[],gameT=0,powerArmed=true;
+let effects=[],hitstopUntil=0,avatarTrail=[],powerCdTotal=12;
+const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff']; // воксель-неон палитра
 function startGame(){ state='game';objs=[];lives=3;score=0;powerCd=0;gameT=0;stable=[];powerArmed=true;
   $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');teachrow.classList.add('hidden');
   hintEl.textContent='Двигай рукой ← → уворачивайся. Кулак = приём (сметает шары).'; showToast('ВЫЖИВАЙ!',900);
 }
 function backToTrain(){ state='train'; $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');teachrow.classList.remove('hidden');updateHint(); }
-function tickGame(p){
+function tickGame(p,now){
+  if(now<hitstopUntil)return;           // hitstop: физика заморожена, рендер продолжается
   gameT++;
   if(lastLm) avatarX = avatarX*0.6 + (1-palmX(lastLm))*0.4; // зеркально, EMA
-  // ПРИЁМ — одно срабатывание на сжатие: чтобы выстрелить снова, надо вернуть ладонь (перезарядка). Нельзя зажать и спамить.
+  // ПРИЁМ — одно срабатывание на сжатие (перезарядка через возврат ладони). Сила = уверенность ИИ.
   if(p){stable.push(p.label);if(stable.length>5)stable.shift();
     const fistN=stable.filter(x=>x===0).length, idleN=stable.filter(x=>x===1).length;
-    if(idleN>=3) powerArmed=true;                 // вернул «ладонь/руль» → перезарядка
-    const isFist=fistN>=3 && (p.confidences[0]||0)>=.6;
+    if(idleN>=3) powerArmed=true;
+    const conf=p.confidences[0]||0, isFist=fistN>=3 && conf>=.55;
     if(isFist && powerArmed && powerCd<=0){
-      powerArmed=false; powerCd=12; powCount++;     // потратил заряд — снова только после возврата в ладонь
-      const ax=avatarX*cv.width, R=cv.width*0.18;   // небольшой радиус
-      const before=objs.length; objs=objs.filter(o=>Math.abs(o.x-ax)>R);
-      const cleared=before-objs.length; score+=cleared*10;
-      SFX.power();doFlash();shake=12;burst(ax,cv.height*0.8,'💥',16);
-      showToast(cleared?`💥 ПРИЁМ +${cleared*10}`:'💥 мимо',550);
+      powerArmed=false; powerCdTotal=18; powerCd=powerCdTotal; powCount++;
+      const ax=avatarX*cv.width, ay=cv.height*0.82;
+      const tier = conf>=.9?2 : conf>=.72?1 : 0;          // лучше обучил → мощнее
+      const R = cv.width*(tier===2?0.26:tier===1?0.18:0.10);
+      const before=objs.length; objs=objs.filter(o=>Math.abs(o.x-ax)>R); const cleared=before-objs.length;
+      score+=cleared*10;
+      effects.push({type:'wave',x:ax,y:ay,r:0,maxR:R,life:1});
+      burst(ax,ay,Math.min(8+cleared*3,26),tier);
+      SFX.power(); hitstopUntil=now+(60+Math.min(cleared,5)*14); shake=6+tier*4;
+      effects.push(cleared
+        ? {type:'txt',x:ax,y:ay-cv.width*0.09,t:'+'+cleared*10,c:NEON[0],life:1}
+        : {type:'txt',x:ax,y:ay-cv.width*0.09,t:'ИИ не уверен '+Math.round(conf*100)+'%',c:'#ffcf5c',life:1.3});
     }}
   if(powerCd>0)powerCd--;
-  if(gameT%Math.max(22,60-gameT/40)<1){objs.push({x:Math.random()*cv.width,y:-30,v:4+Math.random()*4+gameT/600})}
-  const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.05;
-  for(const o of objs){o.y+=o.v; if(o.y>ay-r&&o.y<ay+r&&Math.abs(o.x-ax)<r+18&&!o.hit){o.hit=true;lives--;SFX.hit();doFlash();shake=10;showToast('💢',400); if(lives<=0)endGame()}}
-  const dodged=objs.filter(o=>o.y>=cv.height+40&&!o.hit).length; if(dodged)score+=dodged*5; // увернулся → очки копятся
+  if(gameT%Math.max(20,58-gameT/40)<1){objs.push({x:cv.width*(0.1+Math.random()*0.8),y:-30,v:4+Math.random()*4+gameT/600})}
+  const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.045;
+  for(const o of objs){o.y+=o.v; if(!o.hit && o.y>ay-r && o.y<ay+r && Math.abs(o.x-ax)<r+cv.width*0.026){o.hit=true;lives--;SFX.hit();shake=10;effects.push({type:'txt',x:ax,y:ay-30,t:'−1',c:'#ff6b8b',life:1}); if(lives<=0)endGame()}}
+  const dodged=objs.filter(o=>o.y>=cv.height+40&&!o.hit).length; if(dodged)score+=dodged*5;
   objs=objs.filter(o=>o.y<cv.height+40&&!o.hit);
 }
 function endGame(){const nom=powCount>=5?'🔥 Мастер приёма':(score>=40?'🛡️ Живучий':'🎯 Новичок');
@@ -242,15 +251,36 @@ function loop(now){
   // в тренировке — скелет руки (perception виден); в игре — затемнить фон + аватар + объекты
   if(state==='train'&&lastLm)drawHand(lastLm);
   if(state==='game'){
-    ctx.fillStyle='rgba(8,11,18,.55)';ctx.fillRect(0,0,cv.width,cv.height);
-    const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.05;
-    ctx.fillStyle=powerCd>35?'#ffd23b':'#7aa2ff';ctx.beginPath();ctx.arc(ax,ay,r,0,7);ctx.fill();
-    ctx.fillStyle='#ff6b8b';for(const o of objs){ctx.beginPath();ctx.arc(o.x,o.y,16,0,7);ctx.fill()}
+    ctx.fillStyle='rgba(8,11,18,.6)';ctx.fillRect(0,0,cv.width,cv.height);
+    const frozen=now<hitstopUntil;
+    if(!frozen){avatarTrail.push(avatarX);if(avatarTrail.length>8)avatarTrail.shift();}
+    const ay=cv.height*0.82, bob=Math.sin(now*0.006)*cv.width*0.006, R0=cv.width*0.05;
+    // шары-препятствия — светящийся неон-квадрат
+    for(const o of objs){ctx.save();ctx.fillStyle='#ff6b8b';ctx.shadowColor='#ff6b8b';ctx.shadowBlur=cv.width*0.02;const s=cv.width*0.032;ctx.fillRect(o.x-s/2,o.y-s/2,s,s);ctx.restore()}
+    // шлейф аватара
+    for(let i=0;i<avatarTrail.length;i++){const tx=avatarTrail[i]*cv.width,s=R0*1.4*(i/avatarTrail.length);ctx.globalAlpha=(i/avatarTrail.length)*0.35;ctx.fillStyle='#7aa2ff';ctx.fillRect(tx-s/2,ay-s/2,s,s)}
+    ctx.globalAlpha=1;
+    // аватар — светящийся воксель + squash по скорости
+    const ax=avatarX*cv.width;
+    const vx=Math.abs(avatarTrail.length>1?(avatarTrail[avatarTrail.length-1]-avatarTrail[avatarTrail.length-2]):0)*cv.width;
+    const w=R0*1.4*(1+Math.min(vx*0.02,0.4)), h=R0*1.4*(1-Math.min(vx*0.01,0.2));
+    ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=(powerArmed&&powerCd<=0)?'#9bd1ff':'#5a78b8';ctx.fillRect(ax-w/2,ay+bob-h/2,w,h);ctx.restore();
+    // кольцо-заряд приёма
+    const ready=1-Math.max(0,powerCd)/powerCdTotal;
+    ctx.strokeStyle=ready>=1?'#46e08a':'rgba(70,224,138,.5)';ctx.lineWidth=Math.max(2,cv.width*0.006);ctx.beginPath();ctx.arc(ax,ay+bob,R0*1.55,-Math.PI/2,-Math.PI/2+ready*Math.PI*2);ctx.stroke();
     if(lastLm)drawHandMini(lastLm);
-    tickGame(predCache);
+    tickGame(predCache,now);
   }
-  particles=particles.filter(p=>p.life>0);ctx.font=Math.round(cv.width*0.05)+'px sans-serif';ctx.textAlign='center';
-  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.02;ctx.globalAlpha=Math.max(0,p.life);ctx.fillText(p.e,p.x,p.y)}
+  // частицы — воксель-осколки (чистые квадраты, не эмодзи)
+  particles=particles.filter(p=>p.life>0);
+  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.025;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.c;ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz)}
+  ctx.globalAlpha=1;
+  // эффекты: волна приёма + всплывающий текст (canvas, не DOM)
+  effects=effects.filter(e=>e.life>0);
+  for(const e of effects){
+    if(e.type==='wave'){e.r+=(e.maxR-e.r)*0.25;e.life-=0.06;ctx.globalAlpha=Math.max(0,e.life)*0.85;ctx.strokeStyle='#7aa2ff';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,7);ctx.stroke();}
+    else{e.y-=cv.width*0.004;e.life-=0.02;ctx.globalAlpha=Math.max(0,e.life);ctx.fillStyle=e.c;ctx.font='800 '+Math.round(cv.width*0.045)+'px sans-serif';ctx.textAlign='center';ctx.fillText(e.t,e.x,e.y);}
+  }
   ctx.globalAlpha=1;ctx.restore();
 
   if(state==='train'){updateBars(predCache);
