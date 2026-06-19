@@ -176,7 +176,10 @@ function addExample(i){ if(!lastLm){showToast('Руку не видно\nпод�
 }
 
 /* ---- бар-чарт ---- */
-function updateBars(p){const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(conf[top]||0):0;
+function updateBars(p){
+  if(!lastLm){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">✋ подними руку в кадр — ИИ ищет руку…</span></div>';return}
+  if(!KNN.ex.length){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤖 ИИ пока пустой — научи его (держи кнопку 👇)</span></div>';return}
+  const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(conf[top]||0):0;
   barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
 }
 
@@ -240,9 +243,10 @@ function loop(now){
   for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.02;ctx.globalAlpha=Math.max(0,p.life);ctx.fillText(p.e,p.x,p.y)}
   ctx.globalAlpha=1;ctx.restore();
 
-  if(state==='train')updateBars(predCache);
-  if(state==='game'){updateBars(predCache);statEl.innerHTML=`❤️${'❤'.repeat(0)} ${lives} жизни<br>счёт ${score}`}
-  else if(state==='train')statEl.textContent='';
+  if(state==='train'){updateBars(predCache);
+    statEl.innerHTML = lastLm ? '<span style="color:var(--ok)">📷 ✋ вижу руку</span>' : '<span style="color:var(--warn)">📷 руку не вижу</span>';
+  }
+  if(state==='game'){updateBars(predCache);statEl.innerHTML=`❤️ ${lives} жизни<br>счёт ${score}`}
   requestAnimationFrame(loop);
 }
 const FINGERS=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
