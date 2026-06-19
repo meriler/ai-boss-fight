@@ -55,7 +55,7 @@
   <canvas id="cv"></canvas>
 
   <div id="top" class="hidden">
-    <div id="ai"><div id="aihead">🤖 С чем ИИ сравнил твою руку:</div><div id="bars"></div></div>
+    <div id="ai"><div id="aihead">🤖 ИИ думает:</div><div id="bars"></div></div>
     <div id="stat"></div>
   </div>
   <div id="flash"></div>
@@ -77,7 +77,7 @@
   <div class="screen" id="intro">
     <div class="big">🤖</div>
     <h1>Натренируй ИИ и выживи</h1>
-    <p>Покажи руку камере и научи ИИ узнавать твой жест-приём. Потом рукой уворачивайся от падающих штук, а жестом — бей. Чем лучше научишь — тем лучше играешь.</p>
+    <p>Научи ИИ двум жестам рукой. Потом играй: ладонь рулит, кулак — приём. Чем лучше обучишь — тем круче играешь.</p>
     <button id="start" class="ok">▶️ Поехали</button>
     <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
   </div>
@@ -100,7 +100,7 @@ const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toGameBtn=$(
 
 // классы: приём (кулак) + руль/ничего (раскрытая ладонь)
 const CLASSES=[{key:'power',emoji:'✊',name:'Приём (кулак)'},{key:'idle',emoji:'🖐',name:'Руль (ладонь)'}];
-let counts=[0,0];
+let counts=[0,0]; const MINEX=6; // минимум примеров на жест, иначе игра «сломана»
 let landmarker=null, state='intro', audio=null;
 let lastLm=null, lastHand=null, lastTS=0;
 
@@ -137,7 +137,7 @@ function doFlash(){flash.style.transition='none';flash.style.opacity='.6';reques
 function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
 
 /* ---- UI низа ---- */
-function buildTeach(){teachrow.innerHTML='';CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;el.innerHTML=`<div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h">держи, чтобы учить</div>`;teachrow.appendChild(el)});bindHold()}
+function buildTeach(){teachrow.innerHTML='';CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;el.innerHTML=`<div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b>/${MINEX}</div><div class="h">держи, чтобы учить</div>`;teachrow.appendChild(el)});bindHold()}
 function refresh(){[...teachrow.children].forEach((el,i)=>el.querySelector('.c b').textContent=counts[i])}
 function updateHint(){
   if(state!=='train')return;
@@ -178,11 +178,17 @@ function fakeHand(){dT++;if(dT%90===0)dC=1-dC;
 let predCache=null;
 function predict(){ if(!lastLm)return null; return KNN.classify(feature(lastLm)); }
 function addExample(i){ if(!lastLm){showToast('Руку не видно\nподними в кадр',800);return}
-  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]); toGameBtn.disabled=!(counts[0]>0&&counts[1]>0);
+  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]); toGameBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
 }
 
 /* ---- бар-чарт ---- */
 function updateBars(p){
+  const ah=$('#aihead');
+  if(state==='game'){ ah.style.display='none';
+    if(!p||!lastLm){barsEl.innerHTML='';return}
+    const tp=p.label,tvc=Math.round((p.confidences[tp]||0)*100);
+    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=60?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
+  ah.style.display='';
   if(!lastLm){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">✋ подними руку в кадр — ИИ ищет руку…</span></div>';return}
   if(!KNN.ex.length){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤖 ИИ пока пустой — научи его (держи кнопку 👇)</span></div>';return}
   const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(conf[top]||0):0;
@@ -283,6 +289,7 @@ function loop(now){
     ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=(powerArmed&&powerCd<=0)?'#9bd1ff':'#5a78b8';ctx.fillRect(ax-w/2,ay+bob-h/2,w,h);ctx.restore();
     // кольцо-заряд приёма: зелёное = заряжен (разжал ладонь), красное = потрачен (надо разжать)
     ctx.strokeStyle=powerArmed?'#46e08a':'rgba(255,107,139,.75)';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(ax,ay+bob,R0*1.55,0,7);ctx.stroke();
+    ctx.fillStyle=powerArmed?'#46e08a':'#ffcf5c';ctx.font='800 '+Math.round(cv.width*0.026)+'px sans-serif';ctx.textAlign='center';ctx.fillText(powerArmed?'ГОТОВ':'РАЗОЖМИ ✋',ax,ay+bob+R0*2.15);
     if(lastLm)drawHandMini(lastLm);
     tickGame(predCache,now);
   }
@@ -301,7 +308,7 @@ function loop(now){
   if(state==='train'){updateBars(predCache);
     statEl.innerHTML = lastLm ? '<span style="color:var(--ok)">📷 ✋ вижу руку</span>' : '<span style="color:var(--warn)">📷 руку не вижу</span>';
   }
-  if(state==='game'){updateBars(predCache);statEl.innerHTML=`❤️ ${Math.max(0,lives)} <br>счёт ${score}`}
+  if(state==='game'){updateBars(predCache);statEl.innerHTML=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
   requestAnimationFrame(loop);
 }
 const FINGERS=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
