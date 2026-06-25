@@ -19,7 +19,7 @@
   #ai{flex:1}
   #aihead{font-size:12px;color:var(--muted);font-weight:700;text-shadow:0 1px 3px #000;margin-bottom:4px}
   .bar{display:flex;align-items:center;gap:7px;margin:3px 0}
-  .bar .l{flex:0 0 120px;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
+  .bar .l{flex:0 0 132px;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
   .bar .t{flex:1;height:12px;background:#0009;border:1px solid #fff2;border-radius:7px;overflow:hidden}
   .bar .t>i{display:block;height:100%;width:0;background:var(--muted);transition:width .1s}
   .bar.top .t>i{background:var(--accent)} .bar.top .l{color:var(--accent)}
@@ -31,22 +31,54 @@
   #bigmsg{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);width:min(90vw,640px);text-align:center;font-size:clamp(22px,5.5vw,36px);font-weight:800;color:#fff;text-shadow:0 3px 16px #000;background:rgba(8,11,18,.5);border-radius:18px;padding:18px 22px;backdrop-filter:blur(3px);pointer-events:none;line-height:1.3}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 
-  #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,#000d 24%);display:flex;flex-direction:column;gap:10px}
+  /* ── фаза «Проверка робота» (A) ── */
+  #checkui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,560px);text-align:center;pointer-events:none;z-index:15}
+  #ckround{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--warn);text-shadow:0 2px 6px #000;text-transform:uppercase}
+  #ckcount{font-size:13px;color:var(--muted);text-shadow:0 1px 3px #000;margin-top:2px}
+  #cktarget{font-size:clamp(30px,8vw,52px);font-weight:900;margin:10px 0 4px;text-shadow:0 4px 18px #000;line-height:1.15}
+  #cktarget .em{font-size:clamp(56px,16vw,108px);display:block;line-height:1}
+  #ckbarwrap{height:14px;background:#0009;border:1px solid #fff3;border-radius:9px;overflow:hidden;margin:14px auto 0;width:min(72vw,360px)}
+  #ckbar{height:100%;width:0;background:var(--accent);transition:width .08s linear}
+  #ckverdict{font-size:clamp(22px,6vw,34px);font-weight:900;margin-top:12px;min-height:1.2em;text-shadow:0 3px 14px #000}
+  #ckhint{font-size:14px;color:var(--text);text-shadow:0 1px 3px #000;margin-top:8px;font-weight:600}
+
+  #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,#000d 22%);display:flex;flex-direction:column;gap:8px}
   #hint{font-size:14px;font-weight:600;text-align:center;text-shadow:0 1px 3px #000;min-height:19px}
+
+  /* панель данных */
+  #datapanel{display:flex;flex-direction:column;gap:6px}
+  #counts{display:flex;gap:8px;justify-content:center;align-items:center;font-size:13px;font-weight:700;text-shadow:0 1px 3px #000}
+  #counts .cw{color:var(--warn)}
+  #chips{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
+  .chip{font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:rgba(16,21,30,.8);color:var(--muted);cursor:pointer;backdrop-filter:blur(4px)}
+  .chip.on{border-color:var(--ok);color:var(--ok);background:rgba(70,224,138,.16)}
+
   .row{display:flex;gap:10px}
-  .teach{flex:1;background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:11px 8px 12px;text-align:center;backdrop-filter:blur(6px);cursor:pointer;transition:border-color .12s,transform .05s}
+  .teach{position:relative;flex:1;background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:11px 8px 12px;text-align:center;backdrop-filter:blur(6px);cursor:pointer;transition:border-color .12s,transform .05s}
   .teach:active{transform:scale(.97)} .teach.rec{border-color:var(--ok);background:rgba(70,224,138,.18)}
   .teach .e{font-size:30px;line-height:1.1}.teach .n{font-size:13px;color:var(--muted)}.teach .c{font-size:14px;font-weight:800;margin-top:3px}.teach .c b{color:var(--ok)}.teach .h{font-size:11px;color:var(--muted);margin-top:2px}
+  .teach .del{position:absolute;top:5px;right:6px;width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:rgba(10,13,20,.85);color:var(--muted);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:0;padding:0;flex:none}
+  .teach .del:disabled{opacity:.3}
   button{flex:1;border:none;border-radius:16px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#fff;background:var(--accent);min-height:54px}
   button:active{transform:scale(.98)} button:disabled{opacity:.35}
   button.ok{background:var(--ok);color:#06160c} button.ghost{background:rgba(40,50,64,.85);backdrop-filter:blur(6px)}
   #reset{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:13px;text-decoration:underline;align-self:center;min-height:0;padding:2px}
 
-  .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:16px;background:radial-gradient(120% 90% at 50% 12%,#1a2030,#0b0e14)}
-  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:340px;line-height:1.5;margin:0;font-size:15px}
+  .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:16px;background:radial-gradient(120% 90% at 50% 12%,#1a2030,#0b0e14);overflow-y:auto}
+  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:360px;line-height:1.5;margin:0;font-size:15px}
   .screen button{flex:0 0 auto;width:min(420px,82vw)}
   .badge{background:#10151e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
   .spin{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+  /* результат проверки */
+  #rstitle{font-size:clamp(22px,6vw,32px);font-weight:900;margin:0}
+  #rsscore{font-size:15px;color:var(--muted)}
+  #rsmap{display:flex;flex-direction:column;gap:8px;width:min(440px,86vw)}
+  .rscard{background:#10151e;border:1px solid var(--line);border-radius:14px;padding:11px 14px;text-align:left;font-size:15px;font-weight:600}
+  .rscard.bad{border-color:var(--bad)} .rscard.good{border-color:var(--ok)}
+  #rsdiag{display:flex;flex-direction:column;gap:7px;width:min(440px,86vw)}
+  .rsrec{background:rgba(255,207,92,.1);border:1px solid var(--warn);border-radius:12px;padding:9px 13px;font-size:14px;color:var(--text);text-align:left;line-height:1.4}
+  #rsbtns{flex-direction:column;gap:10px;width:min(420px,82vw)}
+  #rsbtns button{width:100%}
 </style>
 </head>
 <body>
@@ -55,21 +87,35 @@
   <canvas id="cv"></canvas>
 
   <div id="top" class="hidden">
-    <div id="ai"><div id="aihead">🤖 ИИ думает:</div><div id="bars"></div></div>
+    <div id="ai"><div id="aihead">🤖 ИИ видит:</div><div id="bars"></div></div>
     <div id="stat"></div>
   </div>
   <div id="flash"></div>
   <div id="toast"></div>
   <div id="bigmsg" class="hidden"></div>
 
+  <!-- фаза «Проверка робота» -->
+  <div id="checkui" class="hidden">
+    <div id="ckround"></div>
+    <div id="ckcount"></div>
+    <div id="cktarget"></div>
+    <div id="ckbarwrap"><div id="ckbar"></div></div>
+    <div id="ckverdict"></div>
+    <div id="ckhint"></div>
+  </div>
+
   <div id="bottom" class="hidden">
     <div id="hint"></div>
+    <div id="datapanel">
+      <div id="counts"></div>
+      <div id="chips"></div>
+    </div>
     <div class="row" id="teachrow"></div>
     <div class="row" id="trainBtns">
-      <button id="toGame" class="ok" disabled>▶️ В игру</button>
+      <button id="toCheck" class="ok" disabled>🔍 Проверить ИИ</button>
     </div>
     <div class="row hidden" id="gameBtns">
-      <button id="again" class="ghost">↻ Заново учить</button>
+      <button id="again" class="ghost">↻ К обучению</button>
     </div>
     <button id="reset" class="hidden">сбросить ИИ</button>
   </div>
@@ -77,7 +123,7 @@
   <div class="screen" id="intro">
     <div class="big">🤖</div>
     <h1>Натренируй ИИ и выживи</h1>
-    <p>Научи ИИ двум жестам рукой. Потом играй: ладонь рулит, кулак — приём. Чем лучше обучишь — тем круче играешь.</p>
+    <p>Сам обучи ИИ двум жестам. Потом <b>проверь</b>, насколько он точный. Потом играй — там точность ИИ = твоя сила.</p>
     <button id="start" class="ok">▶️ Поехали</button>
     <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
   </div>
@@ -85,6 +131,15 @@
   <div class="screen hidden" id="loading">
     <div class="spin"></div><p id="loadmsg">Запускаю…</p>
     <button id="retry" class="ghost hidden">↻ Повторить</button>
+  </div>
+
+  <!-- результат проверки / карта ошибок -->
+  <div class="screen hidden" id="result">
+    <div id="rstitle"></div>
+    <div id="rsscore"></div>
+    <div id="rsmap"></div>
+    <div id="rsdiag"></div>
+    <div class="row" id="rsbtns"></div>
   </div>
 </div>
 
@@ -96,39 +151,42 @@ const DEMO=new URLSearchParams(location.search).has('demo');
 const cam=$('#cam'),cv=$('#cv'),ctx=cv.getContext('2d');
 const bigmsg=$('#bigmsg');
 const topEl=$('#top'),barsEl=$('#bars'),statEl=$('#stat'),toast=$('#toast'),flash=$('#flash');
-const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toGameBtn=$('#toGame');
+const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toCheckBtn=$('#toCheck');
+const checkui=$('#checkui');
 
-// классы: приём (кулак) + руль/ничего (раскрытая ладонь)
-const CLASSES=[{key:'power',emoji:'✊',name:'Приём (кулак)'},{key:'idle',emoji:'🖐',name:'Руль (ладонь)'}];
-let counts=[0,0]; const MINEX=6; // минимум примеров на жест, иначе игра «сломана»
+// классы: кулак (удар) + ладонь (щит/руль). Только 2 жеста (вариант C — во второй воркшоп).
+const CLASSES=[{key:'power',emoji:'✊',name:'Кулак',role:'удар'},{key:'idle',emoji:'🖐',name:'Ладонь',role:'щит'}];
+let counts=[0,0]; const MINEX=6; // минимум на жест, чтобы пойти на проверку (мало → провалишь проверку, это нормально)
+const CONF_OK=0.66;             // «согласие соседей» от k=3: 2 из 3 = 0.66, 3 из 3 = 1.0
 let landmarker=null, state='intro', audio=null;
 let lastLm=null, lastHand=null, lastTS=0;
+let provenTier=0;               // доказанная на проверке точность → сила в игре (0 «ненадёжен» .. 2 «надёжен»)
 
-/* ---- свой KNN (без tfjs) ---- */
+/* ---- свой KNN (без tfjs). conf = «согласие соседей» (доля k ближайших за класс), nn = расстояние до ближайшего ---- */
 const KNN={ex:[], add(f,l){this.ex.push({f,l})}, clear(){this.ex=[]},
+  delLast(l){ for(let i=this.ex.length-1;i>=0;i--){ if(this.ex[i].l===l){this.ex.splice(i,1);return true} } return false; },
   classify(f,k=3){ if(!this.ex.length)return null;
-    const d=this.ex.map(e=>({l:e.l,d:dist(f,e.f)})).sort((a,b)=>a.d-b.d).slice(0,Math.min(k,this.ex.length));
-    const v={}; for(const x of d)v[x.l]=(v[x.l]||0)+1;
-    let best=-1,bc=-1,total=0; for(const l in v){total+=v[l]; if(v[l]>bc){bc=v[l];best=+l}}
-    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/d.length;
-    return {label:best,confidences:conf};
+    const d=this.ex.map(e=>({l:e.l,d:dist(f,e.f)})).sort((a,b)=>a.d-b.d);
+    const kk=Math.min(k,d.length), top=d.slice(0,kk);
+    const v={}; for(const x of top)v[x.l]=(v[x.l]||0)+1;
+    let best=-1,bc=-1; for(const l in v){ if(v[l]>bc){bc=v[l];best=+l} }
+    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/kk;
+    return {label:best,confidences:conf,vote:bc/kk,nn:d[0].d};
   }};
 function dist(a,b){let s=0;for(let i=0;i<a.length;i++){const x=a[i]-b[i];s+=x*x}return Math.sqrt(s)}
 
-/* ---- признаки руки (инвариантны к позиции и масштабу) ---- */
+/* ---- признаки руки (инвариантны к позиции и масштабу; поворот НЕ нормализуем — наклон меняет признаки, это демонстрация bias) ---- */
 function feature(lm){ // lm: 21 точек {x,y,z} в [0,1]
   const w=lm[0]; // wrist — центр
   const scale=Math.hypot(lm[9].x-w.x,lm[9].y-w.y)||1; // wrist→middle_mcp
   const f=[]; for(const p of lm){ f.push((p.x-w.x)/scale,(p.y-w.y)/scale) } return f;
 }
-function palmX(lm){ // для руля: средний x по wrist+MCP, в [0,1]
-  const ids=[0,5,9,13,17]; let s=0; for(const i of ids)s+=lm[i].x; return s/ids.length;
-}
+function palmX(lm){ const ids=[0,5,9,13,17]; let s=0; for(const i of ids)s+=lm[i].x; return s/ids.length; }
 
 /* ---- аудио ---- */
 function initAudio(){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
 function beep(fr,du,ty='sine',vol=.2,to){if(!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=ty;o.frequency.setValueAtTime(fr,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+du);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+du);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+du)}
-const SFX={power(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500)},hit(){beep(120,.25,'square',.25,40)},learn(n){beep(440+n*40,.1,'triangle',.18)}};
+const SFX={power(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500)},shield(){beep(300,.25,'sine',.2,640)},hit(){beep(120,.25,'square',.25,40)},learn(n){beep(440+n*40,.1,'triangle',.18)},ding(){beep(660,.12,'triangle',.18,990)},buzz(){beep(160,.22,'square',.2,90)}};
 
 /* ---- эффекты ---- */
 let particles=[],shake=0;
@@ -136,14 +194,30 @@ function burst(x,y,n,tier){const sz=cv.width*(0.012+(tier||0)*0.004);for(let i=0
 function doFlash(){flash.style.transition='none';flash.style.opacity='.6';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0'})}
 function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
 
-/* ---- UI низа ---- */
-function buildTeach(){teachrow.innerHTML='';CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;el.innerHTML=`<div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b>/${MINEX}</div><div class="h">держи, чтобы учить</div>`;teachrow.appendChild(el)});bindHold()}
-function refresh(){[...teachrow.children].forEach((el,i)=>el.querySelector('.c b').textContent=counts[i])}
+/* ---- UI обучения ---- */
+const CHIPS=['близко','далеко','наклон','выше/ниже','другая рука'];
+function buildTeach(){
+  teachrow.innerHTML='';
+  CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;
+    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name} — ${c.role}</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h">держи, чтобы учить</div>`;
+    teachrow.appendChild(el)});
+  $('#chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip" data-c="${i}">${c}</span>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>ch.classList.toggle('on'));
+  bindHold(); refresh();
+}
+function refresh(){
+  [...teachrow.children].forEach((el,i)=>{el.querySelector('.c b').textContent=counts[i];el.querySelector('.del').disabled=!counts[i];});
+  // панель данных: счётчики + перекос
+  const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
+  let warn=''; if(mx>=4 && mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;warn=` · <span class="cw">⚠️ перекос — добери ${CLASSES[less].emoji}</span>`;}
+  $('#counts').innerHTML=`данные ИИ: ${CLASSES[0].emoji} <b>${counts[0]}</b> · ${CLASSES[1].emoji} <b>${counts[1]}</b>${warn}`;
+  toCheckBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
+}
 function updateHint(){
   if(state!=='train')return;
-  if(counts[0]===0||counts[1]===0)hintEl.textContent='Покажи приём (кулак) и держи кнопку, потом руль (ладонь). Так ты обучаешь ИИ.';
-  else if(counts[0]<6||counts[1]<6)hintEl.textContent='Двигай рукой — ИИ уже узнаёт! Мало примеров → путается. Добери ещё, меняя угол.';
-  else hintEl.textContent='ИИ узнаёт оба жеста? Жми «В игру». Точнее → добери разных примеров.';
+  if(counts[0]===0||counts[1]===0)hintEl.textContent='Покажи кулак и держи его кнопку, потом ладонь. Так ты обучаешь ИИ.';
+  else if(counts[0]<MINEX||counts[1]<MINEX)hintEl.textContent='Двигай рукой — ИИ уже учится! Мало примеров → путается. Добери ещё, меняя угол и расстояние.';
+  else hintEl.textContent='Готово к проверке. Хочешь точнее → добери РАЗНЫХ примеров (отметь галочки внизу).';
 }
 
 /* ---- камера + модель ---- */
@@ -152,7 +226,7 @@ async function initCamera(){ if(DEMO)return;
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
   let s;
   try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}
-  catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}  // запасной: любая камера
+  catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}
             catch(e2){throw new Error('CAM:'+e2.name)} }
   cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
   s.getVideoTracks()[0].addEventListener('ended',()=>{hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
@@ -164,11 +238,11 @@ async function initModel(){ if(DEMO)return;
 }
 function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
 
-/* ---- демо: фейковая рука (кулак/ладонь), движется по X ---- */
+/* ---- демо: фейковая рука ---- */
 let dC=0,dT=0;
 function fakeHand(){dT++;if(dT%90===0)dC=1-dC;
   const cx=0.5+0.35*Math.sin(dT/60),cy=0.5; const open=dC===1;
-  const lm=[{x:cx,y:cy+0.18,z:0}]; // wrist
+  const lm=[{x:cx,y:cy+0.18,z:0}];
   for(let f=0;f<5;f++){const ang=-Math.PI/2+(f-2)*0.4;const len=open?0.22:0.07;
     for(let j=1;j<=4;j++){lm.push({x:cx+Math.cos(ang)*len*j/4,y:cy+0.18+Math.sin(ang)*len*j/4,z:0})}}
   return {lm,hand:'Right'};
@@ -178,78 +252,262 @@ function fakeHand(){dT++;if(dT%90===0)dC=1-dC;
 let predCache=null;
 function predict(){ if(!lastLm)return null; return KNN.classify(feature(lastLm)); }
 function addExample(i){ if(!lastLm){showToast('Руку не видно\nподними в кадр',800);return}
-  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]); toGameBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
+  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]);
 }
 
-/* ---- бар-чарт ---- */
+/* ---- бар-чарт «согласие соседей» ---- */
 function updateBars(p){
   const ah=$('#aihead');
   if(state==='game'){ ah.style.display='none';
     if(!p||!lastLm){barsEl.innerHTML='';return}
-    const tp=p.label,tvc=Math.round((p.confidences[tp]||0)*100);
-    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=60?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
+    const tp=p.label,tvc=Math.round((p.vote||0)*100);
+    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=66?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
   ah.style.display='';
   if(!lastLm){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">✋ подними руку в кадр — ИИ ищет руку…</span></div>';return}
   if(!KNN.ex.length){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤖 ИИ пока пустой — научи его (держи кнопку 👇)</span></div>';return}
-  const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(conf[top]||0):0;
-  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
+  const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(p.vote||0):0;
+  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.66?' top':''}"><span class="l">${c.emoji} согласны: ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
 }
 
-/* ---- игра-додж ---- */
-let avatarX=0.5,objs=[],lives=3,score=0,powerCd=0,powCount=0,stable=[],gameT=0,powerArmed=true,unsureCount=0,wasUnsure=false;
-let effects=[],hitstopUntil=0,avatarTrail=[],powerCdTotal=12;
-let warmup=true,wStage=0,wStartX=null; // мини how-to в начале игры
-const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff']; // воксель-неон палитра
-function startGame(){ state='game';objs=[];lives=3;score=0;powerCd=0;gameT=0;stable=[];powerArmed=true;effects=[];avatarTrail=[];warmup=true;wStage=0;wStartX=null;unsureCount=0;wasUnsure=false;
-  $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');teachrow.classList.add('hidden');
-  hintEl.textContent='Двигай рукой ← → уворачивайся. Кулак = приём (сметает шары).'; showToast('ВЫЖИВАЙ!',900);
+/* ====================== A — ПРОВЕРКА РОБОТА ====================== */
+const CARDS_PER_CLASS=4;                       // 8 карточек (4+4)
+const READY=750,HOLD=1500,MEASURE_TAIL=560,REVEAL=950;
+let CHK=null, lastOwnCorrect=null;             // lastOwnCorrect: результат раунда 1 (для сравнения в раунде 2)
+function shuffledCards(){const a=[];for(let c=0;c<CLASSES.length;c++)for(let n=0;n<CARDS_PER_CLASS;n++)a.push({cls:c});
+  for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]]}return a;}
+function startCheck(round){
+  state='check';
+  CHK={round,cards:shuffledCards(),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[]};
+  $('#result').classList.add('hidden');
+  bottom.classList.add('hidden'); checkui.classList.remove('hidden');
+  $('#ckverdict').textContent='';
+  showToast(round===1?'Проверим, чему ИИ научился':'Стресс-тест! Другой рукой',1500);
 }
-function backToTrain(){ state='train'; bigmsg.classList.add('hidden'); $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');teachrow.classList.remove('hidden');updateHint(); }
+function judgeCard(card){
+  const s=CHK.samples, hands=s.filter(x=>x.hand);
+  let verdict,got=null;
+  if(s.length===0 || hands.length < Math.max(1,Math.ceil(s.length*0.5))) verdict='nohand';
+  else{
+    const cnt={}; hands.forEach(x=>{if(x.label!=null)cnt[x.label]=(cnt[x.label]||0)+1});
+    let mj=-1,mc=-1; for(const l in cnt){if(cnt[l]>mc){mc=cnt[l];mj=+l}}
+    const frac=mc/hands.length;
+    if(mj===-1)verdict='nohand';
+    else if(frac<0.6){verdict='wavered';got=mj;}      // предсказание скакало — «робот колебался», не «перепутал»
+    else if(mj===card.cls)verdict='correct';
+    else{verdict='confused';got=mj;}
+  }
+  CHK.results.push({cls:card.cls,verdict,got});
+  if(verdict==='correct')SFX.ding();else SFX.buzz();
+}
+function tickCheck(now){
+  if(!CHK)return; const card=CHK.cards[CHK.idx], el=now-CHK.t0;
+  if(CHK.phase==='ready'){ if(el>=READY){CHK.phase='hold';CHK.t0=now;CHK.samples=[];CHK.lastSample=0;} }
+  else if(CHK.phase==='hold'){
+    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=75){ CHK.lastSample=now;
+      CHK.samples.push({hand:!!lastLm,label:predCache?predCache.label:null}); }
+    if(el>=HOLD){ judgeCard(card); CHK.phase='reveal'; CHK.t0=now; }
+  }
+  else if(CHK.phase==='reveal'){ if(el>=REVEAL){ CHK.idx++;
+      if(CHK.idx>=CHK.cards.length){finishCheck();return;} CHK.phase='ready';CHK.t0=now; } }
+  renderCheckUI(card,now);
+}
+function renderCheckUI(card,now){
+  const el=now-CHK.t0;
+  $('#ckround').textContent=CHK.round===1?'🔍 Проверка робота':'🔥 Стресс-тест — новые условия';
+  $('#ckcount').textContent=`карточка ${CHK.idx+1} из ${CHK.cards.length}`;
+  const c=CLASSES[card.cls];
+  if(CHK.phase==='ready'){
+    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>приготовься: ${c.name}`;
+    $('#ckbar').style.width='0%'; $('#ckverdict').textContent='';
+    $('#ckhint').textContent=CHK.round===2?'покажи ДРУГОЙ рукой (которой не учил)':'покажи этот жест';
+  } else if(CHK.phase==='hold'){
+    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>держи: ${c.name}`;
+    const measuring=el>=HOLD-MEASURE_TAIL;
+    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%';
+    $('#ckbar').style.background=measuring?'var(--warn)':'var(--accent)';
+    $('#ckverdict').textContent=measuring?'📸 замеряю…':'';
+    $('#ckhint').textContent='';
+  } else { // reveal
+    const r=CHK.results[CHK.idx]; $('#ckbar').style.width='100%';
+    if(r.verdict==='correct'){$('#ckverdict').style.color='var(--ok)';$('#ckverdict').textContent='✅ верно!';}
+    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не увидел руку';}
+    else if(r.verdict==='wavered'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='😵 ИИ колебался';}
+    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ увидел ${CLASSES[r.got].emoji}`;}
+    $('#ckhint').textContent='';
+  }
+}
+function finishCheck(){
+  state='train-pause'; checkui.classList.add('hidden');
+  // confusion по классам
+  const pc=[{correct:0,confused:0,nohand:0,wavered:0,total:0},{correct:0,confused:0,nohand:0,wavered:0,total:0}];
+  for(const r of CHK.results){pc[r.cls].total++;pc[r.cls][r.verdict]++;}
+  const c0=pc[0].correct,c1=pc[1].correct,totalCorrect=c0+c1,totalCards=CHK.results.length;
+  const pass=(c0>=3&&c1>=3), noZero=(c0>0&&c1>0), almost=(!pass&&totalCorrect>=6&&noZero), fail=(!pass&&!almost);
+  const outcome=pass?'pass':almost?'almost':'fail';
+  if(CHK.round===1)lastOwnCorrect=totalCorrect;
+  // доказанная точность → сила
+  if(!fail) provenTier=(CHK.round===2&&pass)?2:(pass?Math.max(provenTier,1):Math.max(provenTier,0));
+  showResult({pc,c0,c1,totalCorrect,totalCards,outcome,round:CHK.round});
+}
+function recommend(pc,outcome,round){
+  const recs=[];
+  // перекос классов
+  const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
+  if(mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;recs.push(`Перекос данных: ${CLASSES[0].emoji} ${counts[0]} · ${CLASSES[1].emoji} ${counts[1]}. Добери ${CLASSES[less].emoji} ${CLASSES[less].name}, а не ещё ${CLASSES[1-less].emoji}.`);}
+  // путаница по классам
+  for(let c=0;c<2;c++){ if(pc[c].confused>=2)recs.push(`ИИ часто принимал ${CLASSES[c].emoji} ${CLASSES[c].name} за ${CLASSES[1-c].emoji}. Добери ${CLASSES[c].emoji} с РАЗНЫМ наклоном и поворотом.`); }
+  // не видел руку
+  for(let c=0;c<2;c++){ if(pc[c].nohand>=2)recs.push(`ИИ не видел руку на ${CLASSES[c].emoji} ${CLASSES[c].name}. Держи руку целиком в кадре, не слишком близко, и добери ${CLASSES[c].emoji}.`); }
+  // колебался
+  for(let c=0;c<2;c++){ if(pc[c].wavered>=2)recs.push(`ИИ колебался на ${CLASSES[c].emoji} — примеры слишком похожи или их мало. Добери разных.`); }
+  // провал на новых условиях — для раунда 2 это ГЛАВНЫЙ вывод, ставим первым
+  if(round===2 && outcome!=='pass')recs.unshift('На ДРУГОЙ руке точность просела — это и есть «ИИ знает только то, что ты показал». Добавь оба жеста другой рукой (по 5).');
+  if(!recs.length && outcome!=='pass')recs.push('Добери по 5–8 РАЗНЫХ примеров каждого жеста: меняй угол, расстояние, высоту, руку.');
+  return recs.slice(0,2);
+}
+function showResult({pc,c0,c1,totalCorrect,totalCards,outcome,round}){
+  const titEl=$('#rstitle'),scEl=$('#rsscore'),mapEl=$('#rsmap'),diagEl=$('#rsdiag'),btns=$('#rsbtns');
+  // заголовок
+  if(outcome==='pass')titEl.innerHTML=round===2?'🎉 ИИ надёжный!':'✅ ИИ научился!';
+  else if(outcome==='almost')titEl.innerHTML='🟡 ИИ почти готов';
+  else titEl.innerHTML='🔧 ИИ ещё путается';
+  // счёт + сравнение
+  let sc=`Точность: <b>${totalCorrect} из ${totalCards}</b>`;
+  if(round===2 && lastOwnCorrect!=null)sc=`Свои условия: <b>${lastOwnCorrect}/8</b> · Новые условия: <b>${totalCorrect}/8</b>`;
+  scEl.innerHTML=sc;
+  // карта ошибок
+  mapEl.innerHTML=[0,1].map(c=>{
+    const p=pc[c],e=CLASSES[c].emoji,oe=CLASSES[1-c].emoji,parts=[`${p.correct} из ${p.total} верно`];
+    if(p.confused)parts.push(`${p.confused}× принял за ${oe}`);
+    if(p.nohand)parts.push(`${p.nohand}× не видел руку`);
+    if(p.wavered)parts.push(`${p.wavered}× колебался`);
+    const cls=p.correct>=3?'good':'bad';
+    return `<div class="rscard ${cls}">${e} <b>${CLASSES[c].name}</b>: ${parts.join(' · ')}</div>`;
+  }).join('');
+  // диагностика
+  const recs=recommend(pc,outcome,round);
+  diagEl.innerHTML=recs.length?('<div style="font-size:13px;color:var(--muted);text-align:left;width:100%">💡 что добрать дальше:</div>'+recs.map(r=>`<div class="rsrec">${r}</div>`).join('')):'';
+  // кнопки по исходу
+  btns.innerHTML='';
+  const mk=(txt,cls,fn)=>{const b=document.createElement('button');b.className=cls;b.textContent=txt;b.onclick=fn;btns.appendChild(b);};
+  if(outcome==='fail'){
+    mk('← Добрать данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+  } else if(round===1){
+    mk('🔥 Стресс-тест: проверь по-честному','ok',()=>{ $('#result').classList.add('hidden'); startCheck(2); });
+    mk(outcome==='almost'?'▶️ Играть (ИИ ненадёжен)':'▶️ Сразу в игру','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+  } else { // round 2
+    if(outcome==='pass'){
+      mk('▶️ В игру — точность = сила','ok',()=>{ $('#result').classList.add('hidden'); startGame(); });
+      mk('← Добрать ещё','ghost',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+    } else {
+      mk('← Добрать данные и перепроверить','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+      mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+    }
+  }
+  $('#result').classList.remove('hidden');
+}
+
+/* ====================== B — ИГРА (точность = сила) ====================== */
+let avatarX=0.5,objs=[],lives=3,score=0,gameT=0,avatarTrail=[],effects=[],hitstopUntil=0;
+let atkCharge=0,palmStableFrames=0;            // удар = заряд кулака; щит = удержание ладони
+let cmds=[],cmdTimer=0,cmdStats={done:0,total:0,misread:0,unsure:0,nohand:0};
+let warmup=true,wStage=0,wStartX=null;
+const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff'];
+const CMD_VY=0.0052, CMD_IMPACT=0.74, CMD_INTERVAL=230; // частота и скорость команд
+function startGame(){ state='game';
+  objs=[];lives=3;score=0;gameT=0;effects=[];avatarTrail=[];atkCharge=0;palmStableFrames=0;
+  cmds=[];cmdTimer=120;cmdStats={done:0,total:0,misread:0,unsure:0,nohand:0};
+  warmup=true;wStage=0;wStartX=null;
+  $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');teachrow.classList.add('hidden');
+  $('#datapanel').classList.add('hidden');bottom.classList.remove('hidden');
+  hintEl.textContent='Двигай рукой ← → уворачивайся. Команды ЩИТ/УДАР — покажи нужный жест.';
+  showToast(provenTier>=2?'НАДЁЖНЫЙ ИИ! 💪':'ВЫЖИВАЙ!',900);
+}
+function backToTrain(){ state='train'; bigmsg.classList.add('hidden');
+  $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');
+  teachrow.classList.remove('hidden');$('#datapanel').classList.remove('hidden');
+  bottom.classList.remove('hidden'); refresh(); updateHint();
+}
+function spawnCommand(){ const punch=Math.random()<0.5; cmds.push({kind:punch?'punch':'shield',req:punch?0:1,y:-0.14,judged:false}); }
 function tickGame(p,now){
-  if(now<hitstopUntil)return;           // hitstop: физика заморожена, рендер продолжается
+  if(now<hitstopUntil)return;
   gameT++;
-  if(lastLm) avatarX = avatarX*0.6 + (1-palmX(lastLm))*0.4; // зеркально, EMA
-  // ПРИЁМ — одно срабатывание на сжатие (перезарядка через возврат ладони). Сила = уверенность ИИ.
-  if(p){stable.push(p.label);if(stable.length>5)stable.shift();
-    const fistN=stable.filter(x=>x===0).length, idleN=stable.filter(x=>x===1).length;
-    if(idleN>=3) powerArmed=true;
-    const conf=p.confidences[0]||0, isFist=fistN>=3 && conf>=.55;
-    if(isFist && powerArmed && powerCd<=0){
-      powerArmed=false; powerCdTotal=18; powerCd=powerCdTotal; powCount++; if(warmup&&wStage===1)wStage=2;
-      const ax=avatarX*cv.width, ay=cv.height*0.82;
-      const tier = conf>=.9?2 : conf>=.72?1 : 0;          // лучше обучил → мощнее
-      const R = cv.width*(tier===2?0.26:tier===1?0.18:0.10);
-      const before=objs.length; objs=objs.filter(o=>Math.abs(o.x-ax)>R); const cleared=before-objs.length;
-      score+=cleared*10;
-      effects.push({type:'wave',x:ax,y:ay,r:0,maxR:R,life:1});
-      burst(ax,ay,Math.min(8+cleared*3,26),tier);
-      SFX.power(); hitstopUntil=now+(60+Math.min(cleared,5)*14); shake=6+tier*4;
-      if(!warmup) effects.push(cleared
-        ? {type:'txt',x:ax,y:ay-cv.width*0.09,t:'+'+cleared*10,c:NEON[0],life:1}
-        : {type:'txt',x:ax,y:ay-cv.width*0.09,t:'ИИ не уверен '+Math.round(conf*100)+'%',c:'#ffcf5c',life:1.3});
-    }}
-  if(powerCd>0)powerCd--;
-  // мини how-to: разминка — шары не летят, ребёнок по шагам пробует управление
+  if(lastLm) avatarX = avatarX*0.6 + (1-palmX(lastLm))*0.4;
+  // состояние жеста от ИИ
+  const hand=!!lastLm, lbl=p?p.label:-1, vote=p?(p.vote||0):0;
+  const fistConf=hand&&lbl===0&&vote>=CONF_OK, palmConf=hand&&lbl===1&&vote>=CONF_OK;
+  atkCharge = fistConf ? Math.min(1, atkCharge+(vote>=0.99?0.030:0.017)*(1+provenTier*0.22)) : Math.max(0, atkCharge-0.035);
+  palmStableFrames = palmConf ? palmStableFrames+1 : 0;
+
+  // ── разминка (how-to) ──
   if(warmup){
     bigmsg.classList.remove('hidden');
     if(wStartX===null)wStartX=avatarX;
     if(wStage===0){bigmsg.innerHTML='👋 Подвигай рукой<br>влево-вправо';if(Math.abs(avatarX-wStartX)>0.18)wStage=1;}
-    else if(wStage===1)bigmsg.innerHTML='✊ Сожми кулак —<br>это твой ПРИЁМ!';
-    else if(wStage===2){bigmsg.innerHTML='🖐 Разожми ладонь —<br>приём заряжается снова';if(powerArmed)wStage=3;}
-    else{warmup=false;bigmsg.classList.add('hidden');hintEl.textContent='Двигай рукой ← → · кулак = приём';showToast('ПОЕХАЛИ! 💪',1000);}
+    else if(wStage===1){bigmsg.innerHTML='✊ Сожми кулак —<br>копится УДАР';if(atkCharge>=1){wStage=2;atkCharge=0;}}
+    else if(wStage===2){bigmsg.innerHTML='🖐 Раскрой ладонь —<br>это ЩИТ';if(palmStableFrames>=14)wStage=3;}
+    else{warmup=false;bigmsg.classList.add('hidden');hintEl.textContent='Команды ЩИТ 🖐 / УДАР ✊ — покажи жест вовремя';showToast('ПОЕХАЛИ! 💪',1000);cmdTimer=70;}
     return;
   }
-  // лог неуверенности ИИ — данные для разбора в конце (момент = переход в «неуверен»)
-  if(p){const tc=Math.max(p.confidences[0]||0,p.confidences[1]||0); if(tc<0.6){if(!wasUnsure){unsureCount++;wasUnsure=true;}}else wasUnsure=false;}
-  if(gameT%Math.max(20,58-gameT/40)<1){objs.push({x:cv.width*(0.1+Math.random()*0.8),y:-30,v:4+Math.random()*4+gameT/600})}
+
+  // ── команды (целевые жесты: щит=ладонь, удар=кулак) ──
+  for(const c of cmds){
+    c.y+=CMD_VY;
+    if(c.judged)continue;
+    // удар: заряд кулака должен наполниться ДО удара
+    if(c.kind==='punch'){
+      if(atkCharge>=0.99){ resolveCmd(c,true,now); atkCharge=0; continue; }
+      if(c.y>=CMD_IMPACT) resolveCmd(c,false,now);
+    } else { // щит: устойчиво держать ладонь в момент удара
+      if(c.y>=CMD_IMPACT) resolveCmd(c, palmStableFrames>=16, now);
+    }
+  }
+  cmds=cmds.filter(c=>!(c.judged&&c.y>1.1));
+  cmdTimer--; if(cmdTimer<=0){ spawnCommand(); cmdTimer=CMD_INTERVAL; }
+
+  // ── ambient: кулак вне команды = бонус-сметание ближних шаров ──
+  if(atkCharge>=1 && !cmds.some(c=>c.kind==='punch'&&!c.judged)){
+    const ax=avatarX*cv.width, ay=cv.height*0.82, R=cv.width*(0.10+provenTier*0.03);
+    const before=objs.length; objs=objs.filter(o=>Math.abs(o.x-ax)>R||o.y<ay-R); const cl=before-objs.length;
+    if(cl){score+=cl*5;effects.push({type:'wave',x:ax,y:ay,r:0,maxR:R,life:1});burst(ax,ay,8+cl*2,1);SFX.power();shake=5;}
+    atkCharge=0;
+  }
+
+  // ── падающие шары (увернуться позицией) ──
+  const slow=cmds.some(c=>!c.judged)?2:1; // во время команды реже
+  if(gameT%Math.max(22,(58-gameT/40)*slow)<1){objs.push({x:cv.width*(0.1+Math.random()*0.8),y:-30,v:3.4+Math.random()*3.4+gameT/650})}
   const ax=avatarX*cv.width,ay=cv.height*0.82,r=cv.width*0.045;
-  for(const o of objs){o.y+=o.v; if(!o.hit && o.y>ay-r && o.y<ay+r && Math.abs(o.x-ax)<r+cv.width*0.026){o.hit=true;lives--;SFX.hit();shake=10;effects.push({type:'txt',x:ax,y:ay-30,t:'−1',c:'#ff6b8b',life:1}); if(lives<=0)endGame()}}
-  const dodged=objs.filter(o=>o.y>=cv.height+40&&!o.hit).length; if(dodged)score+=dodged*5;
+  for(const o of objs){o.y+=o.v; if(!o.hit && o.y>ay-r && o.y<ay+r && Math.abs(o.x-ax)<r+cv.width*0.026){o.hit=true;lives--;SFX.hit();shake=10;effects.push({type:'txt',x:ax,y:ay-30,t:'−1',c:'#ff6b8b',life:1}); if(lives<=0){endGame();return}}}
+  const dodged=objs.filter(o=>o.y>=cv.height+40&&!o.hit).length; if(dodged)score+=dodged*4;
   objs=objs.filter(o=>o.y<cv.height+40&&!o.hit);
 }
-function endGame(){const nom=powCount>=5?'🔥 Мастер приёма':(score>=40?'🛡️ Живучий':'🎯 Новичок');
-  showToast(`💀 Конец · счёт ${score}\n${nom}\n🤔 ИИ сомневался ${unsureCount} раз\nдобери РАЗНЫХ примеров — будет увереннее`,3800);
-  setTimeout(backToTrain,2400);
+function resolveCmd(c,ok,now){
+  c.judged=true; cmdStats.total++;
+  const ax=avatarX*cv.width, ay=cv.height*CMD_IMPACT;
+  if(ok){
+    cmdStats.done++; score+=20+provenTier*10;
+    effects.push({type:'wave',x:ax,y:ay,r:0,maxR:cv.width*0.24,life:1});
+    burst(ax,ay,18,2); effects.push({type:'txt',x:ax,y:ay-cv.width*0.08,t:(c.kind==='shield'?'ЩИТ ✅':'УДАР ✅'),c:NEON[0],life:1.1});
+    c.kind==='shield'?SFX.shield():SFX.power(); hitstopUntil=now+90; shake=8; doFlash();
+  } else {
+    lives--; SFX.hit(); shake=12; c.fail=true;
+    const need=CLASSES[c.req].emoji; let txt,cause;
+    if(!lastLm){cause='nohand';cmdStats.nohand++;txt='нет руки! нужен '+need;}
+    else if(predCache && predCache.label!==c.req){cause='misread';cmdStats.misread++;txt='ИИ: '+CLASSES[predCache.label].emoji+' ≠ '+need;}
+    else{cause='unsure';cmdStats.unsure++;txt='ИИ не уверен · нужен '+need;}
+    effects.push({type:'txt',x:ax,y:ay-cv.width*0.07,t:txt,c:'#ff6b8b',life:1.4});
+    if(lives<=0){endGame();return}
+  }
+}
+function endGame(){
+  state='gameover';
+  const nom=cmdStats.done>=6?'🔥 Мастер команд':(score>=60?'🛡️ Живучий':'🎯 Новичок');
+  let line2=`команды ИИ: ${cmdStats.done}/${cmdStats.total} ✅`;
+  const fails=[]; if(cmdStats.misread)fails.push(`${cmdStats.misread}× перепутал жест`);
+  if(cmdStats.unsure)fails.push(`${cmdStats.unsure}× был не уверен`); if(cmdStats.nohand)fails.push(`${cmdStats.nohand}× не видел руку`);
+  const tip = (cmdStats.misread||cmdStats.unsure) ? 'добери РАЗНЫХ примеров (особенно другой рукой) и проверь снова' : 'отличный ИИ — он почти не ошибался';
+  showToast(`💀 Счёт ${score} · ${nom}\n${line2}${fails.length?'\n'+fails.join(' · '):''}\n${tip}`,4200);
+  setTimeout(()=>{ if(state==='gameover')backToTrain(); },3600);
 }
 
 /* ---- рендер ---- */
@@ -270,34 +528,39 @@ function loop(now){
   if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height)}
   else{ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);try{ctx.drawImage(cam,0,0,cv.width,cv.height)}catch(e){}ctx.restore()}
 
-  // в тренировке — скелет руки (perception виден); в игре — затемнить фон + аватар + объекты
-  if(state==='train'&&lastLm)drawHand(lastLm);
-  if(state==='game'){
+  const showSkeleton=(state==='train'||state==='check'||state==='train-pause');
+  if(showSkeleton&&lastLm)drawHand(lastLm);
+  if(state==='check')tickCheck(now);
+
+  if(state==='game'||state==='gameover'){
     ctx.fillStyle='rgba(8,11,18,.6)';ctx.fillRect(0,0,cv.width,cv.height);
     const frozen=now<hitstopUntil;
-    if(!frozen){avatarTrail.push(avatarX);if(avatarTrail.length>8)avatarTrail.shift();}
+    if(!frozen&&state==='game'){avatarTrail.push(avatarX);if(avatarTrail.length>8)avatarTrail.shift();}
     const ay=cv.height*0.82, bob=Math.sin(now*0.006)*cv.width*0.006, R0=cv.width*0.05;
-    // шары-препятствия — светящийся неон-квадрат
+    // команды (телеграф + кольцо-заряд)
+    for(const c of cmds){drawCmd(c);}
+    // падающие шары
     for(const o of objs){ctx.save();ctx.fillStyle='#ff6b8b';ctx.shadowColor='#ff6b8b';ctx.shadowBlur=cv.width*0.02;const s=cv.width*0.032;ctx.fillRect(o.x-s/2,o.y-s/2,s,s);ctx.restore()}
-    // шлейф аватара
+    // шлейф
     for(let i=0;i<avatarTrail.length;i++){const tx=avatarTrail[i]*cv.width,s=R0*1.4*(i/avatarTrail.length);ctx.globalAlpha=(i/avatarTrail.length)*0.35;ctx.fillStyle='#7aa2ff';ctx.fillRect(tx-s/2,ay-s/2,s,s)}
     ctx.globalAlpha=1;
-    // аватар — светящийся воксель + squash по скорости
+    // аватар
     const ax=avatarX*cv.width;
     const vx=Math.abs(avatarTrail.length>1?(avatarTrail[avatarTrail.length-1]-avatarTrail[avatarTrail.length-2]):0)*cv.width;
     const w=R0*1.4*(1+Math.min(vx*0.02,0.4)), h=R0*1.4*(1-Math.min(vx*0.01,0.2));
-    ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=(powerArmed&&powerCd<=0)?'#9bd1ff':'#5a78b8';ctx.fillRect(ax-w/2,ay+bob-h/2,w,h);ctx.restore();
-    // кольцо-заряд приёма: зелёное = заряжен (разжал ладонь), красное = потрачен (надо разжать)
-    ctx.strokeStyle=powerArmed?'#46e08a':'rgba(255,107,139,.75)';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(ax,ay+bob,R0*1.55,0,7);ctx.stroke();
-    ctx.fillStyle=powerArmed?'#46e08a':'#ffcf5c';ctx.font='800 '+Math.round(cv.width*0.026)+'px sans-serif';ctx.textAlign='center';ctx.fillText(powerArmed?'ГОТОВ':'РАЗОЖМИ ✋',ax,ay+bob+R0*2.15);
+    const shieldOn=palmStableFrames>=16;
+    ctx.save();ctx.shadowColor=shieldOn?'#46e08a':'#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=shieldOn?'#7af0b0':(atkCharge>0.5?'#9bd1ff':'#5a78b8');ctx.fillRect(ax-w/2,ay+bob-h/2,w,h);ctx.restore();
+    // щит-дуга при удержании ладони
+    if(shieldOn){ctx.strokeStyle='#46e08a';ctx.lineWidth=Math.max(3,cv.width*0.008);ctx.beginPath();ctx.arc(ax,ay+bob,R0*1.7,Math.PI,2*Math.PI);ctx.stroke();}
+    // индикатор заряда удара
+    if(atkCharge>0){ctx.strokeStyle='#ffcf5c';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(ax,ay+bob,R0*1.45,-Math.PI/2,-Math.PI/2+atkCharge*2*Math.PI);ctx.stroke();}
     if(lastLm)drawHandMini(lastLm);
-    tickGame(predCache,now);
+    if(state==='game')tickGame(predCache,now);
   }
-  // частицы — воксель-осколки (чистые квадраты, не эмодзи)
+  // частицы
   particles=particles.filter(p=>p.life>0);
   for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.025;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.c;ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz)}
   ctx.globalAlpha=1;
-  // эффекты: волна приёма + всплывающий текст (canvas, не DOM)
   effects=effects.filter(e=>e.life>0);
   for(const e of effects){
     if(e.type==='wave'){e.r+=(e.maxR-e.r)*0.25;e.life-=0.06;ctx.globalAlpha=Math.max(0,e.life)*0.85;ctx.strokeStyle='#7aa2ff';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,7);ctx.stroke();}
@@ -305,11 +568,24 @@ function loop(now){
   }
   ctx.globalAlpha=1;ctx.restore();
 
-  if(state==='train'){updateBars(predCache);
+  if(state==='train'||state==='check'||state==='train-pause'){updateBars(predCache);
     statEl.innerHTML = lastLm ? '<span style="color:var(--ok)">📷 ✋ вижу руку</span>' : '<span style="color:var(--warn)">📷 руку не вижу</span>';
   }
-  if(state==='game'){updateBars(predCache);statEl.innerHTML=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
+  if(state==='game'||state==='gameover'){updateBars(predCache);statEl.innerHTML=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
   requestAnimationFrame(loop);
+}
+function drawCmd(c){
+  const ax=avatarX*cv.width, y=c.y*cv.height, isP=c.kind==='punch';
+  const col=isP?'#ffcf5c':'#7aa2ff', em=CLASSES[c.req].emoji, label=isP?'УДАР':'ЩИТ';
+  ctx.save();
+  ctx.globalAlpha=c.judged?Math.max(0,1-(c.y-CMD_IMPACT)*4):1;
+  ctx.shadowColor=col;ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=c.fail?'#ff6b8b':col;
+  const s=cv.width*0.085; ctx.fillRect(ax-s/2,y-s/2,s,s);
+  ctx.shadowBlur=0;ctx.fillStyle='#06121f';ctx.font='900 '+Math.round(s*0.5)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(em,ax,y);
+  ctx.fillStyle=col;ctx.font='900 '+Math.round(cv.width*0.04)+'px sans-serif';ctx.textBaseline='alphabetic';
+  ctx.fillText(label,ax,y-s*0.8);
+  ctx.restore();
 }
 const FINGERS=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
 function px(p){return (DEMO?p.x:(1-p.x))*cv.width} function py(p){return p.y*cv.height}
@@ -330,10 +606,13 @@ async function boot(){$('#intro').classList.add('hidden');$('#loading').classLis
     setLoad(m.startsWith('CAM:')?'❌ Нет камеры. Разреши доступ/подключи камеру. ('+m+')':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 $('#start').onclick=boot;$('#retry').onclick=boot;
-toGameBtn.onclick=startGame;$('#again').onclick=backToTrain;
-$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;refresh();updateHint();toGameBtn.disabled=true};
+toCheckBtn.onclick=()=>startCheck(1);
+$('#again').onclick=()=>{ if(state==='game'){state='gameover';} backToTrain(); };
+$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;provenTier=0;lastOwnCorrect=null;refresh();updateHint()};
 function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
-  const dn=e=>{e.preventDefault();if(state!=='train')return;el.classList.add('rec');addExample(i);t=setInterval(()=>addExample(i),400)};
+  const del=el.querySelector('.del');
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);predCache=predict();refresh();updateHint();SFX.buzz();}});
+  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');addExample(i);t=setInterval(()=>addExample(i),400)};
   const up=()=>{clearInterval(t);el.classList.remove('rec')};
   el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
 window.addEventListener('resize',resize);
