@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Знаки: натренируй ИИ и отбивайся</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%A4%9A</text></svg>">
+<title>Натренируй ИИ по картинке</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%93%B7</text></svg>">
 <style>
   :root{--bg:#0b0e14;--panel:rgba(14,19,28,.86);--line:#2a3445;--accent:#7aa2ff;--ok:#46e08a;--warn:#ffcf5c;--bad:#ff6b8b;--text:#eef3fb;--muted:#9aa6b8}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -24,18 +24,23 @@
   .bar.top .t>i{background:var(--accent)} .bar.top .l{color:var(--accent)}
   .bar .p{flex:0 0 38px;text-align:right;font-size:13px;font-weight:800;color:var(--muted);text-shadow:0 1px 3px #000}
   .bar.top .p{color:var(--accent)}
-  #stat{font-size:14px;font-weight:800;text-shadow:0 2px 6px #000;text-align:right;min-width:110px}
+  #stat{font-size:14px;font-weight:800;text-shadow:0 2px 6px #000;text-align:right;min-width:96px}
+  /* glass-box: что «видит» ИИ (пикселизированный кадр) */
+  #peek{position:absolute;right:10px;top:84px;width:84px;height:84px;border:2px solid var(--line);border-radius:10px;image-rendering:pixelated;background:#000;box-shadow:0 2px 8px #000a;z-index:6}
+  #peeklbl{position:absolute;right:10px;top:170px;width:84px;text-align:center;font-size:10px;color:var(--muted);text-shadow:0 1px 2px #000;z-index:6;pointer-events:none}
 
   #toast{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(24px,7vw,42px);font-weight:900;text-align:center;text-shadow:0 4px 16px #000;pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line;width:min(92vw,640px)}
   #bigmsg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);width:min(90vw,640px);text-align:center;font-size:clamp(22px,5.5vw,34px);font-weight:800;color:#fff;text-shadow:0 3px 16px #000;background:rgba(8,11,18,.5);border-radius:18px;padding:16px 20px;backdrop-filter:blur(3px);pointer-events:none;line-height:1.3}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  /* целевая зона сбора (режиссура bias) */
+  #zone{position:absolute;border:3px dashed var(--ok);border-radius:18px;pointer-events:none;z-index:4;display:flex;align-items:flex-start;justify-content:center;transition:all .25s}
+  #zone .zl{margin-top:-26px;background:var(--ok);color:#06160c;font-size:13px;font-weight:800;padding:3px 10px;border-radius:999px;white-space:nowrap}
 
-  /* проверка робота */
   #checkui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,560px);text-align:center;pointer-events:none;z-index:15}
   #ckround{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--warn);text-shadow:0 2px 6px #000;text-transform:uppercase}
   #ckcount{font-size:13px;color:var(--muted);text-shadow:0 1px 3px #000;margin-top:2px}
-  #cktarget{font-size:clamp(26px,7vw,44px);font-weight:900;margin:8px 0 4px;text-shadow:0 4px 18px #000;line-height:1.15}
-  #cktarget .em{font-size:clamp(64px,20vw,128px);display:block;line-height:1}
+  #cktarget{font-size:clamp(24px,6vw,38px);font-weight:900;margin:8px 0 4px;text-shadow:0 4px 18px #000;line-height:1.2}
+  #cktarget .em{font-size:clamp(58px,18vw,118px);display:block;line-height:1}
   #ckbarwrap{height:14px;background:#0009;border:1px solid #fff3;border-radius:9px;overflow:hidden;margin:14px auto 0;width:min(72vw,360px)}
   #ckbar{height:100%;width:0;background:var(--accent);transition:width .08s linear}
   #ckverdict{font-size:clamp(22px,6vw,34px);font-weight:900;margin-top:12px;min-height:1.2em;text-shadow:0 3px 14px #000}
@@ -52,7 +57,7 @@
   .row{display:flex;gap:10px}
   .teach{position:relative;flex:1;background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:11px 8px 12px;text-align:center;backdrop-filter:blur(6px);cursor:pointer;transition:border-color .12s,transform .05s}
   .teach:active{transform:scale(.97)} .teach.rec{border-color:var(--ok);background:rgba(70,224,138,.18)}
-  .teach .e{font-size:30px;line-height:1.1}.teach .n{font-size:13px;color:var(--muted)}.teach .c{font-size:14px;font-weight:800;margin-top:3px}.teach .c b{color:var(--ok)}.teach .h{font-size:11px;color:var(--muted);margin-top:2px}
+  .teach .e{font-size:30px;line-height:1.1}.teach .n{font-size:13px;color:var(--muted)}.teach .c{font-size:14px;font-weight:800;margin-top:3px}.teach .c b{color:var(--ok)}.teach .h{font-size:11px;color:var(--warn);margin-top:2px;font-weight:700}
   .teach .del{position:absolute;top:5px;right:6px;width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:rgba(10,13,20,.85);color:var(--muted);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:0;padding:0;flex:none}
   .teach .del:disabled{opacity:.3}
   button{flex:1;border:none;border-radius:16px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#fff;background:var(--accent);min-height:54px}
@@ -61,7 +66,7 @@
   #reset{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:13px;text-decoration:underline;align-self:center;min-height:0;padding:2px}
 
   .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:16px;background:radial-gradient(120% 90% at 50% 12%,#1a2030,#0b0e14);overflow-y:auto}
-  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:360px;line-height:1.5;margin:0;font-size:15px}
+  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:380px;line-height:1.5;margin:0;font-size:15px}
   .screen button{flex:0 0 auto;width:min(420px,82vw)}
   .badge{background:#10151e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
   .spin{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
@@ -80,12 +85,15 @@
 <div id="app">
   <video id="cam" autoplay playsinline muted></video>
   <canvas id="cv"></canvas>
+  <canvas id="peek" width="32" height="32" class="hidden"></canvas>
+  <div id="peeklbl" class="hidden">что видит ИИ</div>
 
   <div id="top" class="hidden">
-    <div id="ai"><div id="aihead">🤖 ИИ видит:</div><div id="bars"></div></div>
+    <div id="ai"><div id="aihead">🤖 ИИ сравнивает кадр с примерами:</div><div id="bars"></div></div>
     <div id="stat"></div>
   </div>
   <div id="flash"></div>
+  <div id="zone" class="hidden"><span class="zl"></span></div>
   <div id="toast"></div>
   <div id="bigmsg" class="hidden"></div>
 
@@ -115,9 +123,9 @@
   </div>
 
   <div class="screen" id="intro">
-    <div class="big">🤘</div>
-    <h1>Знаки: натренируй ИИ</h1>
-    <p>Сам обучи ИИ двум жестам — ✌️ и 🤘. Потом отбивай ими знаки. Чем точнее ИИ их различает, тем легче играть.</p>
+    <div class="big">📷</div>
+    <h1>Натренируй ИИ по картинке</h1>
+    <p>ИИ смотрит на кадр с камеры и учится на ТВОИХ примерах. Покажешь однообразно — он выучит не то. Покажешь разное — станет точным.</p>
     <button id="start" class="ok">▶️ Поехали</button>
     <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
   </div>
@@ -137,7 +145,7 @@
 </div>
 
 <script type="module">
-import { HandLandmarker, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
+import { ImageEmbedder, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
 
 const $=s=>document.querySelector(s);
 const DEMO=new URLSearchParams(location.search).has('demo');
@@ -145,70 +153,100 @@ const cam=$('#cam'),cv=$('#cv'),ctx=cv.getContext('2d');
 const bigmsg=$('#bigmsg');
 const topEl=$('#top'),barsEl=$('#bars'),statEl=$('#stat'),toast=$('#toast'),flash=$('#flash');
 const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toCheckBtn=$('#toCheck');
-const checkui=$('#checkui');
+const checkui=$('#checkui'),zoneEl=$('#zone'),peek=$('#peek'),peekCtx=peek.getContext('2d');
 
-// ДВА ПОХОЖИХ жеста (оба «два пальца вверх») — плохая/однообразная модель путает, хорошая различает.
-const CLASSES=[{emoji:'✌️',name:'двойка',color:'#7aa2ff'},{emoji:'🤘',name:'коза',color:'#ffcf5c'}];
-let counts=[0,0]; const MINEX=6;       // быстрый режим 6/класс; цель 12–15 (чеклист зовёт)
-const CONF_OK=0.66;                    // «согласие соседей» k=3: 2/3
-let landmarker=null, state='intro', audio=null;
-let lastLm=null, lastHand=null, lastTS=0;
-let provenTier=0;                      // доказанная на проверке точность → влияет на силу в игре
+// 2 КРУПНЫХ класса (image-KNN). zone — куда вести руку в раунде 1 (режиссируем dataset bias).
+const CLASSES=[
+  {emoji:'✋',name:'ладонь',color:'#7aa2ff', zone:{x:0.10,y:0.18,w:0.42,h:0.6}, zoneText:'СЛЕВА, ближе'},
+  {emoji:'✊',name:'кулак', color:'#ffcf5c', zone:{x:0.48,y:0.30,w:0.40,h:0.52}, zoneText:'СПРАВА, дальше'}
+];
+let counts=[0,0]; const MINEX=5;          // раунд 1: 5–7/класс (Codex)
+const EMB_W=0.65, PIX_W=0.35;             // вес image-эмбеддинга vs сырых пикселей
+const K_BIG=5, K_SMALL=3, NN_FAR=0.55;    // k и порог «непохоже/нет руки» (cos-расстояние)
+let embedder=null, state='intro', audio=null;
+let biasRound=1;                          // 1 = режиссируем однообразный сбор; 2 = чиним разнообразием
+let provenTier=0, lastNN=1;
 
-/* ---- KNN (без tfjs). conf = «согласие соседей»; nn = расстояние до ближайшего ---- */
-const KNN={ex:[], add(f,l){this.ex.push({f,l})}, clear(){this.ex=[]},
-  delLast(l){ for(let i=this.ex.length-1;i>=0;i--){ if(this.ex[i].l===l){this.ex.splice(i,1);return true} } return false; },
-  classify(f,k=3){ if(!this.ex.length)return null;
-    const d=this.ex.map(e=>({l:e.l,d:dist(f,e.f)})).sort((a,b)=>a.d-b.d);
-    const kk=Math.min(k,d.length), top=d.slice(0,kk);
-    const v={}; for(const x of top)v[x.l]=(v[x.l]||0)+1;
-    let best=-1,bc=-1; for(const l in v){ if(v[l]>bc){bc=v[l];best=+l} }
-    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/kk;
-    return {label:best,confidences:conf,vote:bc/kk,nn:d[0].d};
-  }};
-function dist(a,b){let s=0;for(let i=0;i<a.length;i++){const x=a[i]-b[i];s+=x*x}return Math.sqrt(s)}
-
-/* ---- признаки: СЫРЫЕ нормализованные координаты 21 точки (не finger-states — иначе слишком легко).
-   центр wrist, масштаб wrist→middle_mcp; поворот НЕ нормализуем (наклон меняет признаки — это про данные). */
-function feature(lm){
-  const w=lm[0]; const scale=Math.hypot(lm[9].x-w.x,lm[9].y-w.y)||1;
-  const f=[]; for(const p of lm){ f.push((p.x-w.x)/scale,(p.y-w.y)/scale) } return f;
+/* ---- захват признаков из кадра: image-эмбеддинг + сырые пиксели 32×32 ---- */
+const fcv=document.createElement('canvas'); fcv.width=224; fcv.height=224; const fx=fcv.getContext('2d');
+const pcv=document.createElement('canvas'); pcv.width=32;  pcv.height=32;  const pxc=pcv.getContext('2d',{willReadFrequently:true});
+let lastPix=null;                          // для glass-box preview
+function srcRect(){ const vw=cam.videoWidth||640, vh=cam.videoHeight||480, s=Math.min(vw,vh); return [(vw-s)/2,(vh-s)/2,s,s]; }
+function grabFeature(){
+  if(DEMO){ drawDemoFrame(); }
+  const [sx,sy,sw,sh]=DEMO?[0,0,demoCv.width,demoCv.height]:srcRect();
+  const src=DEMO?demoCv:cam;
+  // image-эмбеддинг (центральный квадрат → 224)
+  fx.drawImage(src,sx,sy,sw,sh,0,0,224,224);
+  let e=null;
+  try{ const r=embedder.embed(fcv); e=r.embeddings[0].floatEmbedding; }catch(err){ return null; }
+  let ne=0; for(let i=0;i<e.length;i++)ne+=e[i]*e[i]; ne=Math.sqrt(ne)||1;
+  const emb=new Float32Array(e.length); for(let i=0;i<e.length;i++)emb[i]=e[i]/ne;
+  // сырые пиксели 32×32 grayscale, нормализация (subtract mean / div std)
+  pxc.imageSmoothingEnabled=true; pxc.drawImage(src,sx,sy,sw,sh,0,0,32,32);
+  const d=pxc.getImageData(0,0,32,32).data, pix=new Float32Array(1024); let m=0;
+  for(let i=0;i<1024;i++){ const g=d[i*4]*0.299+d[i*4+1]*0.587+d[i*4+2]*0.114; pix[i]=g; m+=g; } m/=1024;
+  let v=0; for(let i=0;i<1024;i++){ pix[i]-=m; v+=pix[i]*pix[i]; } v=Math.sqrt(v/1024)||1;
+  for(let i=0;i<1024;i++)pix[i]/=v;
+  lastPix=pxc.getImageData(0,0,32,32);
+  return {emb,pix};
 }
+function dot(a,b){let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s}
 
-/* ---- аудио ---- */
+/* ---- KNN на комбинированном cos-расстоянии (эмбеддинг + пиксели) ---- */
+const KNN={ex:[], add(f,l){this.ex.push({emb:f.emb,pix:f.pix,l})}, clear(){this.ex=[]},
+  delLast(l){ for(let i=this.ex.length-1;i>=0;i--){ if(this.ex[i].l===l){this.ex.splice(i,1);return true} } return false; },
+  classify(f){ if(!this.ex.length||!f)return null;
+    const minC=Math.min(counts[0],counts[1]), k=Math.min(minC>=10?K_BIG:K_SMALL,this.ex.length);
+    const d=this.ex.map(e=>({l:e.l, d:EMB_W*(1-dot(f.emb,e.emb))+PIX_W*(1-dot(f.pix,e.pix))})).sort((a,b)=>a.d-b.d);
+    lastNN=d[0].d;
+    const top=d.slice(0,k), v={}; for(const x of top)v[x.l]=(v[x.l]||0)+1;
+    let best=-1,bc=-1; for(const l in v){ if(v[l]>bc){bc=v[l];best=+l} }
+    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/k;
+    return {label:best,confidences:conf,vote:bc/k,nn:d[0].d,far:d[0].d>NN_FAR};
+  }};
+
+/* ---- аудио / эффекты ---- */
 function initAudio(){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
 function beep(fr,du,ty='sine',vol=.2,to){if(!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=ty;o.frequency.setValueAtTime(fr,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+du);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+du);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+du)}
 const SFX={hit2(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500)},miss(){beep(120,.25,'square',.25,40)},learn(n){beep(440+n*40,.1,'triangle',.18)},ding(){beep(660,.12,'triangle',.18,990)},buzz(){beep(160,.22,'square',.2,90)}};
-
-/* ---- эффекты ---- */
-let particles=[],shake=0;
+let particles=[],shake=0;const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff'];
 function burst(x,y,n,tier,col){const sz=cv.width*(0.012+(tier||0)*0.004);for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*7;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,c:col||NEON[(Math.random()*NEON.length)|0],sz})}}
 function doFlash(){flash.style.transition='none';flash.style.opacity='.55';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0'})}
 function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
 
 /* ---- UI обучения ---- */
-const CHIPS=['близко','далеко','наклон','выше/ниже','другая рука'];
+const CHIPS=['слева','справа','ближе','дальше','наклон'];
 function buildTeach(){
   teachrow.innerHTML='';
   CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;
-    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h">держи, чтобы учить</div>`;
+    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h"></div>`;
     teachrow.appendChild(el)});
   $('#chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip" data-c="${i}">${c}</span>`).join('');
   $('#chips').querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>ch.classList.toggle('on'));
   bindHold(); refresh();
 }
 function refresh(){
-  [...teachrow.children].forEach((el,i)=>{el.querySelector('.c b').textContent=counts[i];el.querySelector('.del').disabled=!counts[i];});
+  [...teachrow.children].forEach((el,i)=>{
+    el.querySelector('.c b').textContent=counts[i];
+    el.querySelector('.del').disabled=!counts[i];
+    el.querySelector('.h').textContent = biasRound===1 ? ('держи '+CLASSES[i].zoneText) : 'держи, меняя место';
+  });
   const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
   let warn=''; if(mx>=4 && mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;warn=` · <span class="cw">⚠️ перекос — добери ${CLASSES[less].emoji}</span>`;}
   $('#counts').innerHTML=`данные ИИ: ${CLASSES[0].emoji} <b>${counts[0]}</b> · ${CLASSES[1].emoji} <b>${counts[1]}</b>${warn}`;
+  $('#chips').classList.toggle('hidden', biasRound===1);   // чеклист разнообразия — только в раунде 2
   toCheckBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
 }
 function updateHint(){
   if(state!=='train')return;
-  if(counts[0]===0||counts[1]===0)hintEl.textContent='Покажи ✌️ и держи его кнопку, потом 🤘. Так ты обучаешь ИИ.';
-  else if(counts[0]<MINEX||counts[1]<MINEX)hintEl.textContent='Двигай рукой — ИИ уже учится! Жесты похожи, мало примеров → путается. Добери ещё.';
-  else hintEl.textContent='Готово к проверке. Точнее → добери РАЗНЫХ примеров (отметь галочки внизу).';
+  if(biasRound===1){
+    if(counts[0]<MINEX||counts[1]<MINEX)hintEl.innerHTML='⚡ Быстрое обучение: ✋ держи <b>слева-ближе</b>, ✊ <b>справа-дальше</b>. Набери по 5.';
+    else hintEl.textContent='Готово. Жми «Проверить ИИ» — посмотрим, чему он научился.';
+  } else {
+    if(counts[0]<10||counts[1]<10)hintEl.innerHTML='Теперь покажи оба жеста <b>в РАЗНЫХ местах</b> (слева, справа, ближе, дальше). Добери до ~12.';
+    else hintEl.textContent='Достаточно разных примеров. Проверь ИИ снова.';
+  }
 }
 
 /* ---- камера + модель ---- */
@@ -217,71 +255,88 @@ async function initCamera(){ if(DEMO)return;
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
   let s;
   try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}
-  catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}
-            catch(e2){throw new Error('CAM:'+e2.name)} }
+  catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}catch(e2){throw new Error('CAM:'+e2.name)} }
   cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
   s.getVideoTracks()[0].addEventListener('ended',()=>{hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
 }
-async function initModel(){ if(DEMO)return;
+async function initModel(){
   const vision=await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
-  try{ landmarker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:"GPU"},numHands:1,runningMode:"VIDEO"}) }
-  catch(e){ landmarker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:"CPU"},numHands:1,runningMode:"VIDEO"}) }
+  const opt=d=>({baseOptions:{modelAssetPath:"./models/mobilenet_v3_small_embedder.tflite",delegate:d},runningMode:"IMAGE"});
+  try{ embedder=await ImageEmbedder.createFromOptions(vision,opt("GPU")); }
+  catch(e){ embedder=await ImageEmbedder.createFromOptions(vision,opt("CPU")); }
 }
 function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
 
-/* ---- демо: фейк-рука показывает ✌️ или 🤘 (циклит) ---- */
-let dT=0,dG=0;
-function fakeHand(){dT++; if(dT%140===0)dG=1-dG;
-  const cx=0.5,cy=0.5, up = dG===0?[1,2]:[1,4]; // ✌️: index+middle ; 🤘: index+pinky
-  const lm=[{x:cx,y:cy+0.18,z:0}];
-  for(let f=0;f<5;f++){const ang=-Math.PI/2+(f-2)*0.32, ext=up.includes(f), len=ext?0.24:0.07;
-    for(let j=1;j<=4;j++){lm.push({x:cx+Math.cos(ang)*len*j/4,y:cy+0.18+Math.sin(ang)*len*j/4,z:0})}}
-  return {lm,hand:'Right'};
+/* ---- демо: синтетический кадр (без камеры) ---- */
+const demoCv=document.createElement('canvas'); demoCv.width=224; demoCv.height=224; const dcx=demoCv.getContext('2d');
+let dT=0,dG=0,dPosX=0.5;
+function drawDemoFrame(){ dT++; if(dT%120===0)dG=1-dG;
+  dcx.fillStyle=dG?'#1a1410':'#101a22'; dcx.fillRect(0,0,224,224);
+  const cx=dPosX*224, cy=112;
+  dcx.fillStyle=dG?'#caa':'#acd';
+  if(dG===0){ for(let f=0;f<4;f++){dcx.fillRect(cx-30+f*16,cy-60,10,90);} dcx.fillRect(cx-36,cy+24,80,40); } // «ладонь»
+  else { dcx.beginPath();dcx.arc(cx,cy,42,0,7);dcx.fill(); } // «кулак»
 }
 
-/* ---- предсказание ---- */
-let predCache=null;
-function predict(){ if(!lastLm)return null; return KNN.classify(feature(lastLm)); }
-function addExample(i){ if(!lastLm){showToast('Руку не видно\nподними в кадр',800);return}
-  KNN.add(feature(lastLm),i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]);
+/* ---- классификация (отдельный цикл — embed дорог, не каждый rAF) ---- */
+let predCache=null, smooth=[];
+function classifyTick(){
+  if((state==='train'||state==='check'||state==='game'||state==='train-pause') && (embedder) && (DEMO||cam.readyState>=2)){
+    const f=grabFeature(); curFeat=f;
+    const p=f?KNN.classify(f):null;
+    // temporal smoothing: majority за 5 замеров
+    if(p){ smooth.push(p.label); if(smooth.length>5)smooth.shift(); }
+    predCache=p;
+    drawPeek();
+  }
+  setTimeout(classifyTick, 60);
+}
+let curFeat=null;
+function smoothLabel(){ if(!smooth.length)return -1; const c={};smooth.forEach(l=>c[l]=(c[l]||0)+1);let b=-1,bc=-1;for(const l in c)if(c[l]>bc){bc=c[l];b=+l}return b; }
+function drawPeek(){ if(!lastPix)return; const t=document.createElement('canvas');t.width=32;t.height=32;t.getContext('2d').putImageData(lastPix,0,0);
+  peekCtx.imageSmoothingEnabled=false; peekCtx.clearRect(0,0,32,32); peekCtx.drawImage(t,0,0); }
+
+function addExample(i){ const f=curFeat||grabFeature(); if(!f){showToast('Кадр не готов',700);return}
+  KNN.add(f,i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]);
 }
 
-/* ---- бар-чарт «согласие соседей» ---- */
+/* ---- бары «на что похоже» ---- */
 function updateBars(p){
   const ah=$('#aihead');
   if(state==='game'||state==='gameover'){ ah.style.display='none';
-    if(!p||!lastLm){barsEl.innerHTML='';return}
+    if(!p){barsEl.innerHTML='';return}
+    if(p.far){barsEl.innerHTML='<div style="font-weight:800;font-size:15px;color:#ffcf5c;text-shadow:0 1px 3px #000">ИИ: непохоже на примеры</div>';return}
     const tp=p.label,tvc=Math.round((p.vote||0)*100);
-    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=66?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
+    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=60?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
   ah.style.display='';
-  if(!lastLm){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">✋ подними руку в кадр — ИИ ищет руку…</span></div>';return}
   if(!KNN.ex.length){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤖 ИИ пока пустой — научи его (держи кнопку 👇)</span></div>';return}
+  if(p&&p.far){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤔 ИИ видит что-то непохожее на примеры</span></div>';return}
   const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(p.vote||0):0;
-  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.66?' top':''}"><span class="l">${c.emoji} согласны: ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
+  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} похоже на: ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
 }
 
-/* ====================== ПРОВЕРКА РОБОТА (короткий мост) ====================== */
+/* ====================== ПРОВЕРКА РОБОТА (тест на СВОПНУТЫХ условиях — выявляет bias) ====================== */
 const CARDS_PER_CLASS=4;
-const READY=750,HOLD=1500,MEASURE_TAIL=560,REVEAL=950;
+const READY=900,HOLD=1500,MEASURE_TAIL=560,REVEAL=950;
 let CHK=null;
+// в раунде 1 проверяем СВОП: ладонь просим показать СПРАВА (где учил кулак), и наоборот → bias вылезает
+function cardPos(cls){ return biasRound===1 ? CLASSES[1-cls].zoneText : ['слева','справа','ближе','дальше'][(Math.random()*4)|0]; }
 function shuffledCards(){const a=[];for(let c=0;c<CLASSES.length;c++)for(let n=0;n<CARDS_PER_CLASS;n++)a.push({cls:c});
-  for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]]}return a;}
-function startCheck(){
-  state='check';
+  for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]]}
+  a.forEach(card=>card.pos=cardPos(card.cls)); return a;}
+function startCheck(){ state='check';
   CHK={cards:shuffledCards(),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[]};
-  $('#result').classList.add('hidden'); bottom.classList.add('hidden'); checkui.classList.remove('hidden');
-  $('#ckverdict').textContent=''; showToast('Проверим, чему ИИ научился',1400);
+  $('#result').classList.add('hidden'); bottom.classList.add('hidden'); zoneEl.classList.add('hidden'); checkui.classList.remove('hidden');
+  $('#ckverdict').textContent=''; showToast(biasRound===1?'Проверим на НОВОМ месте':'Проверим ещё раз',1500);
 }
 function judgeCard(card){
-  const s=CHK.samples, hands=s.filter(x=>x.hand);
+  const s=CHK.samples, valid=s.filter(x=>x.label!=null&&!x.far);
   let verdict,got=null;
-  if(s.length===0 || hands.length < Math.max(1,Math.ceil(s.length*0.5))) verdict='nohand';
-  else{
-    const cnt={}; hands.forEach(x=>{if(x.label!=null)cnt[x.label]=(cnt[x.label]||0)+1});
+  if(s.length===0 || valid.length < Math.max(1,Math.ceil(s.length*0.4))) verdict='nohand';
+  else{ const cnt={}; valid.forEach(x=>cnt[x.label]=(cnt[x.label]||0)+1);
     let mj=-1,mc=-1; for(const l in cnt){if(cnt[l]>mc){mc=cnt[l];mj=+l}}
-    const frac=mc/hands.length;
-    if(mj===-1)verdict='nohand';
-    else if(frac<0.6){verdict='wavered';got=mj;}
+    const frac=mc/valid.length;
+    if(frac<0.6){verdict='wavered';got=mj;}
     else if(mj===card.cls)verdict='correct';
     else{verdict='confused';got=mj;}
   }
@@ -292,8 +347,8 @@ function tickCheck(now){
   if(!CHK)return; const card=CHK.cards[CHK.idx], el=now-CHK.t0;
   if(CHK.phase==='ready'){ if(el>=READY){CHK.phase='hold';CHK.t0=now;CHK.samples=[];CHK.lastSample=0;} }
   else if(CHK.phase==='hold'){
-    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=75){ CHK.lastSample=now;
-      CHK.samples.push({hand:!!lastLm,label:predCache?predCache.label:null}); }
+    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=90){ CHK.lastSample=now;
+      CHK.samples.push(predCache?{label:predCache.label,far:predCache.far}:{label:null,far:true}); }
     if(el>=HOLD){ judgeCard(card); CHK.phase='reveal'; CHK.t0=now; }
   }
   else if(CHK.phase==='reveal'){ if(el>=REVEAL){ CHK.idx++;
@@ -302,23 +357,22 @@ function tickCheck(now){
 }
 function renderCheckUI(card,now){
   const el=now-CHK.t0, c=CLASSES[card.cls];
-  $('#ckround').textContent='🔍 Проверка робота';
+  $('#ckround').textContent=biasRound===1?'🔍 Проверка на новом месте':'🔍 Проверка робота';
   $('#ckcount').textContent=`карточка ${CHK.idx+1} из ${CHK.cards.length}`;
   if(CHK.phase==='ready'){
-    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>приготовься: ${c.name}`;
-    $('#ckbar').style.width='0%'; $('#ckverdict').textContent=''; $('#ckhint').textContent='покажи этот жест';
+    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>${c.name} — ${card.pos}`;
+    $('#ckbar').style.width='0%'; $('#ckverdict').textContent=''; $('#ckhint').textContent='покажи этот жест ЗДЕСЬ';
   } else if(CHK.phase==='hold'){
-    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>держи: ${c.name}`;
-    const measuring=el>=HOLD-MEASURE_TAIL;
-    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%';
-    $('#ckbar').style.background=measuring?'var(--warn)':'var(--accent)';
-    $('#ckverdict').textContent=measuring?'📸 замеряю…':''; $('#ckhint').textContent='';
+    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>держи: ${c.name} (${card.pos})`;
+    const meas=el>=HOLD-MEASURE_TAIL;
+    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%'; $('#ckbar').style.background=meas?'var(--warn)':'var(--accent)';
+    $('#ckverdict').textContent=meas?'📸 замеряю…':''; $('#ckhint').textContent='';
   } else {
     const r=CHK.results[CHK.idx]; $('#ckbar').style.width='100%';
     if(r.verdict==='correct'){$('#ckverdict').style.color='var(--ok)';$('#ckverdict').textContent='✅ верно!';}
-    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не увидел руку';}
+    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не разобрал кадр';}
     else if(r.verdict==='wavered'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='😵 ИИ колебался';}
-    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ увидел ${CLASSES[r.got].emoji}`;}
+    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ решил: ${CLASSES[r.got].emoji}`;}
     $('#ckhint').textContent='';
   }
 }
@@ -327,40 +381,46 @@ function finishCheck(){
   const pc=[{correct:0,confused:0,nohand:0,wavered:0,total:0},{correct:0,confused:0,nohand:0,wavered:0,total:0}];
   for(const r of CHK.results){pc[r.cls].total++;pc[r.cls][r.verdict]++;}
   const c0=pc[0].correct,c1=pc[1].correct,totalCorrect=c0+c1,totalCards=CHK.results.length;
-  // не блокирующий гейт: 0–5 сырой / 6–7 норма / 8 сильная (Codex)
-  const outcome = totalCorrect>=8 ? 'strong' : totalCorrect>=6 ? 'ok' : 'raw';
+  const outcome = totalCorrect>=Math.ceil(totalCards*0.8) ? 'strong' : totalCorrect>=Math.ceil(totalCards*0.6) ? 'ok' : 'raw';
   provenTier = outcome==='strong'?2 : outcome==='ok'?1 : 0;
+  // ага-момент: первая проверка (biasRound 1) обычно проваливается на свопе → переводим в раунд 2 (чинить данными)
   showResult({pc,totalCorrect,totalCards,outcome});
 }
 function recommend(pc,outcome){
   const recs=[];
+  if(biasRound===1 && outcome!=='strong'){
+    recs.push('Смотри: ИИ выучил не ЖЕСТ, а ГДЕ была рука (ладонь слева, кулак справа). На новом месте он путается — это и есть «модель знает только то, что ты показал».');
+    recs.push('Почини данными: покажи оба жеста в РАЗНЫХ местах — слева, справа, ближе, дальше.');
+    return recs;
+  }
   const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
-  if(mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;recs.push(`Перекос данных: ${CLASSES[0].emoji} ${counts[0]} · ${CLASSES[1].emoji} ${counts[1]}. Добери ${CLASSES[less].emoji} ${CLASSES[less].name}.`);}
-  for(let c=0;c<2;c++){ if(pc[c].confused>=2)recs.push(`ИИ часто путал ${CLASSES[c].emoji} ${CLASSES[c].name} с ${CLASSES[1-c].emoji} — жесты похожи. Добери ${CLASSES[c].emoji} с РАЗНЫМ наклоном и поворотом.`); }
-  for(let c=0;c<2;c++){ if(pc[c].nohand>=2)recs.push(`ИИ не видел руку на ${CLASSES[c].emoji}. Держи руку целиком в кадре и добери ${CLASSES[c].emoji}.`); }
-  for(let c=0;c<2;c++){ if(pc[c].wavered>=2)recs.push(`ИИ колебался на ${CLASSES[c].emoji} — примеров мало или похожи. Добери разных.`); }
-  if(!recs.length && outcome!=='strong')recs.push('Добери по 5–8 РАЗНЫХ примеров каждого жеста: меняй угол, расстояние, высоту, руку.');
+  if(mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;recs.push(`Перекос: ${CLASSES[0].emoji} ${counts[0]} · ${CLASSES[1].emoji} ${counts[1]}. Добери ${CLASSES[less].emoji}.`);}
+  for(let c=0;c<2;c++){ if(pc[c].confused>=2)recs.push(`ИИ путал ${CLASSES[c].emoji} ${CLASSES[c].name} с ${CLASSES[1-c].emoji}. Добери ${CLASSES[c].emoji} в разных местах и с разным фоном.`); }
+  if(!recs.length && outcome!=='strong')recs.push('Добери по 6–8 РАЗНЫХ примеров каждого: меняй место, расстояние, наклон, фон.');
   return recs.slice(0,2);
 }
 function showResult({pc,totalCorrect,totalCards,outcome}){
   const titEl=$('#rstitle'),scEl=$('#rsscore'),mapEl=$('#rsmap'),diagEl=$('#rsdiag'),btns=$('#rsbtns');
-  titEl.innerHTML = outcome==='strong'?'🎉 Сильная модель!' : outcome==='ok'?'🟡 Нормально, но путает' : '🔧 ИИ ещё сырой';
-  scEl.innerHTML=`Точность: <b>${totalCorrect} из ${totalCards}</b>`;
+  const biasFail = biasRound===1 && outcome!=='strong';
+  titEl.innerHTML = biasFail?'🧠 Ага! ИИ выучил не то' : outcome==='strong'?'🎉 Сильная модель!' : outcome==='ok'?'🟡 Нормально, но путает':'🔧 ИИ ещё сырой';
+  scEl.innerHTML=`Точность на новом месте: <b>${totalCorrect} из ${totalCards}</b>`;
   mapEl.innerHTML=[0,1].map(c=>{
     const p=pc[c],e=CLASSES[c].emoji,oe=CLASSES[1-c].emoji,parts=[`${p.correct} из ${p.total} верно`];
     if(p.confused)parts.push(`${p.confused}× принял за ${oe}`);
-    if(p.nohand)parts.push(`${p.nohand}× не видел руку`);
+    if(p.nohand)parts.push(`${p.nohand}× не разобрал`);
     if(p.wavered)parts.push(`${p.wavered}× колебался`);
     return `<div class="rscard ${p.correct>=3?'good':'bad'}">${e} <b>${CLASSES[c].name}</b>: ${parts.join(' · ')}</div>`;
   }).join('');
   const recs=recommend(pc,outcome);
-  diagEl.innerHTML=recs.length?('<div style="font-size:13px;color:var(--muted);text-align:left;width:100%">💡 что добрать дальше:</div>'+recs.map(r=>`<div class="rsrec">${r}</div>`).join('')):'';
+  diagEl.innerHTML=recs.length?('<div style="font-size:13px;color:var(--muted);text-align:left;width:100%">💡 что дальше:</div>'+recs.map(r=>`<div class="rsrec">${r}</div>`).join('')):'';
   btns.innerHTML='';
   const mk=(txt,cls,fn)=>{const b=document.createElement('button');b.className=cls;b.textContent=txt;b.onclick=fn;btns.appendChild(b);};
-  // гейт НЕ блокирующий: в игру можно всегда, но при «сыром» сначала зовём добрать
-  if(outcome==='raw'){
+  if(biasFail){
+    mk('🔧 Добрать РАЗНЫЕ данные','ok',()=>{ biasRound=2; $('#result').classList.add('hidden'); backToTrain(); });
+    mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+  } else if(outcome==='raw'){
     mk('← Добрать данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
-    mk('▶️ Всё равно играть (будет сложно)','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+    mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
   } else {
     mk(outcome==='strong'?'▶️ В игру — точность = сила':'▶️ В игру','ok',()=>{ $('#result').classList.add('hidden'); startGame(); });
     mk('← Добрать ещё','ghost',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
@@ -368,19 +428,15 @@ function showResult({pc,totalCorrect,totalCards,outcome}){
   $('#result').classList.remove('hidden');
 }
 
-/* ====================== ИГРА «ЗНАКИ» (одна механика: отбей знак нужным жестом) ====================== */
-const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff'];
-const SIGN_VY=0.0053, SIGN_IMPACT=0.74;        // телеграф ~2.7с до удара
-const WIN_Y=0.42;                              // активное окно отбивания (последняя ~1с)
+/* ====================== ИГРА «ЗНАКИ» ====================== */
+const SIGN_VY=0.0053, SIGN_IMPACT=0.74, WIN_Y=0.42;
 let signs=[],lives=3,score=0,gameT=0,spawnT=0,effects=[],hitstopUntil=0,combo=0;
-let warmup=true, stats={hit:0,total:0,misread:0,unsure:0,nohand:0};
-let handShake=0;                               // дрожь аватар-руки при низкой уверенности (juice)
+let warmup=true, stats={hit:0,total:0,misread:0,unsure:0};
 function startGame(){ state='game';
-  signs=[];lives=3;score=0;gameT=0;effects=[];combo=0;stats={hit:0,total:0,misread:0,unsure:0,nohand:0};
-  warmup=true; spawnT=70;
+  signs=[];lives=3;score=0;gameT=0;effects=[];combo=0;stats={hit:0,total:0,misread:0,unsure:0};warmup=true;spawnT=70;
   $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');
-  teachrow.classList.add('hidden');$('#datapanel').classList.add('hidden');bottom.classList.remove('hidden');
-  hintEl.textContent='Прилетит знак — покажи ТАКОЙ ЖЕ жест и держи, пока ИИ узнаёт.';
+  teachrow.classList.add('hidden');$('#datapanel').classList.add('hidden');bottom.classList.remove('hidden');zoneEl.classList.add('hidden');
+  hintEl.textContent='Прилетит знак — покажи ТАКОЙ ЖЕ жест, пока ИИ узнаёт.';
   showToast(provenTier>=2?'СИЛЬНЫЙ ИИ! 💪':'ОТБИВАЙСЯ!',900);
 }
 function backToTrain(){ state='train'; bigmsg.classList.add('hidden');
@@ -388,75 +444,45 @@ function backToTrain(){ state='train'; bigmsg.classList.add('hidden');
   teachrow.classList.remove('hidden');$('#datapanel').classList.remove('hidden');bottom.classList.remove('hidden');
   refresh(); updateHint();
 }
-function spawnSign(){ const cls=(Math.random()<0.5)?0:1; signs.push({cls,y:-0.14,charge:0,judged:false}); }
+function spawnSign(){ signs.push({cls:(Math.random()<0.5)?0:1,y:-0.14,charge:0,judged:false}); }
 function tickGame(p,now){
-  if(now<hitstopUntil)return;
-  gameT++;
-  const hand=!!lastLm, lbl=p?p.label:-1, vote=p?(p.vote||0):0;
-  handShake = (hand && vote<CONF_OK) ? Math.min(1,handShake+0.2) : Math.max(0,handShake-0.1);
-
-  // разминка: один медленный знак + крупная подсказка (учим единственную механику)
-  if(warmup){
-    if(!signs.length){ signs.push({cls:0,y:-0.14,charge:0,judged:false,slow:true}); }
-    bigmsg.classList.remove('hidden');
-    const s=signs[0];
-    bigmsg.innerHTML=`Покажи ${CLASSES[s.cls].emoji} ${CLASSES[s.cls].name}<br>и держи!`;
-    s.y+=SIGN_VY*0.5;
-    const ok = hand && lbl===s.cls && vote>=CONF_OK;
-    if(ok) s.charge=Math.min(1,s.charge+0.05);
-    if(s.charge>=1){ warmup=false;bigmsg.classList.add('hidden');signs=[];spawnT=40;
-      showToast('ОТЛИЧНО! Поехали 💪',1100);hintEl.textContent='Отбивай знаки: покажи такой же жест и держи.'; }
-    return;
-  }
-
-  // активные знаки
-  for(const s of signs){
-    s.y+=SIGN_VY;
-    if(s.judged)continue;
-    const inWindow = s.y>=WIN_Y;
-    const correct = lbl===s.cls;
-    if(inWindow && hand && correct && vote>=CONF_OK){
-      s.charge=Math.min(1, s.charge + (vote>=0.99?0.060:0.040)*(1+provenTier*0.18)); // удержать ~0.3–0.45с
-    } else if(s.charge>0){
-      s.charge=Math.max(0, s.charge-0.03);   // мягкий drain = coyote-буфер
-    }
+  if(now<hitstopUntil)return; gameT++;
+  const lbl=smoothLabel(), far=p?p.far:true, vote=p?(p.vote||0):0;
+  if(warmup){ if(!signs.length)signs.push({cls:0,y:-0.14,charge:0,judged:false}); bigmsg.classList.remove('hidden');
+    const s=signs[0]; bigmsg.innerHTML=`Покажи ${CLASSES[s.cls].emoji} ${CLASSES[s.cls].name}<br>и держи!`; s.y+=SIGN_VY*0.5;
+    if(lbl===s.cls && !far) s.charge=Math.min(1,s.charge+0.05);
+    if(s.charge>=1){warmup=false;bigmsg.classList.add('hidden');signs=[];spawnT=40;showToast('ПОЕХАЛИ! 💪',1000);hintEl.textContent='Покажи жест со знака и держи.';}
+    return; }
+  for(const s of signs){ s.y+=SIGN_VY; if(s.judged)continue;
+    const inWin=s.y>=WIN_Y, correct=lbl===s.cls && !far;
+    if(inWin&&correct){ s.charge=Math.min(1,s.charge+(vote>=0.99?0.055:0.038)*(1+provenTier*0.18)); }
+    else if(s.charge>0){ s.charge=Math.max(0,s.charge-0.03); }
     if(s.charge>=1){ resolveSign(s,true,now,vote); continue; }
-    if(s.y>=SIGN_IMPACT) resolveSign(s,false,now,vote);
+    if(s.y>=SIGN_IMPACT) resolveSign(s,false,now);
   }
   signs=signs.filter(s=>!(s.judged&&s.y>1.1));
-
-  // спавн: один знак за раз; темп растёт (flow ~10–15%)
-  spawnT--; if(spawnT<=0 && signs.filter(s=>!s.judged).length===0){
-    spawnSign(); spawnT=Math.max(45,105-gameT/12);     // пауза между знаками сокращается (flow)
-  }
+  spawnT--; if(spawnT<=0 && signs.filter(s=>!s.judged).length===0){ spawnSign(); spawnT=Math.max(45,105-gameT/12); }
 }
 function resolveSign(s,ok,now,vote){
-  s.judged=true; stats.total++;
-  const ax=cv.width*0.5, ay=cv.height*SIGN_IMPACT;
-  if(ok){
-    stats.hit++; combo++;
-    const tier = vote>=0.99?2:1;                          // 2/3 норма · 3/3 мощно
-    score += (10+tier*10) * (1+Math.floor(combo/5));
+  s.judged=true; stats.total++; const ax=cv.width*0.5, ay=cv.height*SIGN_IMPACT;
+  if(ok){ stats.hit++; combo++; const tier=vote>=0.99?2:1; score+=(10+tier*10)*(1+Math.floor(combo/5));
     effects.push({type:'wave',x:ax,y:ay,r:0,maxR:cv.width*(0.16+tier*0.06),life:1,c:CLASSES[s.cls].color});
     burst(ax,ay,12+tier*8,tier,CLASSES[s.cls].color);
     effects.push({type:'txt',x:ax,y:ay-cv.width*0.08,t:CLASSES[s.cls].emoji+' ✓'+(combo>=5?' x'+(1+Math.floor(combo/5)):''),c:NEON[0],life:1.1});
     SFX.hit2(); hitstopUntil=now+(tier>=2?150:90); shake=6+tier*3; if(tier>=2)doFlash();
-  } else {
-    combo=0; lives--; SFX.miss(); shake=12; s.fail=true;
-    const need=CLASSES[s.cls].emoji; let txt;
-    if(!lastLm){stats.nohand++;txt='нет руки! нужен '+need;}
-    else if(predCache && predCache.label!==s.cls && (predCache.vote||0)>=CONF_OK){stats.misread++;txt='ИИ: '+CLASSES[predCache.label].emoji+' ≠ '+need;}
-    else{stats.unsure++;txt='ИИ не уверен · нужен '+need;}
+  } else { combo=0; lives--; SFX.miss(); shake=12; s.fail=true; const need=CLASSES[s.cls].emoji; let txt;
+    const sl=smoothLabel();
+    if(predCache&&predCache.far){txt='ИИ: непохоже · нужен '+need;stats.unsure++;}
+    else if(sl!==s.cls&&sl>=0){txt='ИИ: '+CLASSES[sl].emoji+' ≠ '+need;stats.misread++;}
+    else{txt='ИИ не уверен · нужен '+need;stats.unsure++;}
     effects.push({type:'txt',x:ax,y:ay-cv.width*0.07,t:txt,c:'#ff6b8b',life:1.5});
     if(lives<=0){endGame();return}
   }
 }
-function endGame(){
-  state='gameover';
+function endGame(){ state='gameover';
   const nom=stats.hit>=10?'🔥 Мастер знаков':(score>=80?'🛡️ Стойкий':'🎯 Новичок');
-  const fails=[]; if(stats.misread)fails.push(`${stats.misread}× перепутал ✌️/🤘`);
-  if(stats.unsure)fails.push(`${stats.unsure}× был не уверен`); if(stats.nohand)fails.push(`${stats.nohand}× не видел руку`);
-  const tip=(stats.misread||stats.unsure)?'ИИ путает похожие жесты — добери РАЗНЫХ примеров обоих и проверь снова':'крутая модель — почти не путалась';
+  const fails=[]; if(stats.misread)fails.push(`${stats.misread}× перепутал`); if(stats.unsure)fails.push(`${stats.unsure}× не уверен`);
+  const tip=(stats.misread||stats.unsure)?'ИИ путается — добери РАЗНЫХ примеров (другое место, фон) и проверь':'крутая модель!';
   showToast(`💀 Счёт ${score} · ${nom}\nотбил ${stats.hit} из ${stats.total}${fails.length?'\n'+fails.join(' · '):''}\n${tip}`,4400);
   setTimeout(()=>{ if(state==='gameover')backToTrain(); },3700);
 }
@@ -465,40 +491,21 @@ function endGame(){
 let last=performance.now();
 function loop(now){
   const dt=now-last;last=now;
-  if(DEMO){const f=fakeHand();lastLm=f.lm;lastHand=f.hand;lastTS=now}
-  else if(landmarker&&cam.readyState>=2){
-    try{const r=landmarker.detectForVideo(cam,now);
-      if(r.landmarks&&r.landmarks[0]){lastLm=r.landmarks[0];lastHand=r.handedness?.[0]?.[0]?.categoryName;lastTS=now}
-      else if(now-lastTS>400)lastLm=null;
-    }catch(e){}
-  }
-  if((loop._p=(loop._p||0)+dt)>=80){loop._p=0;predCache=predict()}
-
   const sh=shake>0?(Math.random()-.5)*shake:0;if(shake>0)shake*=0.85;
   ctx.save();ctx.clearRect(0,0,cv.width,cv.height);ctx.translate(sh,sh);
   if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height)}
   else{ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);try{ctx.drawImage(cam,0,0,cv.width,cv.height)}catch(e){}ctx.restore()}
 
-  const inTrainLike=(state==='train'||state==='check'||state==='train-pause');
-  if(inTrainLike&&lastLm)drawHand(lastLm,1);
-  if(state==='check')tickCheck(now);
-
   if(state==='game'||state==='gameover'){
     ctx.fillStyle='rgba(8,11,18,.6)';ctx.fillRect(0,0,cv.width,cv.height);
     const ax=cv.width*0.5, ay=cv.height*SIGN_IMPACT;
-    // зона отбивания
     ctx.strokeStyle='rgba(122,162,255,.25)';ctx.lineWidth=Math.max(1,cv.width*0.003);ctx.setLineDash([cv.width*0.02,cv.width*0.02]);
     ctx.beginPath();ctx.moveTo(0,WIN_Y*cv.height);ctx.lineTo(cv.width,WIN_Y*cv.height);ctx.stroke();ctx.setLineDash([]);
-    // знаки
     for(const s of signs)drawSign(s);
-    // аватар-робот в центре + рука-juice (повторяет кисть, дрожит при неуверенности)
     const bob=Math.sin(now*0.006)*cv.width*0.006, R0=cv.width*0.055;
-    ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle='#5a78b8';
-    ctx.fillRect(ax-R0,ay+bob-R0,R0*2,R0*2);ctx.restore();
-    if(lastLm)drawHandAvatar(lastLm,ax,ay+bob-R0*2.4);
+    ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle='#5a78b8';ctx.fillRect(ax-R0,ay+bob-R0,R0*2,R0*2);ctx.restore();
     if(state==='game')tickGame(predCache,now);
   }
-  // частицы
   particles=particles.filter(p=>p.life>0);
   for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.025;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.c;ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz)}
   ctx.globalAlpha=1;
@@ -508,64 +515,59 @@ function loop(now){
     else{e.y-=cv.width*0.004;e.life-=0.02;ctx.globalAlpha=Math.max(0,e.life);ctx.fillStyle=e.c;ctx.font='800 '+Math.round(cv.width*0.05)+'px sans-serif';ctx.textAlign='center';ctx.fillText(e.t,e.x,e.y);}
   }
   ctx.globalAlpha=1;ctx.restore();
+  if(state==='check')tickCheck(now);
 
-  if(inTrainLike){updateBars(predCache);
-    statEl.innerHTML = lastLm ? '<span style="color:var(--ok)">📷 ✋ вижу руку</span>' : '<span style="color:var(--warn)">📷 руку не вижу</span>';
-  }
+  const showPeek=(state==='train'||state==='check'||state==='train-pause');
+  peek.classList.toggle('hidden',!showPeek); $('#peeklbl').classList.toggle('hidden',!showPeek);
+  // целевая зона сбора (раунд 1, обучение)
+  updateZone();
+  if(state==='train'||state==='check'||state==='train-pause'){updateBars(predCache);
+    statEl.innerHTML = (predCache&&!predCache.far)?'<span style="color:var(--ok)">📷 вижу кадр</span>':'<span style="color:var(--warn)">📷 наведись</span>';}
   if(state==='game'||state==='gameover'){updateBars(predCache);statEl.innerHTML=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
   requestAnimationFrame(loop);
 }
+let recCls=-1; // какой класс сейчас записывается (для подсветки зоны)
+function updateZone(){
+  if(state==='train' && biasRound===1 && recCls>=0){
+    const z=CLASSES[recCls].zone; zoneEl.classList.remove('hidden');
+    zoneEl.style.left=(z.x*100)+'vw'; zoneEl.style.top=(z.y*100)+'vh'; zoneEl.style.width=(z.w*100)+'vw'; zoneEl.style.height=(z.h*100)+'vh';
+    zoneEl.style.borderColor=CLASSES[recCls].color; zoneEl.querySelector('.zl').style.background=CLASSES[recCls].color;
+    zoneEl.querySelector('.zl').textContent=`${CLASSES[recCls].emoji} сюда: ${CLASSES[recCls].zoneText}`;
+  } else zoneEl.classList.add('hidden');
+}
 function drawSign(s){
   const x=cv.width*0.5, y=s.y*cv.height, c=CLASSES[s.cls], sz=cv.width*0.13;
-  ctx.save();
-  ctx.globalAlpha=s.judged?Math.max(0,1-(s.y-SIGN_IMPACT)*4):1;
+  ctx.save();ctx.globalAlpha=s.judged?Math.max(0,1-(s.y-SIGN_IMPACT)*4):1;
   ctx.shadowColor=c.color;ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=s.fail?'#ff6b8b':'rgba(14,19,28,.9)';
   ctx.strokeStyle=s.fail?'#ff6b8b':c.color;ctx.lineWidth=Math.max(3,cv.width*0.008);
   roundRect(x-sz/2,y-sz/2,sz,sz,cv.width*0.025);ctx.fill();ctx.stroke();
-  ctx.shadowBlur=0;ctx.font='900 '+Math.round(sz*0.52)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillStyle='#fff';ctx.fillText(c.emoji,x,y);
-  // кольцо-заряд отбивания
+  ctx.shadowBlur=0;ctx.font='900 '+Math.round(sz*0.52)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.fillText(c.emoji,x,y);
   if(s.charge>0){ctx.strokeStyle=NEON[0];ctx.lineWidth=Math.max(3,cv.width*0.01);ctx.beginPath();ctx.arc(x,y,sz*0.72,-Math.PI/2,-Math.PI/2+s.charge*2*Math.PI);ctx.stroke();}
   ctx.restore();
 }
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
-const FINGERS=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
-function px(p){return (DEMO?p.x:(1-p.x))*cv.width} function py(p){return p.y*cv.height}
-function drawHand(lm,a){ctx.save();ctx.globalAlpha=a;ctx.strokeStyle='#7aa2ff';ctx.lineWidth=Math.max(2,cv.width*0.004);ctx.fillStyle='#a9c2ff';
-  for(const f of FINGERS){ctx.beginPath();for(let i=0;i<f.length;i++){const p=lm[f[i]];i?ctx.lineTo(px(p),py(p)):ctx.moveTo(px(p),py(p))}ctx.stroke()}
-  for(const p of lm){ctx.beginPath();ctx.arc(px(p),py(p),Math.max(3,cv.width*0.006),0,7);ctx.fill()}ctx.restore()}
-// рука-аватар над роботом: повторяет кисть (juice + body-syntonic), дрожит при низкой уверенности
-function drawHandAvatar(lm,cx,cy){
-  const s=0.34, jx=(Math.random()-.5)*handShake*cv.width*0.02, jy=(Math.random()-.5)*handShake*cv.width*0.02;
-  const col = predCache && (predCache.vote||0)>=CONF_OK ? CLASSES[predCache.label].color : '#9aa6b8';
-  const w0=lm[0];
-  const mx=p=>cx+((DEMO?p.x:(1-p.x))-(DEMO?w0.x:(1-w0.x)))*cv.width*s+jx, my=p=>cy+(p.y-w0.y)*cv.height*s+jy;
-  ctx.save();ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,cv.width*0.006);ctx.shadowColor=col;ctx.shadowBlur=cv.width*0.02;
-  for(const f of FINGERS){ctx.beginPath();for(let i=0;i<f.length;i++){const p=lm[f[i]];i?ctx.lineTo(mx(p),my(p)):ctx.moveTo(mx(p),my(p))}ctx.stroke()}
-  ctx.restore();
-}
 
 /* ---- старт ---- */
 async function boot(){$('#intro').classList.add('hidden');$('#loading').classList.remove('hidden');initAudio();
   try{ setLoad(DEMO?'Демо…':'Запускаю камеру…');await initCamera();resize();
-       setLoad('Гружу ИИ-руку…');await initModel();resize();
+       setLoad('Гружу ИИ (нейросеть-эмбеддер)…');await initModel();resize();
        state='train';$('#loading').classList.add('hidden');topEl.classList.remove('hidden');bottom.classList.remove('hidden');$('#reset').classList.remove('hidden');
-       buildTeach();updateHint();requestAnimationFrame(loop);showToast('Покажи руку 🖐',1400);
+       buildTeach();updateHint();classifyTick();requestAnimationFrame(loop);showToast('Наведи руку на камеру 🖐',1600);
   }catch(e){console.error(e);const m=String(e.message||e);
     setLoad(m.startsWith('CAM:')?'❌ Нет камеры. Разреши доступ/подключи камеру. ('+m+')':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 $('#start').onclick=boot;$('#retry').onclick=boot;
 toCheckBtn.onclick=startCheck;
 $('#again').onclick=()=>{ if(state==='game'){state='gameover';} backToTrain(); };
-$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;provenTier=0;refresh();updateHint()};
+$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;provenTier=0;biasRound=1;smooth=[];refresh();updateHint()};
 function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
   const del=el.querySelector('.del');
-  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);predCache=predict();refresh();updateHint();SFX.buzz();}});
-  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');addExample(i);t=setInterval(()=>addExample(i),400)};
-  const up=()=>{clearInterval(t);el.classList.remove('rec')};
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);refresh();updateHint();SFX.buzz();}});
+  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');recCls=i;addExample(i);t=setInterval(()=>addExample(i),450)};
+  const up=()=>{clearInterval(t);el.classList.remove('rec');recCls=-1};
   el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
 window.addEventListener('resize',resize);
-if(DEMO)$('.badge').textContent='демо: без камеры, рука фейковая';
+if(DEMO)$('.badge').textContent='демо: без камеры, кадр синтетический';
 </script>
 </body>
 </html>
