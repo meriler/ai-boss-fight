@@ -6,8 +6,13 @@
 <title>Натренируй ИИ по картинке</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%93%B7</text></svg>">
 <style>
+  @font-face{font-family:"ALS Gorizont";font-weight:400;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-RegularExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:500;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-MediumExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:700;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-BoldExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:800;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-ExtraBoldExpanded.otf") format("opentype")}
   :root{--bg:#0b0e14;--panel:rgba(14,19,28,.86);--line:#2a3445;--accent:#7aa2ff;--ok:#46e08a;--warn:#ffcf5c;--bad:#ff6b8b;--text:#eef3fb;--muted:#9aa6b8}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  button,.teach,.chip,.choice{touch-action:manipulation}
   html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--text);font-family:-apple-system,"Segoe UI",system-ui,sans-serif;user-select:none}
   #app{position:fixed;inset:0;height:100dvh;width:100vw;overflow:hidden}
   #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
@@ -37,6 +42,10 @@
   #zone .zl{margin-top:-26px;background:var(--ok);color:#06160c;font-size:13px;font-weight:800;padding:3px 10px;border-radius:999px;white-space:nowrap}
 
   #checkui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,560px);text-align:center;pointer-events:none;z-index:15}
+  #ckbtns{display:flex;flex-direction:column;gap:10px;margin-top:14px;pointer-events:auto;align-items:center;min-height:60px}
+  #ckbtns button{width:min(340px,74vw);flex:0 0 auto;font-size:18px;min-height:58px}
+  #ckShot{box-shadow:0 4px 24px rgba(70,224,138,.45)}
+  #ckcount3{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);font-size:clamp(90px,22vw,160px);font-weight:900;color:#fff;text-shadow:0 6px 30px #000;pointer-events:none;z-index:17;display:none}
   #ckround{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--warn);text-shadow:0 2px 6px #000;text-transform:uppercase}
   #ckcount{font-size:13px;color:var(--muted);text-shadow:0 1px 3px #000;margin-top:2px}
   #cktarget{font-size:clamp(24px,6vw,38px);font-weight:900;margin:8px 0 4px;text-shadow:0 4px 18px #000;line-height:1.2}
@@ -44,7 +53,7 @@
   #ckbarwrap{height:14px;background:#0009;border:1px solid #fff3;border-radius:9px;overflow:hidden;margin:14px auto 0;width:min(72vw,360px)}
   #ckbar{height:100%;width:0;background:var(--accent);transition:width .08s linear}
   #ckverdict{font-size:clamp(22px,6vw,34px);font-weight:900;margin-top:12px;min-height:1.2em;text-shadow:0 3px 14px #000}
-  #ckhint{font-size:14px;color:var(--text);text-shadow:0 1px 3px #000;margin-top:8px;font-weight:600}
+  #ckhint{font-size:14px;color:var(--text);text-shadow:0 1px 3px #000;margin-top:8px;font-weight:600;min-height:2.6em}
 
   #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,#000d 22%);display:flex;flex-direction:column;gap:8px}
   #hint{font-size:14px;font-weight:600;text-align:center;text-shadow:0 1px 3px #000;min-height:19px}
@@ -70,6 +79,8 @@
   .screen button{flex:0 0 auto;width:min(420px,82vw)}
   .badge{background:#10151e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
   .spin{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+  #loadbarwrap{width:min(360px,76vw);height:10px;background:#10151e;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  #loadbar{height:100%;width:0;background:var(--accent);border-radius:7px;transition:width 1.6s ease-out}
   #rstitle{font-size:clamp(22px,6vw,32px);font-weight:900;margin:0}
   #rsscore{font-size:15px;color:var(--muted)}
   #rsmap{display:flex;flex-direction:column;gap:8px;width:min(440px,86vw)}
@@ -79,6 +90,45 @@
   .rsrec{background:rgba(255,207,92,.1);border:1px solid var(--warn);border-radius:12px;padding:9px 13px;font-size:14px;color:var(--text);text-align:left;line-height:1.4}
   #rsbtns{flex-direction:column;gap:10px;width:min(420px,82vw)}
   #rsbtns button{width:100%}
+
+  /* ===== guided-режим (урок) ===== */
+  #guide{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(94vw,620px);text-align:center;z-index:14;pointer-events:none}
+  #gstep{font-size:12px;font-weight:800;letter-spacing:.6px;color:var(--muted);text-shadow:0 1px 3px #000;text-transform:uppercase}
+  #gtask{font-size:clamp(19px,5vw,28px);font-weight:900;text-shadow:0 3px 12px #000;margin-top:4px;line-height:1.25;background:rgba(8,11,18,.55);border-radius:16px;padding:10px 16px;backdrop-filter:blur(4px)}
+  #gtask .em{font-size:clamp(30px,8vw,44px);vertical-align:middle;margin-right:6px}
+  #gdots{display:flex;gap:7px;justify-content:center;margin-top:10px}
+  #gdots i{width:18px;height:18px;border-radius:50%;background:#0009;border:2px solid #6b7a90;transition:all .15s}
+  #gdots i.on{background:var(--ok);border-color:var(--ok);box-shadow:0 0 8px rgba(70,224,138,.8)}
+  #ggate{margin-top:8px;font-size:15px;font-weight:800;text-shadow:0 2px 6px #000;min-height:1.3em}
+  #ggate.ok{color:var(--ok)} #ggate.no{color:var(--warn)}
+  /* калибровка и потеря камеры — оверлеи по центру */
+  .midcard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(90vw,520px);text-align:center;background:rgba(8,11,18,.82);border:1px solid var(--line);border-radius:20px;padding:22px 20px;backdrop-filter:blur(6px);z-index:16;display:flex;flex-direction:column;gap:12px;align-items:center}
+  .midcard .big{font-size:44px}
+  .midcard h2{margin:0;font-size:clamp(19px,5vw,26px);line-height:1.3}
+  .midcard p{margin:0;color:var(--muted);font-size:14px;line-height:1.45;max-width:420px}
+  .midcard button{width:min(360px,78vw);flex:0 0 auto}
+  /* экран-угадайка и разгадка */
+  .choice{width:min(460px,86vw);text-align:left;background:#10151e;border:2px solid var(--line);border-radius:16px;padding:14px 16px;font-size:16px;font-weight:700;color:var(--text);min-height:0}
+  .choice:active{transform:scale(.98)}
+  #gal{display:flex;flex-direction:column;gap:10px;width:min(600px,94vw)}
+  .galrow{background:#10151e;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+  .galrow .gl{font-size:15px;font-weight:800;flex:0 0 100%;text-align:left}
+  .galrow canvas{width:84px;height:84px;border-radius:10px;image-rendering:pixelated;border:1px solid var(--line)}
+  .keyline{background:rgba(255,207,92,.12);border:1px solid var(--warn);border-radius:14px;padding:12px 16px;font-size:16px;font-weight:700;line-height:1.4;max-width:460px}
+  .oneliner{background:rgba(70,224,138,.1);border:1px solid var(--ok);border-radius:14px;padding:12px 16px;font-size:15px;font-weight:700;line-height:1.4;max-width:460px;color:var(--text)}
+  /* опрос */
+  #survey textarea{width:min(460px,88vw);min-height:96px;border-radius:14px;border:2px solid var(--line);background:#10151e;color:var(--text);font-size:16px;padding:12px;font-family:inherit;resize:none}
+  #survey textarea:focus{outline:none;border-color:var(--accent)}
+  #svq{font-size:clamp(18px,5vw,24px);font-weight:800;max-width:460px;line-height:1.35}
+  #svstep{font-size:13px;color:var(--muted)}
+  /* ввод номера места */
+  #seatgrid{display:grid;grid-template-columns:repeat(5,64px);gap:10px;justify-content:center}
+  #seatgrid button{min-height:56px;padding:0;font-size:20px;border-radius:14px}
+  /* debug-панель */
+  #debug{position:absolute;left:10px;bottom:10px;z-index:40;background:rgba(5,8,13,.88);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#9fe8bb;max-width:330px;white-space:pre-wrap;pointer-events:auto}
+  #debug b{color:#fff}
+  #debug .dbtns{display:flex;gap:6px;margin-top:6px}
+  #debug button{min-height:30px;padding:4px 10px;font-size:12px;border-radius:8px;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -95,6 +145,7 @@
   <div id="flash"></div>
   <div id="zone" class="hidden"><span class="zl"></span></div>
   <div id="toast"></div>
+  <div id="ckcount3"></div>
   <div id="bigmsg" class="hidden"></div>
 
   <div id="checkui" class="hidden">
@@ -104,7 +155,39 @@
     <div id="ckbarwrap"><div id="ckbar"></div></div>
     <div id="ckverdict"></div>
     <div id="ckhint"></div>
+    <div id="ckbtns">
+      <button id="ckShot" class="ok hidden">📸 ЗАМЕРИТЬ!</button>
+      <button id="ckRetry" class="ghost hidden">↻ Ещё раз</button>
+      <button id="ckNext" class="ok hidden">Дальше →</button>
+    </div>
   </div>
+
+  <!-- guided-режим: панель задания -->
+  <div id="guide" class="hidden">
+    <div id="gstep"></div>
+    <div id="gtask"></div>
+    <div id="gdots"></div>
+    <div id="ggate"></div>
+  </div>
+
+  <!-- карточка-шаг: инструкция/итог этапа, продолжение ТОЛЬКО по кнопке ребёнка -->
+  <div id="stepcard" class="midcard hidden">
+    <div class="big" id="scBig">✋</div>
+    <h2 id="scTitle"></h2>
+    <p id="scText"></p>
+    <button id="scGo" class="ok">▶️ Начали!</button>
+  </div>
+
+  <!-- потеря/занятость камеры -->
+  <div id="camfix" class="midcard hidden">
+    <div class="big">📷</div>
+    <h2>Камера не отвечает</h2>
+    <p>Если камера включена в видеозвонке — она занята. Выключи её в звонке (демонстрация экрана пусть остаётся) и нажми кнопку.</p>
+    <button id="camRetry" class="ok">📷 Подключить камеру</button>
+  </div>
+
+  <!-- debug-панель -->
+  <div id="debug" class="hidden"></div>
 
   <div id="bottom" class="hidden">
     <div id="hint"></div>
@@ -119,20 +202,74 @@
     <div class="row hidden" id="gameBtns">
       <button id="again" class="ghost">↻ К обучению</button>
     </div>
+    <div class="row hidden" id="toFinalRow"><button id="toFinal" class="ghost">🏁 К финалу урока (сертификат и вопросы)</button></div>
     <button id="reset" class="hidden">сбросить ИИ</button>
   </div>
 
   <div class="screen" id="intro">
-    <div class="big">📷</div>
-    <h1>Натренируй ИИ по картинке</h1>
-    <p>ИИ смотрит на кадр с камеры и учится на ТВОИХ примерах. Покажешь однообразно — он выучит не то. Покажешь разное — станет точным.</p>
+    <div class="big">🤖</div>
+    <h1>Сегодня ты — тренер ИИ</h1>
+    <p>Научишь настоящий ИИ узнавать твои жесты. Он будет учиться только на том, что ТЫ ему покажешь. Справишься?</p>
     <button id="start" class="ok">▶️ Поехали</button>
     <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
   </div>
 
   <div class="screen hidden" id="loading">
     <div class="spin"></div><p id="loadmsg">Запускаю…</p>
+    <div id="loadbarwrap"><div id="loadbar"></div></div>
     <button id="retry" class="ghost hidden">↻ Повторить</button>
+  </div>
+
+  <!-- номер места (только в режиме воркшопа ?ws=1) -->
+  <div class="screen hidden" id="seat">
+    <div class="big">🪑</div>
+    <h1>Твой номер места</h1>
+    <p>Ведущий скажет, какой у тебя номер. Нажми его.</p>
+    <div id="seatgrid"></div>
+  </div>
+
+  <!-- угадайка: почему ИИ ошибся -->
+  <div class="screen hidden" id="guess">
+    <div class="big">🧠</div>
+    <h1 id="guesstitle">ИИ перепутал!</h1>
+    <p id="guesssub"></p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+      <canvas id="probeshot" width="32" height="32" style="width:112px;height:112px;image-rendering:pixelated;border:2px solid var(--line);border-radius:12px"></canvas>
+      <span style="font-size:12px;color:var(--muted)">что видел ИИ в этот момент</span>
+    </div>
+    <div id="guessbtns" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+
+  <!-- разгадка: галерея собранных примеров -->
+  <div class="screen hidden" id="reveal">
+    <h1 id="revtitle">Смотри на подсказку 🔍</h1>
+    <div id="gal"></div>
+    <div class="keyline" id="revkey"></div>
+    <button id="fixBtn" class="ok">🔧 Починить ИИ</button>
+  </div>
+
+  <!-- финал -->
+  <div class="screen hidden" id="final">
+    <div class="big" id="fbig">🎉</div>
+    <h1 id="ftitle"></h1>
+    <div id="fscore" style="color:var(--muted);font-size:15px"></div>
+    <div class="oneliner" id="freveal"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;width:min(420px,82vw)">
+      <button id="fCert" class="ok">🏆 Сделать сертификат</button>
+      <button id="fSurvey" class="hidden">📝 Три вопроса от ведущего</button>
+      <button id="fLab" class="ghost">🧪 Лаборатория: играй с ИИ дальше</button>
+      <button id="fGame" class="ghost">🎮 Игра-бонус</button>
+    </div>
+    <p style="font-size:13px">🔗 Демка останется по этой ссылке — заходи, пробуй запутать ИИ по-новому и покажи родителям, чему ты его научил.</p>
+  </div>
+
+  <!-- опрос (3 вопроса, включается кодом ведущего) -->
+  <div class="screen hidden" id="survey">
+    <div id="svstep"></div>
+    <div id="svq"></div>
+    <textarea id="svtext" placeholder="напиши пару слов…"></textarea>
+    <button id="svNext" class="ok">Дальше →</button>
+    <button id="svBack" class="ghost">← Назад</button>
   </div>
 
   <div class="screen hidden" id="result">
@@ -145,7 +282,7 @@
 </div>
 
 <script type="module">
-import { ImageEmbedder, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
+import { ImageEmbedder, HandLandmarker, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
 
 const $=s=>document.querySelector(s);
 const DEMO=new URLSearchParams(location.search).has('demo');
@@ -160,17 +297,111 @@ const CLASSES=[
   {emoji:'✋',name:'ладонь',color:'#7aa2ff', zone:{x:0.10,y:0.18,w:0.42,h:0.6}, zoneText:'СЛЕВА, ближе'},
   {emoji:'✊',name:'кулак', color:'#ffcf5c', zone:{x:0.48,y:0.30,w:0.40,h:0.52}, zoneText:'СПРАВА, дальше'}
 ];
-let counts=[0,0]; const MINEX=5;          // раунд 1: 5–7/класс (Codex)
+let counts=[0,0]; const MINEX=5;          // лаборатория: минимум примеров на класс
 const EMB_W=0.65, PIX_W=0.35;             // вес image-эмбеддинга vs сырых пикселей
 const K_BIG=5, K_SMALL=3, NN_FAR=0.55;    // k и порог «непохоже/нет руки» (cos-расстояние)
-let embedder=null, state='intro', audio=null;
-let biasRound=1;                          // 1 = режиссируем однообразный сбор; 2 = чиним разнообразием
+let embedder=null, hander=null, state='intro', audio=null, camWasDown=false;
 let provenTier=0, lastNN=1;
+
+/* ==================== КОНФИГ УРОКА (переопределяется в URL) ==================== */
+const QP=new URLSearchParams(location.search);
+const CFG={
+  // гейт размера: РАЗМЕР САМОЙ РУКИ (сторона bbox от hand-детектора, доля кадра 0..1).
+  // ЛАДОНЬ учим только КРУПНО (side≥big), КУЛАК — только МЕЛКО (side≤small).
+  // Детектор меряет именно кисть — тело/лицо/фон не мешают (фон-дифф на живых людях провалился: корпус качается).
+  // Это единственная режиссура урока: она гарантирует, что ИИ выучит РАЗМЕР, а не жест
+  // (предсказуемая поломка → ребёнок чинит данными). Гейт НЕ трогает признаки: KNN видит сырой квадрат
+  // без scale-нормализации — НЕ вводить её, убьёт механику.
+  // диапазоны: детектор ТЕРЯЕТ руку вплотную к камере (обрезанная рука не находится),
+  // поэтому «крупно» имеет потолок — иначе ребёнка толкает в мёртвую зону (живой прогон 02.07)
+  bigLo:+(QP.get('biglo')||0.40), bigHi:+(QP.get('bighi')||0.75),
+  smLo:+(QP.get('smlo')||0.08),  smHi:+(QP.get('smhi')||0.28),
+  needR1:6, needR2:3,                  // примеров на класс: раунд 1 (поломка) / раунд 2 (починка)
+  gateHoldMs:600, sampleCdMs:520,      // гейт держится N мс → кадр пишется; кулдаун между кадрами
+  wsCode:'33',                         // код опроса — ведущий называет голосом в нужный момент
+};
+const WS=QP.has('ws');                 // режим воркшопа: номер места + кнопка опроса
+const DBG=QP.has('debug');
+const NOGATE=QP.has('nogate');         // страховка на занятии: гейты выключены, ведём голосом
+
+/* ==================== ТЕЛЕМЕТРИЯ (только числа и текст опроса — НИКОГДА кадры/эмбеддинги) ==================== */
+const TELE_URL='';                     // эндпойнт появится до воркшопа; пусто = копим локально
+const TELE={
+  sid:(Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
+  seat:null, t0:Date.now(), events:[], _saveT:0,
+  push(type,data){ this.events.push({t:Date.now()-this.t0,type,...(data||{})}); this._save();
+    if(type==='check_done'||type==='break_shown'||type==='final'||type==='survey_done')this.send(); },
+  _save(){ const now=Date.now(); if(now-this._saveT<1500)return; this._saveT=now;
+    try{ localStorage.setItem('tele_'+this.sid, JSON.stringify(this.dump())); }catch(e){} },
+  dump(){ const ua=navigator.userAgent;
+    return {sid:this.sid,seat:this.seat,started:new Date(this.t0).toISOString(),
+    os:/Windows/.test(ua)?'win':/Mac/.test(ua)?'mac':/Android/.test(ua)?'android':/iPhone|iPad/.test(ua)?'ios':/CrOS/.test(ua)?'chromeos':'other',
+    mobile:/Mobi|Android|iPhone|iPad/.test(ua), gpu:window.__gpu||null,
+    nogate:NOGATE, cfg:{bigLo:CFG.bigLo,bigHi:CFG.bigHi,smLo:CFG.smLo,smHi:CFG.smHi},
+    demo:DEMO,ws:WS,events:this.events}; },
+  send(){ if(!TELE_URL)return; try{ navigator.sendBeacon(TELE_URL, JSON.stringify(this.dump())); }catch(e){} },
+  download(){ // выгружаем ВСЕ сессии устройства (включая прерванные F5) — архив по ключам tele_*
+    const all={current:this.dump(),sessions:{}};
+    try{ for(const k of Object.keys(localStorage))if(k.startsWith('tele_'))all.sessions[k]=JSON.parse(localStorage.getItem(k)); }catch(e){}
+    const b=new Blob([JSON.stringify(all,null,1)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+    a.download='tele-'+(this.seat??'x')+'-'+this.sid+'.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000); }
+};
+addEventListener('pagehide',()=>{ TELE._saveT=0; TELE._save(); TELE.send(); });
+
+/* ==================== ГЕЙТ РАЗМЕРА (bbox руки от hand-детектора) ==================== */
+let lastHand={ok:false,side:null,box:null};   // side = max(ширина,высота) bbox кисти, доля кадра 0..1
+let lastBigTs=0;
+// визуальная стабилизация: цвет/статус меняем после ~3 согласных тиков, рамку руки сглаживаем (не дёргается)
+let _gvis={val:false,cand:false,n:0}, _sbox=null;
+function gateOkStable(gate){
+  const raw=gateOk(gate)&&(state!=='gteach'||!GUIDE.task||formOkFor(GUIDE.task.cls));
+  if(raw===_gvis.cand)_gvis.n++; else{_gvis.cand=raw;_gvis.n=1;}
+  if(_gvis.n>=3)_gvis.val=raw;
+  return _gvis.val;
+}
+function smoothBox(b){
+  if(!b){_sbox=null;return null;}
+  if(!_sbox){_sbox={...b};return _sbox;}
+  const k=0.35; for(const key of ['x0','y0','x1','y1'])_sbox[key]+=(b[key]-_sbox[key])*k;
+  return _sbox;
+}                               // когда в последний раз видели КРУПНУЮ руку (эвристика «слишком близко»)
+function gateOk(gate,h){
+  if(NOGATE)return true;
+  h=h||lastHand;
+  if(!h.ok||h.side==null)return false;
+  if(gate==='big')  return h.side>=CFG.bigLo && h.side<=CFG.bigHi;
+  if(gate==='small')return h.side>=CFG.smLo  && h.side<=CFG.smHi;
+  return true;
+}
+function formState(h){ h=h||lastHand; if(!h.ok||h.open==null)return 'mid';
+  return h.open>1.35?'open':(h.open<1.15?'closed':'mid'); }
+function formOkFor(cls,h){ const f=formState(h); return cls===0?f==='open':f==='closed'; }
+function formHint(cls){ return cls===0?'✋ Раскрой ладонь, разожми пальцы!':'✊ Сожми кулак покрепче!'; }
+function gateHint(gate,h){
+  h=h||lastHand;
+  if(!h.ok){
+    // руку только что видели крупной и потеряли → почти наверняка поднесли ВПЛОТНУЮ (детектор слепнет)
+    if(performance.now()-lastBigTs<1500)return '↩️ Чуть назад! Так близко камера теряет руку';
+    return '🖐 покажи руку в рамке';
+  }
+  if(gate==='big'){
+    if(h.side<CFG.bigLo)return '👋 БЛИЖЕ — совпади с контуром!';
+    if(h.side>CFG.bigHi)return '↩️ чуть-чуть назад';
+    return '✅ отлично, держи так!';
+  }
+  if(gate==='small'){
+    if(h.side>CFG.smHi)return '🚶 ДАЛЬШЕ — рука должна стать маленькой, как контур';
+    if(h.side<CFG.smLo)return '👋 чуть ближе, совсем не видно';
+    return '✅ отлично, держи так!';
+  }
+  return '';
+}
 
 /* ---- захват признаков из кадра: image-эмбеддинг + сырые пиксели 32×32 ---- */
 const fcv=document.createElement('canvas'); fcv.width=224; fcv.height=224; const fx=fcv.getContext('2d');
 const pcv=document.createElement('canvas'); pcv.width=32;  pcv.height=32;  const pxc=pcv.getContext('2d',{willReadFrequently:true});
-let lastPix=null;                          // для glass-box preview
+let lastPix=null, certFrame=null;          // lastPix — glass-box preview; certFrame — кадр руки для сертификата
 function srcRect(){ const vw=cam.videoWidth||640, vh=cam.videoHeight||480, s=Math.min(vw,vh); return [(vw-s)/2,(vh-s)/2,s,s]; }
 function grabFeature(){
   if(DEMO){ drawDemoFrame(); }
@@ -179,17 +410,44 @@ function grabFeature(){
   // image-эмбеддинг (центральный квадрат → 224)
   fx.drawImage(src,sx,sy,sw,sh,0,0,224,224);
   let e=null;
-  try{ const r=embedder.embed(fcv); e=r.embeddings[0].floatEmbedding; }catch(err){ return null; }
+  try{ const r=embedder.embed(fcv); e=r.embeddings[0].floatEmbedding; }
+  catch(err){ const now=Date.now(); if(!window.__ef||now-window.__ef>10000){window.__ef=now;TELE.push('embed_fail');} return null; }
   let ne=0; for(let i=0;i<e.length;i++)ne+=e[i]*e[i]; ne=Math.sqrt(ne)||1;
   const emb=new Float32Array(e.length); for(let i=0;i<e.length;i++)emb[i]=e[i]/ne;
   // сырые пиксели 32×32 grayscale, нормализация (subtract mean / div std)
   pxc.imageSmoothingEnabled=true; pxc.drawImage(src,sx,sy,sw,sh,0,0,32,32);
   const d=pxc.getImageData(0,0,32,32).data, pix=new Float32Array(1024); let m=0;
   for(let i=0;i<1024;i++){ const g=d[i*4]*0.299+d[i*4+1]*0.587+d[i*4+2]*0.114; pix[i]=g; m+=g; } m/=1024;
-  let v=0; for(let i=0;i<1024;i++){ pix[i]-=m; v+=pix[i]*pix[i]; } v=Math.sqrt(v/1024)||1;
-  for(let i=0;i<1024;i++)pix[i]/=v;
+  let v=0; for(let i=0;i<1024;i++){ pix[i]-=m; v+=pix[i]*pix[i]; } const nrm=Math.sqrt(v)||1;
+  for(let i=0;i<1024;i++)pix[i]/=nrm;   // единичная длина → dot = настоящий косинус [-1..1], веса 0.65/0.35 честные
+  // (раньше делили только на std: норма была 32, dot≈±1024 — пиксельная ветка молча давила эмбеддинг в ~500×)
   lastPix=pxc.getImageData(0,0,32,32);
+  detectHand();                            // гейт размера: bbox кисти (не каждый тик — дорого)
   return {emb,pix};
+}
+let _handTick=0;
+function detectHand(){
+  if(DEMO){ const D=window.__demo;
+    lastHand=D.present?{ok:true,side:D.size*0.55,open:D.cls===0?1.8:0.95,
+      box:{x0:0.5-D.size*0.27,y0:0.5-D.size*0.27,x1:0.5+D.size*0.27,y1:0.5+D.size*0.27}}:{ok:false,side:null,box:null};
+    if(lastHand.ok&&lastHand.side>=CFG.bigLo)lastBigTs=performance.now();
+    return; }
+  if(!hander)return;
+  if((_handTick++&1))return;               // каждый 2-й тик: детектор+эмбеддер вместе тяжелы для слабых машин
+  try{
+    const r=hander.detect(fcv);            // тот же 224×224 центральный квадрат, что видит ИИ
+    const lm=r.landmarks&&r.landmarks[0];
+    if(!lm||!lm.length){ lastHand={ok:false,side:null,box:null}; return; }
+    let x0=1,x1=0,y0=1,y1=0;
+    for(const p of lm){ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
+    // раскрытость: кончики пальцев далеко от запястья = ладонь, близко = кулак (защита данных от «не того жеста»)
+    const W0=lm[0], d2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+    const tips=(8+0, [8,12,16,20].reduce((a,i)=>a+d2(lm[i],W0),0)/4);
+    const mcps=[5,9,13,17].reduce((a,i)=>a+d2(lm[i],W0),0)/4;
+    const open=tips/(mcps||1e-6);          // >1.35 раскрыта · <1.15 кулак · между — неясно
+    lastHand={ok:true, side:Math.max(x1-x0,y1-y0), box:{x0,y0,x1,y1}, open};
+    if(lastHand.side>=CFG.bigLo)lastBigTs=performance.now();
+  }catch(e){ lastHand={ok:false,side:null,box:null}; }
 }
 function dot(a,b){let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s}
 
@@ -198,12 +456,16 @@ const KNN={ex:[], add(f,l){this.ex.push({emb:f.emb,pix:f.pix,l})}, clear(){this.
   delLast(l){ for(let i=this.ex.length-1;i>=0;i--){ if(this.ex[i].l===l){this.ex.splice(i,1);return true} } return false; },
   classify(f){ if(!this.ex.length||!f)return null;
     const minC=Math.min(counts[0],counts[1]), k=Math.min(minC>=10?K_BIG:K_SMALL,this.ex.length);
-    const d=this.ex.map(e=>({l:e.l, d:EMB_W*(1-dot(f.emb,e.emb))+PIX_W*(1-dot(f.pix,e.pix))})).sort((a,b)=>a.d-b.d);
+    const d=this.ex.map(e=>{ const ed=1-dot(f.emb,e.emb), pd=1-dot(f.pix,e.pix);
+      return {l:e.l, d:EMB_W*ed+PIX_W*pd, ed, pd}; }).sort((a,b)=>a.d-b.d);
     lastNN=d[0].d;
     const top=d.slice(0,k), v={}; for(const x of top)v[x.l]=(v[x.l]||0)+1;
     let best=-1,bc=-1; for(const l in v){ if(v[l]>bc){bc=v[l];best=+l} }
     const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/k;
-    return {label:best,confidences:conf,vote:bc/k,nn:d[0].d,far:d[0].d>NN_FAR};
+    // far убран: простой ИИ не умеет «нет руки» — всегда показывает ближайший класс + уверенность.
+    // «не уверен» = низкий vote (50/50), а не порог расстояния (он шумел → рандом).
+    return {label:best,confidences:conf,vote:bc/k,nn:d[0].d,far:false,
+      top:top.map(x=>({l:x.l,ed:+x.ed.toFixed(3),pd:+x.pd.toFixed(3)}))};   // приборы: вклад веток
   }};
 
 /* ---- аудио / эффекты ---- */
@@ -230,64 +492,79 @@ function refresh(){
   [...teachrow.children].forEach((el,i)=>{
     el.querySelector('.c b').textContent=counts[i];
     el.querySelector('.del').disabled=!counts[i];
-    el.querySelector('.h').textContent = biasRound===1 ? ('держи '+CLASSES[i].zoneText) : 'держи, меняя место';
+    el.querySelector('.h').textContent = 'держи в рамке';
   });
   const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
   let warn=''; if(mx>=4 && mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;warn=` · <span class="cw">⚠️ перекос — добери ${CLASSES[less].emoji}</span>`;}
   $('#counts').innerHTML=`данные ИИ: ${CLASSES[0].emoji} <b>${counts[0]}</b> · ${CLASSES[1].emoji} <b>${counts[1]}</b>${warn}`;
-  $('#chips').classList.toggle('hidden', biasRound===1);   // чеклист разнообразия — только в раунде 2
   toCheckBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
 }
 function updateHint(){
   if(state!=='train')return;
-  if(biasRound===1){
-    if(counts[0]<MINEX||counts[1]<MINEX)hintEl.innerHTML='⚡ Быстрое обучение: ✋ держи <b>слева-ближе</b>, ✊ <b>справа-дальше</b>. Набери по 5.';
-    else hintEl.textContent='Готово. Жми «Проверить ИИ» — посмотрим, чему он научился.';
-  } else {
-    if(counts[0]<10||counts[1]<10)hintEl.innerHTML='Теперь покажи оба жеста <b>в РАЗНЫХ местах</b> (слева, справа, ближе, дальше). Добери до ~12.';
-    else hintEl.textContent='Достаточно разных примеров. Проверь ИИ снова.';
-  }
+  if(counts[0]<MINEX||counts[1]<MINEX)hintEl.innerHTML='⚡ Покажи ✋ и ✊ в рамке, по 5 примеров каждого.';
+  else hintEl.textContent='Готово. Жми «Проверить ИИ» — посмотрим, чему он научился.';
 }
 
 /* ---- камера + модель ---- */
-function setLoad(m,r){$('#loadmsg').textContent=m;$('#retry').classList.toggle('hidden',!r)}
+function setLoad(m,r,pct){$('#loadmsg').textContent=m;$('#retry').classList.toggle('hidden',!r);
+  if(pct!=null){const b=$('#loadbar');b.style.width=pct+'%';
+    // внутри этапа полоска медленно ползёт к следующей вехе — видно, что живём
+    clearTimeout(setLoad._t); if(pct<100)setLoad._t=setTimeout(()=>{b.style.transition='width 6s linear';b.style.width=Math.min(pct+12,97)+'%';},120);
+    else b.style.transition='width .4s';}}
 async function initCamera(){ if(DEMO)return;
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
   let s;
   try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640}},audio:false})}
   catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}catch(e2){throw new Error('CAM:'+e2.name)} }
   cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
-  s.getVideoTracks()[0].addEventListener('ended',()=>{hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
+  s.getVideoTracks()[0].addEventListener('ended',()=>{TELE.push('cam_drop',{auto:true});hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
 }
 async function initModel(){
   const vision=await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
   const opt=d=>({baseOptions:{modelAssetPath:"./models/mobilenet_v3_small_embedder.tflite",delegate:d},runningMode:"IMAGE"});
-  try{ embedder=await ImageEmbedder.createFromOptions(vision,opt("GPU")); }
-  catch(e){ embedder=await ImageEmbedder.createFromOptions(vision,opt("CPU")); }
+  try{ embedder=await ImageEmbedder.createFromOptions(vision,opt("GPU")); window.__gpu='GPU'; }
+  catch(e){ embedder=await ImageEmbedder.createFromOptions(vision,opt("CPU")); window.__gpu='CPU'; }
+  setLoad('Гружу ИИ… распознавание картинки',false,55);
+  const hopt=d=>({baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:d},runningMode:"IMAGE",numHands:1});
+  setLoad('Гружу ИИ… детектор руки',false,75);
+  try{ hander=await HandLandmarker.createFromOptions(vision,hopt(window.__gpu)); }
+  catch(e){ try{ hander=await HandLandmarker.createFromOptions(vision,hopt("CPU")); }catch(e2){ hander=null; } }
 }
 function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
 
-/* ---- демо: синтетический кадр (без камеры) ---- */
+/* ---- демо: синтетический кадр (без камеры), управляется window.__demo — для e2e-прогона ---- */
 const demoCv=document.createElement('canvas'); demoCv.width=224; demoCv.height=224; const dcx=demoCv.getContext('2d');
-let dT=0,dG=0,dPosX=0.5;
-function drawDemoFrame(){ dT++; if(dT%120===0)dG=1-dG;
-  dcx.fillStyle=dG?'#1a1410':'#101a22'; dcx.fillRect(0,0,224,224);
-  const cx=dPosX*224, cy=112;
-  dcx.fillStyle=dG?'#caa':'#acd';
-  if(dG===0){ for(let f=0;f<4;f++){dcx.fillRect(cx-30+f*16,cy-60,10,90);} dcx.fillRect(cx-36,cy+24,80,40); } // «ладонь»
-  else { dcx.beginPath();dcx.arc(cx,cy,42,0,7);dcx.fill(); } // «кулак»
+window.__demo={cls:0,size:1.0,present:true};   // cls: 0 ладонь/1 кулак; size: 1=вплотную, 0.2=далеко
+function drawDemoFrame(){
+  const D=window.__demo;
+  dcx.fillStyle='#101a22'; dcx.fillRect(0,0,224,224);
+  // лёгкий стабильный шум фона (не рандом — чтобы фон-дифф был честным)
+  dcx.fillStyle='#33465a'; for(let i=0;i<6;i++)dcx.fillRect(20+i*34,170,18,40);
+  dcx.fillStyle='#223140'; dcx.fillRect(0,0,224,26);
+  if(!D.present)return;
+  const cx=112, cy=112, s=D.size;
+  dcx.fillStyle=D.cls===0?'#c9b8a8':'#c9a890';
+  if(D.cls===0){ // «ладонь»: 4 широких пальца + основание; s=1 заполняет большую часть кадра
+    for(let f=0;f<4;f++)dcx.fillRect(cx-52*s+f*28*s, cy-90*s, 22*s, 130*s);
+    dcx.fillRect(cx-60*s, cy+42*s, 130*s, 80*s);
+  } else {       // «кулак»: плотный круг; s=1 почти во весь кадр (как рука вплотную)
+    dcx.beginPath(); dcx.arc(cx,cy,95*s,0,7); dcx.fill();
+  }
 }
 
 /* ---- классификация (отдельный цикл — embed дорог, не каждый rAF) ---- */
 let predCache=null, smooth=[];
+const LIVE_STATES=new Set(['train','check','game','train-pause','gteach','gcheck','gpause']);
 function classifyTick(){
-  if((state==='train'||state==='check'||state==='game'||state==='train-pause') && (embedder) && (DEMO||cam.readyState>=2)){
+  if(LIVE_STATES.has(state) && (embedder) && (DEMO||cam.readyState>=2)){
     const f=grabFeature(); curFeat=f;
     const p=f?KNN.classify(f):null;
     // temporal smoothing: majority за 5 замеров
     if(p){ smooth.push(p.label); if(smooth.length>5)smooth.shift(); }
     predCache=p;
     drawPeek();
+    if(state==='gteach')tickGuidedTeach();
+    if(DBG)renderDebug(p);
   }
   setTimeout(classifyTick, 60);
 }
@@ -296,12 +573,18 @@ function smoothLabel(){ if(!smooth.length)return -1; const c={};smooth.forEach(l
 function drawPeek(){ if(!lastPix)return; const t=document.createElement('canvas');t.width=32;t.height=32;t.getContext('2d').putImageData(lastPix,0,0);
   peekCtx.imageSmoothingEnabled=false; peekCtx.clearRect(0,0,32,32); peekCtx.drawImage(t,0,0); }
 
-function addExample(i){ const f=curFeat||grabFeature(); if(!f){showToast('Кадр не готов',700);return}
-  KNN.add(f,i); counts[i]++; refresh(); updateHint(); SFX.learn(counts[i]);
+const THUMBS=[[],[]];   // ImageData 32×32 каждого примера (по классам) — для разгадки «смотри, что ты собрал»
+function addExample(i,round){ const f=curFeat||grabFeature(); if(!f){showToast('Кадр не готов',700);return false}
+  KNN.add(f,i); counts[i]++; if(lastPix)certFrame=lastPix;
+  if(lastPix)THUMBS[i].push({img:new ImageData(new Uint8ClampedArray(lastPix.data),32,32),round:round||0});
+  TELE.push('sample',{cls:i,round:round||0,hand:lastHand.side!=null?+lastHand.side.toFixed(3):null,n:counts[i]});
+  refresh(); updateHint(); SFX.learn(counts[i]); return true;
 }
 
 /* ---- бары «на что похоже» ---- */
 function updateBars(p){
+  if(p===updateBars._p && state===updateBars._s && KNN.ex.length===updateBars._n)return;   // без изменений — не дёргаем DOM
+  updateBars._p=p; updateBars._s=state; updateBars._n=KNN.ex.length;
   const ah=$('#aihead');
   if(state==='game'||state==='gameover'){ ah.style.display='none';
     if(!p){barsEl.innerHTML='';return}
@@ -315,24 +598,153 @@ function updateBars(p){
   barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} похоже на: ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
 }
 
-/* ====================== ПРОВЕРКА РОБОТА (тест на СВОПНУТЫХ условиях — выявляет bias) ====================== */
+/* ====================== УРОК (guided-флоу): калибровка → сбор с гейтом → поломка → починка ====================== */
+const SCREENS=['intro','loading','seat','guess','reveal','final','survey','result'];
+function showScreen(id){ SCREENS.forEach(s=>$('#'+s).classList.toggle('hidden',s!==id)); }
+const guideEl=$('#guide'),gstepEl=$('#gstep'),gtaskEl=$('#gtask'),gdotsEl=$('#gdots'),ggateEl=$('#ggate');
+
+const GUIDE={
+  on:false, task:null, gateMs:0, lastAdd:0,
+  guess:null, res1:null, res2:null, probeRetried:false, fixTries:0, outcome:null,
+};
+const TASKS={
+  t1a:{cls:0,gate:'big',  need:CFG.needR1,round:1,step:'ТРЕНИРОВКА · 1 из 2',
+       txt:'<span class="em">✋</span>Покажи ладонь —<br>совпади размером с контуром!'},
+  t1b:{cls:1,gate:'small',need:CFG.needR1,round:1,step:'ТРЕНИРОВКА · 2 из 2',
+       txt:'<span class="em">✊</span>Теперь кулак — отодвинь руку,<br>чтобы стал маленьким, как контур'},
+  t2a:{cls:0,gate:'small',need:CFG.needR2,round:2,step:'ПОЧИНКА · 1 из 2',
+       txt:'<span class="em">✋</span>Добавь МАЛЕНЬКУЮ ладонь —<br>издалека, как контур'},
+  t2b:{cls:1,gate:'big',  need:CFG.needR2,round:2,step:'ПОЧИНКА · 2 из 2',
+       txt:'<span class="em">✊</span>И БОЛЬШОЙ кулак —<br>поближе, с контур размером!'},
+};
+function enterGuide(){ GUIDE.on=true; TELE.push('guide_start');
+  if(WS && TELE.seat==null) showSeatScreen(); else startFirstTask(); }
+function startFirstTask(){ startTask('t1a'); }
+function showSeatScreen(){ state='gpause'; showScreen('seat');
+  const g=$('#seatgrid'); if(!g.children.length){
+    for(let n=1;n<=15;n++){ const b=document.createElement('button'); b.className='ghost'; b.textContent=n;
+      b.onclick=()=>{ TELE.seat=n; TELE.push('seat',{n}); try{localStorage.setItem('ws_seat',n)}catch(e){}
+        showScreen(null); startFirstTask(); }; g.appendChild(b); } } }
+function stepCard({big,title,text,btn,onGo}){
+  state='gpause'; showScreen(null); guideEl.classList.add('hidden'); checkui.classList.add('hidden');
+  $('#scBig').textContent=big; $('#scTitle').innerHTML=title; $('#scText').innerHTML=text||'';
+  $('#scGo').textContent=btn||'▶️ Начали!';
+  $('#scGo').onclick=()=>{ $('#stepcard').classList.add('hidden'); onGo(); };
+  $('#stepcard').classList.remove('hidden');
+}
+const TASK_INTRO={
+  t1a:{big:'✋',title:'Научим ИИ ладони!',text:'Показывай ладонь так, чтобы она совпала с контуром на экране. ИИ сам сфотографирует 6 штук.'},
+  t1b:{big:'✊',title:'Теперь кулаки!',text:'Сожми кулак и отодвинь руку, чтобы он стал маленьким, как контур. Ещё 6 фото.'},
+  t2a:{big:'✋',title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. 3 фото.'},
+  t2b:{big:'✊',title:'И большие кулаки',text:'И наоборот: кулак БЛИЗКО, большой как контур. Ещё 3 фото.'},
+};
+function startTask(key){
+  const intro=TASK_INTRO[key];
+  stepCard({...intro,btn:'▶️ Начали!',onGo:()=>{
+    const t=TASKS[key]; GUIDE.task={...t,key,got:0}; GUIDE.gateMs=0; GUIDE.lastAdd=0;
+    state='gteach';
+    guideEl.classList.remove('hidden'); topEl.classList.add('hidden'); bottom.classList.add('hidden');
+    gstepEl.textContent=t.step; gtaskEl.innerHTML=t.txt;
+    gdotsEl.innerHTML=Array.from({length:t.need},()=>'<i></i>').join('');
+    ggateEl.textContent=''; TELE.push('task_start',{task:key});
+  }});
+}
+function tickGuidedTeach(){
+  const T=GUIDE.task; if(!T)return;
+  if(camWasDown){GUIDE.gateMs=0;return;}   // камера отпала — замираем
+  const sizeOk=gateOk(T.gate), form=formOkFor(T.cls);
+  const ok=sizeOk&&form, now=performance.now();
+  const txt=sizeOk&&!form ? formHint(T.cls) : gateHint(T.gate);
+  if(txt!==ggateEl.textContent && (now-(tickGuidedTeach._ts||0)>600)){   // троттл: на границе порога текст не стробит
+    ggateEl.textContent=txt; ggateEl.className=ok?'ok':'no'; tickGuidedTeach._ts=now; }
+  if(ok){GUIDE.gateMs+=60;GUIDE.stuckMs=0;} else {GUIDE.gateMs=0;GUIDE.stuckMs=(GUIDE.stuckMs||0)+60;}
+  // гейт не проходит очень долго → подсказка позвать ведущего (и след в телеметрии)
+  if(GUIDE.stuckMs>25000){GUIDE.stuckMs=0;TELE.push('gate_stuck',{task:T.key});showToast('Не выходит? Позови ведущего 🙋',2000);}
+  if(GUIDE.gateMs>=CFG.gateHoldMs && now-GUIDE.lastAdd>=CFG.sampleCdMs){
+    GUIDE.lastAdd=now;
+    if(addExample(T.cls,T.round)){
+      T.got++;                                   // без вспышки: мигание пугает и мешает (фидбек 02.07)
+      [...gdotsEl.children].forEach((d,i)=>d.classList.toggle('on',i<T.got));
+      if(T.got>=T.need){ GUIDE.task=null; TELE.push('task_done',{task:T.key});
+        state='gpause'; nextAfterTask(T.key); }
+    }
+  }
+}
+function nextAfterTask(key){
+  guideEl.classList.add('hidden');
+  if(key==='t1a') stepCard({big:'✅',title:'6 ладоней собрано!',text:'ИИ их запомнил.',btn:'Дальше →',onGo:()=>startTask('t1b')});
+  else if(key==='t1b') stepCard({big:'🎓',title:'ИИ обучен!',text:'6 ладоней и 6 кулаков. Теперь проверим, чему он на самом деле научился. Показывай жесты и жми «ЗАМЕРИТЬ».',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)});
+  else if(key==='t2a') startTask('t2b');
+  else if(key==='t2b') stepCard({big:'🔧',title:'Починка готова!',text:'Ты добавил ИИ маленькие ладони и большие кулаки. Проверим ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)});
+}
+
+/* ====================== ПРОВЕРКА (общая для урока и лаборатории) ====================== */
 const CARDS_PER_CLASS=4;
-const READY=900,HOLD=1500,MEASURE_TAIL=560,REVEAL=950;
+const HOLD=900,MEASURE_TAIL=780,COUNT_STEP=700;   // замер короткий: почти весь идёт в samples
 let CHK=null;
-// в раунде 1 проверяем СВОП: ладонь просим показать СПРАВА (где учил кулак), и наоборот → bias вылезает
-function cardPos(cls){ return biasRound===1 ? CLASSES[1-cls].zoneText : ['слева','справа','ближе','дальше'][(Math.random()*4)|0]; }
 function shuffledCards(){const a=[];for(let c=0;c<CLASSES.length;c++)for(let n=0;n<CARDS_PER_CLASS;n++)a.push({cls:c});
   for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]]}
-  a.forEach(card=>card.pos=cardPos(card.cls)); return a;}
-function startCheck(){ state='check';
-  CHK={cards:shuffledCards(),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[]};
+  return a;}
+// карточки урока. R1: две «как учили» (доверие) + пробник — ✋ ИЗДАЛЕКА (надёжное направление поломки).
+// R2: те же + оба «наоборот» — теперь должны узнаваться.
+function guidedCards(round){
+  return round===1
+    ? [{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:'small',probe:true}]
+    : [{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:'small',probe:true},{cls:1,gate:'big',probe:true}];
+}
+function cardTitle(card){
+  const c=CLASSES[card.cls];
+  if(!card.gate)return `<span class="em">${c.emoji}</span>${c.name} — в рамке`;
+  return card.gate==='big'
+    ? `<span class="em">${c.emoji}</span>${c.name} — БОЛЬШАЯ, как контур`
+    : `<span class="em">${c.emoji}</span>${c.name} — маленькая, как контур`;
+}
+function ckButtons(mode){ // 'shot' | 'retry' | 'next' | 'why' | none
+  $('#ckShot').classList.toggle('hidden',mode!=='shot');
+  $('#ckRetry').classList.toggle('hidden',mode!=='retry');
+  $('#ckNext').classList.toggle('hidden',mode!=='next'&&mode!=='why');
+  if(mode==='next')$('#ckNext').textContent='Дальше →';
+  if(mode==='why')$('#ckNext').textContent='Почему?! 🤔';
+}
+function startCheck(){ // лаборатория (свободный режим)
+  state='check';
+  CHK={cards:shuffledCards(),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[],guided:false};
   $('#result').classList.add('hidden'); bottom.classList.add('hidden'); zoneEl.classList.add('hidden'); checkui.classList.remove('hidden');
-  $('#ckverdict').textContent=''; showToast(biasRound===1?'Проверим на НОВОМ месте':'Проверим ещё раз',1500);
+  $('#ckverdict').textContent=''; ckButtons('shot');
+}
+function startGuidedCheck(round){
+  state='gcheck'; showScreen(null); guideEl.classList.add('hidden');
+  CHK={cards:guidedCards(round),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[],guided:true,round,gateMs:0};
+  bottom.classList.add('hidden'); topEl.classList.remove('hidden'); checkui.classList.remove('hidden');
+  $('#ckverdict').textContent=''; ckButtons('shot');
+}
+/* кнопка ЗАМЕРИТЬ: короткий отсчёт 2-1 (Codex: 3-2-1 медленно при частых замерах) → замер.
+   Руки нет в кадре — отсчёт мягко ЖДЁТ (не сбрасывается): меньше обидных пустых замеров. */
+function ckShotClick(){
+  if(!CHK||CHK.phase!=='ready')return;
+  CHK.phase='count'; CHK.count=2; CHK.t0=performance.now(); ckButtons(null);
+  $('#ckcount3').style.display='block'; $('#ckcount3').textContent='2'; SFX.learn(1);
+}
+function ckRetryClick(){ if(!CHK)return; CHK.phase='ready'; $('#ckverdict').textContent=''; $('#ckhint').textContent=''; ckButtons('shot'); }
+function ckNextClick(){
+  if(!CHK||CHK.phase!=='verdict')return;   // двойной клик не должен пропустить карточку
+  CHK.idx++;
+  if(CHK.idx>=CHK.cards.length){ finishCheck(); return; }
+  CHK.phase='ready'; $('#ckverdict').textContent=''; $('#ckhint').textContent=''; ckButtons('shot');
 }
 function judgeCard(card){
-  const s=CHK.samples, valid=s.filter(x=>x.label!=null&&!x.far);
+  const s=CHK.samples;
+  // замер невалиден (не считается попыткой): руки не было / не тот размер / не тот жест
+  const seen=s.filter(x=>x.hand).length, sized=s.filter(x=>x.hand&&x.size).length, formed=s.filter(x=>x.hand&&x.form).length;
+  CHK.invalidN=(CHK.invalidN||0);
+  const esc=CHK.invalidN>=2 ? ' Если не выходит — позови ведущего 🙋' : '';
+  if(!s.length||seen<s.length*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg='🚫 Не увидел руку — попробуем ещё раз.'+esc; TELE.push('shot_invalid',{why:'nohand'}); return; }
+  if(CHK.guided&&sized<seen*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg='📏 Рука не того размера — совпади с контуром и замерь снова.'+esc; TELE.push('shot_invalid',{why:'size'}); return; }
+  if(CHK.guided&&formed<seen*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg=(card.cls===0?'Это точно ладонь? 🙂 Раскрой пальцы':'Это точно кулак? 🙂 Сожми покрепче')+' — и замерь снова.'+esc; TELE.push('shot_invalid',{why:'form'}); return; }
+  CHK.invalidN=0;
+  const valid=s.filter(x=>x.label!=null&&!x.far);
   let verdict,got=null;
-  if(s.length===0 || valid.length < Math.max(1,Math.ceil(s.length*0.4))) verdict='nohand';
+  if(!valid.length) verdict='nohand';
   else{ const cnt={}; valid.forEach(x=>cnt[x.label]=(cnt[x.label]||0)+1);
     let mj=-1,mc=-1; for(const l in cnt){if(cnt[l]>mc){mc=cnt[l];mj=+l}}
     const frac=mc/valid.length;
@@ -341,56 +753,103 @@ function judgeCard(card){
     else{verdict='confused';got=mj;}
   }
   CHK.results.push({cls:card.cls,verdict,got});
+  if(card.probe&&lastPix)GUIDE.probeShot=new ImageData(new Uint8ClampedArray(lastPix.data),32,32);   // стоп-кадр для «почему»
+  CHK.phase='verdict';
+  TELE.push('card',{round:CHK.round||0,cls:card.cls,gate:card.gate||null,probe:!!card.probe,verdict,got,
+    hand:lastHand.side!=null?+lastHand.side.toFixed(3):null,
+    top:predCache?.top||null});                       // разбивка веток соседей — для замера ставки
   if(verdict==='correct')SFX.ding();else SFX.buzz();
 }
 function tickCheck(now){
   if(!CHK)return; const card=CHK.cards[CHK.idx], el=now-CHK.t0;
-  if(CHK.phase==='ready'){ if(el>=READY){CHK.phase='hold';CHK.t0=now;CHK.samples=[];CHK.lastSample=0;} }
-  else if(CHK.phase==='hold'){
-    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=90){ CHK.lastSample=now;
-      CHK.samples.push(predCache?{label:predCache.label,far:predCache.far}:{label:null,far:true}); }
-    if(el>=HOLD){ judgeCard(card); CHK.phase='reveal'; CHK.t0=now; }
+  if(camWasDown){if(CHK.phase==='count'||CHK.phase==='hold'){CHK.phase='ready';ckButtons('shot');$('#ckcount3').style.display='none';}return;}
+  if(CHK.phase==='count'){
+    if(!lastHand.ok){ CHK.t0=now-(2-CHK.count)*COUNT_STEP; $('#ckcount3').textContent='🖐'; }   // ждём руку, счёт на паузе
+    else{
+      const c=2-Math.floor(el/COUNT_STEP);
+      if(String(c)!==$('#ckcount3').textContent&&c>0){CHK.count=c;$('#ckcount3').textContent=c;SFX.learn(4-c);}
+      if(el>=2*COUNT_STEP){ $('#ckcount3').style.display='none';
+        CHK.phase='hold'; CHK.t0=now; CHK.samples=[]; CHK.lastSample=0; SFX.ding(); }
+    }
   }
-  else if(CHK.phase==='reveal'){ if(el>=REVEAL){ CHK.idx++;
-      if(CHK.idx>=CHK.cards.length){finishCheck();return;} CHK.phase='ready';CHK.t0=now; } }
+  else if(CHK.phase==='hold'){
+    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=80){ CHK.lastSample=now;
+      CHK.samples.push({label:predCache?predCache.label:null, far:predCache?predCache.far:true,
+        hand:lastHand.ok, size:card.gate?gateOk(card.gate):true, form:formOkFor(card.cls)}); }
+    if(el>=HOLD){ judgeCard(card); CHK.t0=now; }
+  }
   renderCheckUI(card,now);
 }
 function renderCheckUI(card,now){
-  const el=now-CHK.t0, c=CLASSES[card.cls];
-  $('#ckround').textContent=biasRound===1?'🔍 Проверка на новом месте':'🔍 Проверка робота';
-  $('#ckcount').textContent=`карточка ${CHK.idx+1} из ${CHK.cards.length}`;
+  const el=now-CHK.t0;
+  $('#ckround').textContent=CHK.guided?(CHK.round===1?'🔍 Проверка ИИ':'🔍 Проверка после починки'):'🔍 Проверка ИИ';
+  $('#ckcount').textContent=`замер ${Math.min(CHK.idx+1,CHK.cards.length)} из ${CHK.cards.length}`;
   if(CHK.phase==='ready'){
-    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>${c.name} — ${card.pos}`;
-    $('#ckbar').style.width='0%'; $('#ckverdict').textContent=''; $('#ckhint').textContent='покажи этот жест ЗДЕСЬ';
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckbar').style.width='0%'; $('#ckverdict').textContent='';
+    $('#ckhint').textContent='приготовь руку — и жми кнопку';
+  } else if(CHK.phase==='count'){
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckhint').textContent=CHK.guided&&card.gate?gateHint(card.gate):'';
   } else if(CHK.phase==='hold'){
-    $('#cktarget').innerHTML=`<span class="em">${c.emoji}</span>держи: ${c.name} (${card.pos})`;
-    const meas=el>=HOLD-MEASURE_TAIL;
-    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%'; $('#ckbar').style.background=meas?'var(--warn)':'var(--accent)';
-    $('#ckverdict').textContent=meas?'📸 замеряю…':''; $('#ckhint').textContent='';
-  } else {
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%'; $('#ckbar').style.background='var(--warn)';
+    $('#ckverdict').style.color='var(--warn)'; $('#ckverdict').textContent='📸 замеряю…'; $('#ckhint').textContent='держи так!';
+  } else if(CHK.phase==='invalid'){
+    $('#ckbar').style.width='0%';
+    $('#ckverdict').style.color='var(--warn)'; $('#ckverdict').textContent='🤳 Замер не получился';
+    $('#ckhint').textContent=CHK.invalidMsg||''; ckButtons('retry');
+  } else if(CHK.phase==='verdict'){
     const r=CHK.results[CHK.idx]; $('#ckbar').style.width='100%';
-    if(r.verdict==='correct'){$('#ckverdict').style.color='var(--ok)';$('#ckverdict').textContent='✅ верно!';}
-    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не разобрал кадр';}
-    else if(r.verdict==='wavered'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='😵 ИИ колебался';}
-    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ решил: ${CLASSES[r.got].emoji}`;}
-    $('#ckhint').textContent='';
+    const isProbeMiss=CHK.guided&&CHK.round===1&&card.probe&&r.verdict!=='correct';
+    if(r.verdict==='correct'){$('#ckverdict').style.color='var(--ok)';$('#ckverdict').textContent='✅ Верно!';$('#ckhint').textContent='';}
+    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не разобрал кадр';$('#ckhint').textContent='';}
+    else if(r.verdict==='wavered'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='😵 ИИ заметался — не смог решить!';
+      $('#ckhint').textContent=isProbeMiss?`а ты показывал ${CLASSES[card.cls].emoji} ${CLASSES[card.cls].name}…`:'';}
+    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ сказал: ${CLASSES[r.got].emoji} ${CLASSES[r.got].name}!`;
+      $('#ckhint').textContent=isProbeMiss?`а ты показывал ${CLASSES[card.cls].emoji} ${CLASSES[card.cls].name}…`:'';}
+    ckButtons(isProbeMiss?'why':'next');
   }
 }
 function finishCheck(){
-  state='train-pause'; checkui.classList.add('hidden');
+  checkui.classList.add('hidden');
   const pc=[{correct:0,confused:0,nohand:0,wavered:0,total:0},{correct:0,confused:0,nohand:0,wavered:0,total:0}];
   for(const r of CHK.results){pc[r.cls].total++;pc[r.cls][r.verdict]++;}
   const c0=pc[0].correct,c1=pc[1].correct,totalCorrect=c0+c1,totalCards=CHK.results.length;
+  TELE.push('check_done',{round:CHK.round||0,guided:CHK.guided,correct:totalCorrect,total:totalCards});
+  if(CHK.guided){ finishGuidedCheck(totalCorrect,totalCards); return; }
+  state='train-pause';
   const outcome = totalCorrect>=Math.ceil(totalCards*0.8) ? 'strong' : totalCorrect>=Math.ceil(totalCards*0.6) ? 'ok' : 'raw';
   provenTier = outcome==='strong'?2 : outcome==='ok'?1 : 0;
-  // ага-момент: первая проверка (biasRound 1) обычно проваливается на свопе → переводим в раунд 2 (чинить данными)
   showResult({pc,totalCorrect,totalCards,outcome});
+}
+
+/* ---- развилки урока после проверки ---- */
+function finishGuidedCheck(correct,total){
+  state='gpause'; topEl.classList.add('hidden');
+  if(CHK.round===1){
+    GUIDE.res1={correct,total};
+    const probe=CHK.results[CHK.results.length-1];    // пробник ✋ ИЗДАЛЕКА — всегда последняя карточка R1
+    if(probe.verdict==='nohand'){                     // редкость: невалидные замеры ловятся раньше
+      TELE.push('inconclusive'); GUIDE.outcome='inconclusive'; showFinal(); return;
+    }
+    if(probe.verdict==='correct'){                    // ИИ не обманулся — редкий честный путь
+      TELE.push('no_break'); GUIDE.outcome='no_break'; showFinal(); return;
+    }
+    TELE.push('break_shown',{verdict:probe.verdict,got:probe.got});
+    showGuessScreen(probe);
+  } else {
+    GUIDE.res2={correct,total};
+    if(correct>=3||GUIDE.fixTries>=1){ GUIDE.outcome=correct>=3?'fixed':'partial'; showFinal(); }
+    else{ GUIDE.fixTries++; TELE.push('fix_retry');
+      stepCard({big:'🤔',title:'ИИ ещё путается!',text:'Так бывает. Добавим ему ещё немного разных примеров — и проверим снова.',btn:'🔧 Чинить дальше',onGo:()=>startTask('t2a')}); }
+  }
 }
 function recommend(pc,outcome){
   const recs=[];
-  if(biasRound===1 && outcome!=='strong'){
-    recs.push('Смотри: ИИ выучил не ЖЕСТ, а ГДЕ была рука (ладонь слева, кулак справа). На новом месте он путается — это и есть «модель знает только то, что ты показал».');
-    recs.push('Почини данными: покажи оба жеста в РАЗНЫХ местах — слева, справа, ближе, дальше.');
+  if(outcome!=='strong'){
+    recs.push('ИИ знает только то, что ты ему показал. Если все примеры похожи — он цепляется за случайное (размер, место, фон).');
+    recs.push('Почини данными: покажи каждый жест ПО-РАЗНОМУ — близко, далеко, под углом.');
     return recs;
   }
   const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
@@ -399,11 +858,116 @@ function recommend(pc,outcome){
   if(!recs.length && outcome!=='strong')recs.push('Добери по 6–8 РАЗНЫХ примеров каждого: меняй место, расстояние, наклон, фон.');
   return recs.slice(0,2);
 }
+/* ---- сертификат под сторис (client-side, ничего не уходит с устройства) ---- */
+function wrapLinesCanvas(x,text,maxW){
+  const words=text.split(' '),lines=[];let cur='';
+  for(const w of words){ const t=cur?cur+' '+w:w; if(x.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;} else cur=t; }
+  if(cur)lines.push(cur); return lines;
+}
+/* ===== СЕРТИФИКАТ-АЧИВКА под сторис (1080×1920) =====
+   Генеративная рамка ФТИИ (3 стиля, выбор случайный) + чистый центр на canvas.
+   Окно внутри рамки детектится по профилю активности → контент центрируется,
+   каждый текст автоподбирает кегль под ширину окна (ничего не упирается в рамку). */
+const CERT_FRAMES=['neon','popart','pixel'];
+const CERT_F='"ALS Gorizont"';
+const C_WHITE='#fff',C_PALE='#B8D4FF',C_LIGHT='#739DFF',C_ELEC='#0F53FF';
+// шкала вертикального ритма (модульная, не магические числа):
+// caption=хугает подпись к элементу; group=между смысловыми кластерами; afterDisplay=воздух под крупным дисплейным текстом
+const CERT_GAP={caption:18,group:84,afterDisplay:34};
+let _certFrameImg={};                       // кэш загруженных PNG-рамок
+function loadCertFrame(name){
+  if(_certFrameImg[name])return Promise.resolve(_certFrameImg[name]);
+  return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{_certFrameImg[name]=im;res(im);};im.onerror=rej;im.src='assets/cert/frame-'+name+'.png';});
+}
+function certLerp(a,b,t){return Math.round(a+(b-a)*t);}
+// детект внутреннего пустого окна рамки (рамка — высокая «детальность» по периметру, центр гладкий)
+function detectInnerRect(data,W,H){
+  const lum=i=>0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];
+  const cx=W>>1,cy=H>>1;
+  const y0=(H*0.40)|0,y1=(H*0.60)|0,colAct=new Float32Array(W);
+  for(let x=0;x<W;x++){let s=0,n=0;for(let y=y0;y<y1;y++){const i=(y*W+x)*4,i2=((y+1)*W+x)*4;s+=Math.abs(lum(i)-lum(i2));n++;}colAct[x]=s/n;}
+  const x0=(W*0.40)|0,x1=(W*0.60)|0,rowAct=new Float32Array(H);
+  for(let y=0;y<H;y++){let s=0,n=0;for(let x=x0;x<x1;x++){const i=(y*W+x)*4,i2=(y*W+x+1)*4;s+=Math.abs(lum(i)-lum(i2));n++;}rowAct[y]=s/n;}
+  const thr=a=>{let m=0;for(const v of a)m=Math.max(m,v);return m*0.16;};
+  const tx=thr(colAct),ty=thr(rowAct);
+  const calm=(arr,idx,t)=>{let bad=0;for(let k=-3;k<=3;k++){const v=arr[idx+k];if(v!=null&&v>t)bad++;}return bad<=1;};
+  let L=cx;while(L>2&&calm(colAct,L,tx))L--;let R=cx;while(R<W-3&&calm(colAct,R,tx))R++;
+  let T=cy;while(T>2&&calm(rowAct,T,ty))T--;let B=cy;while(B<H-3&&calm(rowAct,B,ty))B++;
+  return {x:L,y:T,w:R-L,h:B-T};
+}
+// измеряемый стек блоков: y = ТЕКУЩИЙ ВЕРХ. Строки позиционируются по реальным метрикам шрифта
+// (actualBoundingBoxAscent/Descent), baseline = top+asc. report[] пишет боксы для геом. проверки.
+// doDraw=false → только меряем высоту (pass1 для центрирования).
+function certContent(x,y0,mid,iw,frame,nC,nT,doDraw,report){
+  let y=y0;
+  const INSET=16, uw=iw-INSET*2;   // safe-inset: текст не подходит к краю окна ближе INSET
+  const push=(tag,top,bottom,w)=>{if(report)report.push({tag,top:Math.round(top),bottom:Math.round(bottom),w:Math.round(w),margin:Math.round((iw-w)/2)});};
+  // autofit: ужать кегль под безопасную ширину
+  const fit=(s,wt,sz,ls,min)=>{const lp=ls||'0px';x.letterSpacing=lp;x.font=wt+' '+sz+'px '+CERT_F;
+    while(sz>(min||sz*0.55)&&x.measureText(s).width>uw){sz-=2;x.font=wt+' '+sz+'px '+CERT_F;}x.letterSpacing='0px';return sz;};
+  // строка: рисует по baseline=y+asc, продвигает y на asc+desc, пишет бокс
+  const LINE=(tag,s,wt,sz,col,ls)=>{const fs=fit(s,wt,sz,ls);const lp=ls||'0px';
+    x.letterSpacing=lp;x.font=wt+' '+fs+'px '+CERT_F;const m=x.measureText(s);
+    const asc=m.actualBoundingBoxAscent,desc=m.actualBoundingBoxDescent;
+    if(doDraw){x.fillStyle=col;x.fillText(s,mid,y+asc);}x.letterSpacing='0px';
+    push(tag,y,y+asc+desc,m.width);y+=asc+desc;};
+
+  // 1. мета — две строки: «воркшоп» + название
+  LINE('meta-1','ВОРКШОП','500',26,C_PALE,'8px');y+=CERT_GAP.caption;
+  LINE('meta-2','«НАТРЕНИРУЙ СВОЙ ИИ»','500',28,C_WHITE,'4px');y+=CERT_GAP.group;
+  // 2. герой — кадр 32×32 руки, монохром-синий
+  const S=Math.max(240,Math.min(iw*0.52,400)),fx=mid-S/2,cell=S/32;
+  if(doDraw){x.fillStyle=C_ELEC;x.fillRect(fx+12,y+12,S,S);x.fillStyle='#0a1d44';x.fillRect(fx,y,S,S);
+    const d=frame.data;for(let yy=0;yy<32;yy++)for(let xx=0;xx<32;xx++){const i=(yy*32+xx)*4;
+      const g=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255;   // реальный кадр руки → яркость → монохром-синий
+      x.fillStyle='rgb('+certLerp(15,242,g)+','+certLerp(83,249,g)+','+certLerp(255,255,g)+')';x.fillRect(fx+xx*cell,y+yy*cell,cell+1,cell+1);}
+    x.strokeStyle=C_PALE;x.lineWidth=5;x.strokeRect(fx,y,S,S);}
+  push('hero',y,y+S,S);y+=S+CERT_GAP.caption;
+  // 3. подпись герою
+  LINE('hero-cap','32×32 · ЧТО ВИДЕЛ ИИ','500',24,C_PALE,'6px');y+=CERT_GAP.group;
+  // 4. восклицание (крупный дисплей → воздух под ним)
+  LINE('kicker','готово','800',100,C_WHITE);y+=CERT_GAP.afterDisplay;
+  // 5. объяснение (перенос)
+  const expSz=34;x.font='400 '+expSz+'px '+CERT_F;x.letterSpacing='0px';
+  const lines=wrapLinesCanvas(x,'я обучил свой ии различать изображения на своих примерах',uw);
+  lines.forEach((l,i)=>{x.font='400 '+expSz+'px '+CERT_F;const m=x.measureText(l);
+    const asc=m.actualBoundingBoxAscent,desc=m.actualBoundingBoxDescent;
+    if(doDraw){x.fillStyle=C_PALE;x.fillText(l,mid,y+asc);}
+    push('exp-'+i,y,y+asc+desc,m.width);y+=asc+desc+(i<lines.length-1?8:0);});
+  y+=CERT_GAP.group;
+  // 6. метрика — кульминация
+  LINE('metric',nC+' из '+nT,'800',128,C_WHITE);y+=CERT_GAP.caption;
+  // 7. подпись метрике
+  LINE('metric-cap','тестовых карточек распознаны верно','500',30,C_PALE);y+=12;
+  const acc=Math.round(nC/Math.max(1,nT)*1000)/10;
+  LINE('acc','точность '+acc+'%','500',27,C_LIGHT);y+=CERT_GAP.group;
+  // 8. хэндл
+  LINE('handle','@pkn_aischool_bot','500',28,C_PALE,'3px');
+  return y-y0;
+}
+async function makeCert(nCorrect,nTotal,frame){
+  try{
+    await Promise.all(['400','500','700','800'].map(wt=>document.fonts.load(wt+' 100px '+CERT_F)));
+    await document.fonts.ready;
+    const name=CERT_FRAMES[Math.floor(Math.random()*CERT_FRAMES.length)];
+    const img=await loadCertFrame(name);
+    const W=1080,H=1920,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+    x.drawImage(img,0,0,W,H);
+    const r=detectInnerRect(x.getImageData(0,0,W,H).data,W,H);
+    const pad=Math.min(r.w,r.h)*0.07, iw=r.w-pad*2, mid=r.x+r.w/2, iy=r.y+pad, ih=r.h-pad*2;
+    x.textAlign='center';
+    const Hc=certContent(x,0,mid,iw,frame,nCorrect,nTotal,false);   // pass1: высота
+    const top=iy+Math.max(0,(ih-Hc)/2);                             // вертикальное центрирование в окне
+    certContent(x,top,mid,iw,frame,nCorrect,nTotal,true);           // pass2: рисуем
+    c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='мой-ИИ-сертификат.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);});
+    SFX.ding();
+  }catch(e){ console.error('makeCert',e); alert('Не получилось собрать сертификат — попробуй ещё раз'); }
+}
 function showResult({pc,totalCorrect,totalCards,outcome}){
   const titEl=$('#rstitle'),scEl=$('#rsscore'),mapEl=$('#rsmap'),diagEl=$('#rsdiag'),btns=$('#rsbtns');
-  const biasFail = biasRound===1 && outcome!=='strong';
-  titEl.innerHTML = biasFail?'🧠 Ага! ИИ выучил не то' : outcome==='strong'?'🎉 Сильная модель!' : outcome==='ok'?'🟡 Нормально, но путает':'🔧 ИИ ещё сырой';
-  scEl.innerHTML=`Точность на новом месте: <b>${totalCorrect} из ${totalCards}</b>`;
+  const biasFail = false;   // лаборатория: без режиссуры, нейтральный результат
+  titEl.innerHTML = outcome==='strong'?'🎉 Сильный ИИ!' : outcome==='ok'?'🟡 Неплохо, но путает':'🔧 ИИ ещё учится — добавь примеров';
+  scEl.innerHTML=`Проверка: <b>${totalCorrect} из ${totalCards}</b>`;
   mapEl.innerHTML=[0,1].map(c=>{
     const p=pc[c],e=CLASSES[c].emoji,oe=CLASSES[1-c].emoji,parts=[`${p.correct} из ${p.total} верно`];
     if(p.confused)parts.push(`${p.confused}× принял за ${oe}`);
@@ -416,16 +980,133 @@ function showResult({pc,totalCorrect,totalCards,outcome}){
   btns.innerHTML='';
   const mk=(txt,cls,fn)=>{const b=document.createElement('button');b.className=cls;b.textContent=txt;b.onclick=fn;btns.appendChild(b);};
   if(biasFail){
-    mk('🔧 Добрать РАЗНЫЕ данные','ok',()=>{ biasRound=2; $('#result').classList.add('hidden'); backToTrain(); });
+    mk('🔧 Добрать РАЗНЫЕ данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
     mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
   } else if(outcome==='raw'){
     mk('← Добрать данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
     mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
   } else {
-    mk(outcome==='strong'?'▶️ В игру — точность = сила':'▶️ В игру','ok',()=>{ $('#result').classList.add('hidden'); startGame(); });
     mk('← Добрать ещё','ghost',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+    mk('🎮 Поиграть с ИИ (бонус)','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
   }
+  // главный трофей — сертификат под сторис (всегда доступен, точность честная)
+  mk('🏆 Сделать сертификат','ok',()=>makeCert(totalCorrect,totalCards,certFrame));
   $('#result').classList.remove('hidden');
+}
+
+/* ====================== ЭКРАНЫ УРОКА: угадайка → разгадка → финал → опрос ====================== */
+function showGuessScreen(probe){
+  state='gpause';
+  const said=probe.got!=null?CLASSES[probe.got]:null;
+  if(GUIDE.probeShot)$('#probeshot').getContext('2d').putImageData(GUIDE.probeShot,0,0);
+  $('#guesstitle').textContent=probe.verdict==='wavered'?'ИИ растерялся!':'ИИ перепутал!';
+  $('#guesssub').innerHTML=probe.verdict==='wavered'
+    ? 'Ты показал ✋ маленькую ладонь — а ИИ заметался и не смог решить.<br><b>Как думаешь, ПОЧЕМУ?</b>'
+    : `Ты показал ✋ маленькую ладонь — а ИИ сказал «${said?said.emoji+' '+said.name:'…'}».<br><b>Как думаешь, ПОЧЕМУ он ошибся?</b>`;
+  const btns=$('#guessbtns'); btns.innerHTML='';
+  const opts=[
+    {key:'camera',label:'📷 Камера плохая — картинка нечёткая'},
+    {key:'data',  label:'📏 Он выучил РАЗМЕР руки, а не жест'},
+    {key:'dumb',  label:'🤖 ИИ просто глупый, вот и всё'},
+  ];
+  for(let i=opts.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[opts[i],opts[j]]=[opts[j],opts[i]];}
+  opts.forEach(o=>{ const b=document.createElement('button'); b.className='choice'; b.textContent=o.label;
+    b.onclick=()=>{ TELE.push('guess',{choice:o.key,correct:o.key==='data'}); showRevealScreen(o.key==='data'); };
+    btns.appendChild(b); });
+  showScreen('guess');
+}
+function showRevealScreen(guessedRight){
+  GUIDE.guess=guessedRight;
+  $('#revtitle').textContent=guessedRight?'Ты угадал! 🎉':'Вот разгадка 🔍';
+  const gal=$('#gal'); gal.innerHTML='';
+  [[0,'✋ Все ладони, что ты показал:'],[1,'✊ Все кулаки:']].forEach(([cls,label])=>{
+    const row=document.createElement('div'); row.className='galrow';
+    const gl=document.createElement('div'); gl.className='gl'; gl.textContent=label; row.appendChild(gl);
+    THUMBS[cls].filter(t=>t.round===1).forEach(t=>{
+      const c=document.createElement('canvas'); c.width=32; c.height=32;
+      c.getContext('2d').putImageData(t.img,0,0); row.appendChild(c); });
+    gal.appendChild(row);
+  });
+  $('#revkey').innerHTML='Все ладони — <b>БОЛЬШИЕ</b>. Все кулаки — <b>МАЛЕНЬКИЕ</b>.<br>ИИ выучил <b>РАЗМЕР</b>, а не жест! Он знает только то, что было в твоих примерах.';
+  TELE.push('reveal_shown');
+  showScreen('reveal');
+}
+function showFinal(){
+  state='gpause';
+  const o=GUIDE.outcome, r2=GUIDE.res2, r1=GUIDE.res1;
+  if(o==='no_break'){
+    $('#fbig').textContent='😮'; $('#ftitle').textContent='ИИ не обманулся!';
+    $('#fscore').textContent='';
+    $('#freveal').innerHTML='Признаемся: мы готовили ИИ ловушку — просили показывать ладонь только КРУПНО, а кулак только МЕЛКО. Но твои примеры оказались достаточно разными, и ИИ не попался. Так бывает — ты случайно сделал то, что делают настоящие тренеры ИИ: <b>разные данные = умный ИИ</b>.';
+  } else if(o==='inconclusive'){
+    $('#fbig').textContent='📷'; $('#ftitle').textContent='Кадр не получился';
+    $('#fscore').textContent='';
+    $('#freveal').innerHTML='ИИ так и не смог разглядеть руку издалека — похоже, камере трудно. Бывает! Позови ведущего — и попробуй ещё раз в лаборатории.';
+  } else {
+    $('#fbig').textContent=o==='fixed'?'🏆':'💪';
+    $('#ftitle').textContent=o==='fixed'?'Ты починил ИИ!':'Почти починил!';
+    $('#fscore').textContent=r2?`Проверка после починки: ${r2.correct} из ${r2.total}`:'';
+    $('#freveal').innerHTML=o==='fixed'
+      ?'Открываем секрет: мы <b>нарочно</b> подстроили совпадение — все твои ладони были БОЛЬШИМИ, а кулаки МАЛЕНЬКИМИ. ИИ ищет в примерах любые совпадения и верит им, даже случайным. Ты нашёл его ошибку и починил её своими примерами — как настоящий тренер ИИ.'
+      :'Открываем секрет: мы <b>нарочно</b> подстроили совпадение — все твои ладони были БОЛЬШИМИ, а кулаки МАЛЕНЬКИМИ. ИИ ищет в примерах любые совпадения и верит им. Ты нашёл его ошибку и почти починил — добавь ещё разных примеров в лаборатории, и он перестанет путаться.';
+  }
+  // воркшоп: сертификат/игра/лаборатория заперты, пока ведущий не назвал код (иначе группа рассинхронится).
+  // Код открывает опрос; прошёл опрос — открылось всё. Дома (без ?ws) всё открыто сразу.
+  const locked=WS&&!GUIDE.unlocked;
+  $('#fCert').classList.toggle('hidden',locked);
+  $('#fLab').classList.toggle('hidden',locked);
+  $('#fGame').classList.toggle('hidden',locked);
+  $('#fSurvey').classList.toggle('hidden',!WS||GUIDE.unlocked);
+  $('#fSurvey').textContent=locked?'🔒 Дальше — по коду ведущего':'📝 Три вопроса от ведущего';
+  TELE.push('final',{outcome:o,r1,r2});
+  showScreen('final');
+}
+/* ---- опрос: 3 вопроса, вход по коду ведущего ---- */
+const SURVEY_QS=[
+  'Почему ИИ сначала ошибался?',
+  'Что ты сделал, чтобы его починить?',
+  'Каких примеров ты бы добавил ещё, чтобы ИИ стал умнее?'];
+const SURVEY_QS_NOBREAK=[
+  'Твой ИИ не обманулся! Как думаешь, почему ИИ у других ребят мог ошибиться?',
+  'Что делает примеры хорошими, чтобы ИИ не путался?',
+  'Каких примеров ты бы добавил ещё, чтобы ИИ стал умнее?'];
+let svIdx=-1, svQs=SURVEY_QS;
+function openSurvey(){ svIdx=-1; TELE.push('survey_open');
+  svQs=GUIDE.outcome==='no_break'?SURVEY_QS_NOBREAK:SURVEY_QS;
+  $('#svstep').textContent='Код от ведущего';
+  $('#svq').textContent='Ведущий скажет код — введи его цифрами';
+  $('#svtext').value=''; $('#svtext').setAttribute('inputmode','numeric');
+  $('#svtext').placeholder='введи код цифрами';
+  $('#svNext').textContent='Открыть →'; $('#svBack').classList.remove('hidden');
+  showScreen('survey'); $('#svtext').focus();
+}
+function surveyNext(){
+  const v=$('#svtext').value.trim();
+  if(svIdx===-1){
+    if(v!==CFG.wsCode){ showToast('Не тот код — послушай ведущего 👂',1300); return; }
+    svIdx=0; $('#svtext').removeAttribute('inputmode');
+    $('#svtext').placeholder='напиши пару слов…'; $('#svBack').classList.add('hidden');
+  } else {
+    if(!v){ showToast('Напиши хотя бы пару слов ✍️',1200); return; }
+    TELE.push('survey_answer',{i:svIdx,q:svQs[svIdx],text:v.slice(0,500)});
+    svIdx++;
+  }
+  if(svIdx>=svQs.length){ TELE.push('survey_done'); TELE._saveT=0; TELE._save(); TELE.send();
+    GUIDE.unlocked=true;                       // код введён и опрос пройден — ведущий открыл финальные режимы
+    showToast('Спасибо! 🙌',1400); showFinal(); return; }
+  $('#svstep').textContent=`Вопрос ${svIdx+1} из ${svQs.length}`;
+  $('#svq').textContent=svQs[svIdx];
+  $('#svtext').value=''; $('#svNext').textContent=svIdx===svQs.length-1?'Готово ✓':'Дальше →';
+  $('#svtext').focus();
+}
+/* ---- лаборатория: свободный режим (обученная модель остаётся) ---- */
+function enterLab(){
+  TELE.push('lab_entered'); showScreen(null); guideEl.classList.add('hidden');
+  state='train'; topEl.classList.remove('hidden'); bottom.classList.remove('hidden');
+  $('#reset').classList.remove('hidden');
+  $('#toFinalRow').classList.toggle('hidden',!GUIDE.outcome);   // из урока всегда можно вернуться к финалу
+  refresh(); updateHint();
+  showToast('🧪 Лаборатория: учи и проверяй как хочешь!',1600);
 }
 
 /* ====================== ИГРА «ЗНАКИ» ====================== */
@@ -434,14 +1115,17 @@ let signs=[],lives=3,score=0,gameT=0,spawnT=0,effects=[],hitstopUntil=0,combo=0;
 let warmup=true, stats={hit:0,total:0,misread:0,unsure:0};
 function startGame(){ state='game';
   signs=[];lives=3;score=0;gameT=0;effects=[];combo=0;stats={hit:0,total:0,misread:0,unsure:0};warmup=true;spawnT=70;
+  topEl.classList.remove('hidden'); $('#toFinalRow').classList.add('hidden');
   $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');
   teachrow.classList.add('hidden');$('#datapanel').classList.add('hidden');bottom.classList.remove('hidden');zoneEl.classList.add('hidden');
-  hintEl.textContent='Прилетит знак — покажи ТАКОЙ ЖЕ жест, пока ИИ узнаёт.';
+  hintEl.textContent='Прилетит знак — покажи ТАКОЙ ЖЕ жест. ИИ путается? Меняй расстояние — вспомни, какие примеры он видел 😉';
   showToast(provenTier>=2?'СИЛЬНЫЙ ИИ! 💪':'ОТБИВАЙСЯ!',900);
 }
 function backToTrain(){ state='train'; bigmsg.classList.add('hidden');
   $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');
   teachrow.classList.remove('hidden');$('#datapanel').classList.remove('hidden');bottom.classList.remove('hidden');
+  topEl.classList.remove('hidden'); $('#reset').classList.remove('hidden');
+  $('#toFinalRow').classList.toggle('hidden',!GUIDE.outcome);
   refresh(); updateHint();
 }
 function spawnSign(){ signs.push({cls:(Math.random()<0.5)?0:1,y:-0.14,charge:0,judged:false}); }
@@ -469,11 +1153,11 @@ function resolveSign(s,ok,now,vote){
     effects.push({type:'wave',x:ax,y:ay,r:0,maxR:cv.width*(0.16+tier*0.06),life:1,c:CLASSES[s.cls].color});
     burst(ax,ay,12+tier*8,tier,CLASSES[s.cls].color);
     effects.push({type:'txt',x:ax,y:ay-cv.width*0.08,t:CLASSES[s.cls].emoji+' ✓'+(combo>=5?' x'+(1+Math.floor(combo/5)):''),c:NEON[0],life:1.1});
-    SFX.hit2(); hitstopUntil=now+(tier>=2?150:90); shake=6+tier*3; if(tier>=2)doFlash();
+    SFX.hit2(); hitstopUntil=now+(tier>=2?150:90); shake=6+tier*3;   // вспышку убрали: мигание пугает (фидбек 02.07)
   } else { combo=0; lives--; SFX.miss(); shake=12; s.fail=true; const need=CLASSES[s.cls].emoji; let txt;
     const sl=smoothLabel();
     if(predCache&&predCache.far){txt='ИИ: непохоже · нужен '+need;stats.unsure++;}
-    else if(sl!==s.cls&&sl>=0){txt='ИИ: '+CLASSES[sl].emoji+' ≠ '+need;stats.misread++;}
+    else if(sl!==s.cls&&sl>=0){txt='ИИ увидел '+CLASSES[sl].emoji+', а нужен '+need;stats.misread++;}
     else{txt='ИИ не уверен · нужен '+need;stats.unsure++;}
     effects.push({type:'txt',x:ax,y:ay-cv.width*0.07,t:txt,c:'#ff6b8b',life:1.5});
     if(lives<=0){endGame();return}
@@ -482,15 +1166,18 @@ function resolveSign(s,ok,now,vote){
 function endGame(){ state='gameover';
   const nom=stats.hit>=10?'🔥 Мастер знаков':(score>=80?'🛡️ Стойкий':'🎯 Новичок');
   const fails=[]; if(stats.misread)fails.push(`${stats.misread}× перепутал`); if(stats.unsure)fails.push(`${stats.unsure}× не уверен`);
-  const tip=(stats.misread||stats.unsure)?'ИИ путается — добери РАЗНЫХ примеров (другое место, фон) и проверь':'крутая модель!';
-  showToast(`💀 Счёт ${score} · ${nom}\nотбил ${stats.hit} из ${stats.total}${fails.length?'\n'+fails.join(' · '):''}\n${tip}`,4400);
-  setTimeout(()=>{ if(state==='gameover')backToTrain(); },3700);
+  const tip=(stats.misread||stats.unsure)?'ИИ путается — в лаборатории добери РАЗНЫХ примеров':'крутой ИИ!';
+  bigmsg.innerHTML=`💀 Счёт ${score} · ${nom}<br>отбил ${stats.hit} из ${stats.total}${fails.length?'<br>'+fails.join(' · '):''}<br><span style="font-size:.75em;color:var(--muted)">${tip}</span>`;
+  bigmsg.classList.remove('hidden');   // висит, пока ребёнок сам не нажмёт «↻ К обучению» / «К финалу»
 }
 
 /* ---- рендер ---- */
-let last=performance.now();
+let last=performance.now(), fpsAcc=[],  fpsT=0;
+function medianFps(){ if(!fpsAcc.length)return null; const a=[...fpsAcc].sort((x,y)=>x-y); return Math.round(1000/a[(a.length/2)|0]); }
 function loop(now){
   const dt=now-last;last=now;
+  if(dt>0&&dt<500){ fpsAcc.push(dt); if(fpsAcc.length>240)fpsAcc.shift(); }
+  if(now-fpsT>30000){ fpsT=now; if(state!=='intro')TELE.push('perf',{fps:medianFps()}); }
   const sh=shake>0?(Math.random()-.5)*shake:0;if(shake>0)shake*=0.85;
   ctx.save();ctx.clearRect(0,0,cv.width,cv.height);ctx.translate(sh,sh);
   if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height)}
@@ -515,25 +1202,68 @@ function loop(now){
     else{e.y-=cv.width*0.004;e.life-=0.02;ctx.globalAlpha=Math.max(0,e.life);ctx.fillStyle=e.c;ctx.font='800 '+Math.round(cv.width*0.05)+'px sans-serif';ctx.textAlign='center';ctx.fillText(e.t,e.x,e.y);}
   }
   ctx.globalAlpha=1;ctx.restore();
-  if(state==='check')tickCheck(now);
+  if(state==='check'||state==='gcheck')tickCheck(now);
 
-  const showPeek=(state==='train'||state==='check'||state==='train-pause');
+  const showPeek=(state==='train'||state==='check'||state==='train-pause'||state==='gteach'||state==='gcheck');
   peek.classList.toggle('hidden',!showPeek); $('#peeklbl').classList.toggle('hidden',!showPeek);
-  // целевая зона сбора (раунд 1, обучение)
+  if(showPeek) drawAiFrame();   // рамка «ИИ видит только этот квадрат»
+  // рамка-цель гейта: где должна оказаться рука (урок)
+  if(state==='gteach'&&GUIDE.task) drawGateFrame(GUIDE.task.gate,GUIDE.task.cls);
+  if(state==='gcheck'&&CHK&&CHK.phase!=='reveal'){ const c=CHK.cards[CHK.idx]; if(c&&c.gate)drawGateFrame(c.gate,c.cls); }
   updateZone();
+  let statTxt=null;
   if(state==='train'||state==='check'||state==='train-pause'){updateBars(predCache);
-    statEl.innerHTML = (predCache&&!predCache.far)?'<span style="color:var(--ok)">📷 вижу кадр</span>':'<span style="color:var(--warn)">📷 наведись</span>';}
-  if(state==='game'||state==='gameover'){updateBars(predCache);statEl.innerHTML=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
+    statTxt=(predCache&&!predCache.far)?'<span style="color:var(--ok)">📷 вижу кадр</span>':'<span style="color:var(--warn)">📷 наведись</span>';}
+  if(state==='gcheck'){updateBars(predCache);statTxt='';}
+  if(state==='game'||state==='gameover'){updateBars(predCache);statTxt=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
+  if(statTxt!=null&&statTxt!==loop._stat){loop._stat=statTxt;statEl.innerHTML=statTxt;}
   requestAnimationFrame(loop);
 }
+/* мишень-силуэт: полупрозрачная рука ЦЕЛЕВОГО размера по центру + живая рамка вокруг руки ребёнка.
+   Ребёнок просто совмещает свою руку с контуром — размер задаётся картинкой, а не словами. */
+function drawGateFrame(gate,cls){
+  const s=Math.min(cv.width,cv.height), x0=(cv.width-s)/2, y0=(cv.height-s)/2;
+  const mid=gate==='big'?(CFG.bigLo+CFG.bigHi)/2:(CFG.smLo+CFG.smHi)/2;
+  const ok=gateOkStable(gate), em=CLASSES[cls!=null?cls:0].emoji;
+  ctx.save();
+  // мишень: круг-пунктир целевого размера + полупрозрачная эмодзи-рука внутри
+  const R=mid*s/2, cx=x0+s/2, cy=y0+s/2;
+  ctx.strokeStyle=ok?'rgba(70,224,138,.9)':'rgba(255,207,92,.75)';
+  ctx.lineWidth=Math.max(3,cv.width*0.005);
+  if(!ok)ctx.setLineDash([cv.width*0.016,cv.width*0.013]);
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha=ok?0.38:0.30;
+  ctx.font=Math.round(mid*s*0.86)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(em,cx,cy+mid*s*0.05);
+  ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+  // живая рамка руки: уголки вокруг детектированной кисти (зеркало по X), со сглаживанием
+  const b=smoothBox(lastHand.box);
+  if(lastHand.ok&&b){
+    const hx0=x0+(1-b.x1)*s, hx1=x0+(1-b.x0)*s, hy0=y0+b.y0*s, hy1=y0+b.y1*s;
+    const L=Math.min(hx1-hx0,hy1-hy0)*0.22, lw=Math.max(3,cv.width*0.005);
+    ctx.strokeStyle=ok?'rgba(70,224,138,.95)':'rgba(255,207,92,.9)'; ctx.lineWidth=lw;
+    const corner=(x,y,dx,dy)=>{ctx.beginPath();ctx.moveTo(x+dx*L,y);ctx.lineTo(x,y);ctx.lineTo(x,y+dy*L);ctx.stroke();};
+    corner(hx0,hy0,1,1); corner(hx1,hy0,-1,1); corner(hx0,hy1,1,-1); corner(hx1,hy1,-1,-1);
+    if(ok){ ctx.font='800 '+Math.round(cv.width*0.028)+'px sans-serif'; ctx.textAlign='center';
+      ctx.fillStyle='rgba(70,224,138,.95)'; ctx.fillText('✓',(hx0+hx1)/2,hy0-cv.width*0.012); }
+  }
+  ctx.restore();
+}
 let recCls=-1; // какой класс сейчас записывается (для подсветки зоны)
-function updateZone(){
-  if(state==='train' && biasRound===1 && recCls>=0){
-    const z=CLASSES[recCls].zone; zoneEl.classList.remove('hidden');
-    zoneEl.style.left=(z.x*100)+'vw'; zoneEl.style.top=(z.y*100)+'vh'; zoneEl.style.width=(z.w*100)+'vw'; zoneEl.style.height=(z.h*100)+'vh';
-    zoneEl.style.borderColor=CLASSES[recCls].color; zoneEl.querySelector('.zl').style.background=CLASSES[recCls].color;
-    zoneEl.querySelector('.zl').textContent=`${CLASSES[recCls].emoji} сюда: ${CLASSES[recCls].zoneText}`;
-  } else zoneEl.classList.add('hidden');
+function updateZone(){ zoneEl.classList.add('hidden'); }  // позиционные зоны убраны — собираем свободно
+
+/* квадратная рамка: что «видит» ИИ (центральный квадрат кадра, как в grabFeature) */
+function drawAiFrame(){
+  const s=Math.min(cv.width,cv.height), x=(cv.width-s)/2, y=(cv.height-s)/2;
+  ctx.save();
+  ctx.fillStyle='rgba(8,11,18,.45)';  // затемнить всё, кроме квадрата
+  ctx.fillRect(0,0,cv.width,y); ctx.fillRect(0,y+s,cv.width,cv.height-y-s);
+  ctx.fillRect(0,y,x,s); ctx.fillRect(x+s,y,cv.width-x-s,s);
+  ctx.strokeStyle='rgba(122,162,255,.9)'; ctx.lineWidth=Math.max(2,cv.width*0.004);
+  ctx.setLineDash([cv.width*0.02,cv.width*0.015]); ctx.strokeRect(x,y,s,s); ctx.setLineDash([]);
+  ctx.fillStyle='rgba(122,162,255,.95)'; ctx.font='700 '+Math.round(cv.width*0.026)+'px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('ИИ видит только этот квадрат', cv.width/2, y+s+Math.round(cv.width*0.045));
+  ctx.restore();
 }
 function drawSign(s){
   const x=cv.width*0.5, y=s.y*cv.height, c=CLASSES[s.cls], sz=cv.width*0.13;
@@ -549,20 +1279,63 @@ function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,
 
 /* ---- старт ---- */
 async function boot(){$('#intro').classList.add('hidden');$('#loading').classList.remove('hidden');initAudio();
-  try{ setLoad(DEMO?'Демо…':'Запускаю камеру…');await initCamera();resize();
-       setLoad('Гружу ИИ (нейросеть-эмбеддер)…');await initModel();resize();
-       state='train';$('#loading').classList.add('hidden');topEl.classList.remove('hidden');bottom.classList.remove('hidden');$('#reset').classList.remove('hidden');
-       buildTeach();updateHint();classifyTick();requestAnimationFrame(loop);showToast('Наведи руку на камеру 🖐',1600);
-  }catch(e){console.error(e);const m=String(e.message||e);
-    setLoad(m.startsWith('CAM:')?'❌ Нет камеры. Разреши доступ/подключи камеру. ('+m+')':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
+  try{ setLoad(DEMO?'Демо…':'Запускаю камеру…',false,8);await initCamera();resize();
+       setLoad('Гружу ИИ… (несколько секунд)',false,30);await initModel();resize();
+       setLoad('Почти готово…',false,100);
+       $('#loading').classList.add('hidden');
+       buildTeach();classifyTick();requestAnimationFrame(loop);
+       TELE.push('boot_ok');
+       enterGuide();          // урок ведёт сам: калибровка → тренировка → проверка → починка → финал
+  }catch(e){console.error(e);const m=String(e.message||e);TELE.push('boot_fail',{m:m.slice(0,80)});
+    setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 $('#start').onclick=boot;$('#retry').onclick=boot;
 toCheckBtn.onclick=startCheck;
 $('#again').onclick=()=>{ if(state==='game'){state='gameover';} backToTrain(); };
-$('#reset').onclick=()=>{KNN.clear();counts=[0,0];predCache=null;provenTier=0;biasRound=1;smooth=[];refresh();updateHint()};
+$('#reset').onclick=()=>{TELE.push('reset');KNN.clear();counts=[0,0];THUMBS[0].length=0;THUMBS[1].length=0;predCache=null;provenTier=0;smooth=[];refresh();updateHint()};
+/* ---- кнопки урока ---- */
+$('#fixBtn').onclick=()=>{ TELE.push('fix_start'); showScreen(null); startTask('t2a'); };
+$('#fCert').onclick=()=>{ TELE.push('cert_made');
+  const r=GUIDE.res2||GUIDE.res1||{correct:0,total:0}; makeCert(r.correct,r.total,certFrame); };
+$('#fSurvey').onclick=openSurvey;
+$('#svNext').onclick=surveyNext;
+$('#svtext').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();surveyNext();} });
+$('#fLab').onclick=enterLab;
+$('#toFinal').onclick=()=>{ bottom.classList.add('hidden'); topEl.classList.add('hidden'); showFinal(); };
+$('#ckShot').onclick=ckShotClick; $('#ckRetry').onclick=ckRetryClick; $('#ckNext').onclick=ckNextClick;
+$('#svBack').onclick=()=>showScreen('final');
+$('#fGame').onclick=()=>{ TELE.push('game_played'); showScreen(null); startGame(); };
+/* ---- камера: ватчдог + ручное восстановление (звонок может занять камеру) ---- */
+$('#camRetry').onclick=async()=>{ $('#camRetry').disabled=true;
+  try{ await initCamera(); resize(); $('#camfix').classList.add('hidden'); camWasDown=false; TELE.push('cam_reconnect'); }
+  catch(e){ showToast('Пока не выходит — проверь, что звонок отпустил камеру',1800); }
+  $('#camRetry').disabled=false; };
+setInterval(()=>{
+  if(DEMO||state==='intro'||!$('#loading').classList.contains('hidden'))return;
+  const down=!cam.srcObject||cam.readyState<2||!(cam.srcObject.getVideoTracks?.()[0]?.readyState==='live');
+  if(down&&!camWasDown){ camWasDown=true; TELE.push('cam_drop'); predCache=null; smooth.length=0; $('#camfix').classList.remove('hidden'); }
+  else if(!down&&camWasDown){ camWasDown=false; $('#camfix').classList.add('hidden'); }
+},2000);
+/* ---- debug-приборы (?debug=1): гейт, разбивка веток KNN, выгрузка телеметрии ---- */
+let dbText=null;
+function renderDebug(p){
+  const d=$('#debug');
+  if(!dbText){ d.classList.remove('hidden');
+    d.innerHTML='<div id="dbtext"></div><div class="dbtns"><button class="ghost" id="dbTele">💾 телеметрия</button></div>';
+    $('#dbTele').onclick=()=>TELE.download();
+    dbText=$('#dbtext'); }
+  const hand=lastHand.ok?('side '+lastHand.side.toFixed(2)):'нет руки';
+  const T=GUIDE.task, gate=T?T.gate:(state==='gcheck'&&CHK?CHK.cards[CHK.idx]?.gate:null);
+  let knn='';
+  if(p&&p.top){ knn=p.top.map(t=>`  ${CLASSES[t.l].emoji} emb:${t.ed.toFixed(2)} pix:${t.pd.toFixed(2)} → ${(EMB_W*t.ed+PIX_W*t.pd).toFixed(2)}`).join('\n');
+    knn=`\nKNN top-${p.top.length} (label:${p.label!=null?CLASSES[p.label].emoji:'—'} vote:${(p.vote*100)|0}%)\n`+knn; }
+  dbText.innerHTML=`<b>state</b> ${state}  <b>рука</b> ${hand}${gate?`  <b>gate:${gate}</b> ${gateOk(gate)?'✅':'✋'}`:''}
+<b>пороги</b> big ${CFG.bigLo}–${CFG.bigHi} · small ${CFG.smLo}–${CFG.smHi}  <b>детектор</b> ${hander?'ok':'НЕТ'}
+<b>примеры</b> ✋${counts[0]} ✊${counts[1]}${knn}`;
+}
 function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
   const del=el.querySelector('.del');
-  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);refresh();updateHint();SFX.buzz();}});
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);TELE.push('sample_del',{cls:i});refresh();updateHint();SFX.buzz();}});
   const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');recCls=i;addExample(i);t=setInterval(()=>addExample(i),450)};
   const up=()=>{clearInterval(t);el.classList.remove('rec');recCls=-1};
   el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
