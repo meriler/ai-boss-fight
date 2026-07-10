@@ -37,6 +37,9 @@ class H(BaseHTTPRequestHandler):
     timeout = 15  # медленный клиент не должен вешать обработчик
 
     def do_POST(self):
+        u = urlparse(self.path)
+        if u.path.rstrip('/') == '/dash':          # админ-действия дашборда (за nginx basic auth)
+            return self._admin()
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0 or n > MAX:
             self.send_response(413); self.end_headers(); return
@@ -52,6 +55,63 @@ class H(BaseHTTPRequestHandler):
         with _lock, open(fn, 'a', encoding='utf-8') as f:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')
         self.send_response(204); self.end_headers()
+
+    def _admin(self):
+        """Управление с дашборда (запрос Алексея 10.07): сброс данных дня (в архив, не удаление),
+        скрытие сессий места, переименование мест. Всё за basic auth /dash; дешёвый CSRF-гард —
+        Referer с нашего дашборда."""
+        ref = self.headers.get('Referer') or ''
+        if '/dash' not in ref:
+            self.send_response(403); self.end_headers(); return
+        n = int(self.headers.get('Content-Length') or 0)
+        if n <= 0 or n > 8192:
+            self.send_response(413); self.end_headers(); return
+        q = parse_qs(self.rfile.read(n).decode('utf-8', 'replace'))
+        act = (q.get('act') or [''])[0]
+        date = (q.get('date') or [''])[0]
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
+            date = time.strftime('%Y-%m-%d')
+        fn = os.path.join(DIR, date + '.jsonl')
+        with _lock:
+            if act == 'reset_day' and os.path.exists(fn):
+                # не удаляем — уводим в архив рядом (вернуть = переименовать обратно)
+                os.rename(fn, fn + '.bak-' + time.strftime('%H%M%S'))
+                hid = os.path.join(DIR, 'hidden-' + date + '.json')
+                if os.path.exists(hid):
+                    os.remove(hid)
+            elif act == 'hide':
+                sids = [s for s in (q.get('sids') or [''])[0].split(',')
+                        if re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', s)]
+                if sids:
+                    hid = os.path.join(DIR, 'hidden-' + date + '.json')
+                    cur = []
+                    try:
+                        with open(hid, encoding='utf-8') as f:
+                            cur = json.load(f)
+                    except Exception:
+                        pass
+                    with open(hid, 'w', encoding='utf-8') as f:
+                        json.dump(sorted(set(cur) | set(sids)), f)
+            elif act == 'rename':
+                seat = (q.get('seat') or [''])[0]
+                name = (q.get('name') or [''])[0].strip()[:60]
+                if re.fullmatch(r'\d{1,2}', seat):
+                    sf = os.path.join(DIR, 'seats.json')
+                    cur = {}
+                    try:
+                        with open(sf, encoding='utf-8') as f:
+                            cur = {str(k): v for k, v in json.load(f).items()}
+                    except Exception:
+                        pass
+                    if name:
+                        cur[seat] = name
+                    else:
+                        cur.pop(seat, None)   # пустое имя = убрать место из ростера
+                    with open(sf, 'w', encoding='utf-8') as f:
+                        json.dump(cur, f, ensure_ascii=False)
+        self.send_response(303)
+        self.send_header('Location', '/dash?date=' + date)
+        self.end_headers()
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -79,12 +139,47 @@ def esc(s):
 DONE_STAGES = ('опрос готов', 'сертификат', 'финал', 'лаборатория', 'игра')
 
 
+def render_admin(date, kids_s):
+    """Блок «⚙️ Управление». Отдельной функцией без f-строк с бэкслешами в выражениях —
+    Aeza на py3.10, где это SyntaxError (прод лежал в рестарт-лупе 10.07)."""
+    rows = []
+    for k in kids_s:
+        row = ('<form method="post" style="margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+               '<input type="hidden" name="date" value="' + esc(date) + '">'
+               '<b style="min-width:120px">место ' + esc(k['seat']) + '</b>')
+        if str(k['seat']).isdigit():
+            row += ('<input type="hidden" name="seat" value="' + esc(k['seat']) + '">'
+                    '<input name="name" value="' + (esc(k['name']) if k['name'] else '') + '" placeholder="имя" style="width:150px">'
+                    '<button name="act" value="rename">💾 имя</button>')
+        if k['sids']:
+            row += ('<input type="hidden" name="sids" value="' + esc(','.join(k['sids'])) + '">'
+                    '<button name="act" value="hide" onclick="return confirm(\'Скрыть сессии места '
+                    + esc(k['seat']) + ' с дашборда?\')">🗑 скрыть сессии (' + str(len(k['sids'])) + ')</button>')
+        else:
+            row += '<span class="note">дампов нет</span>'
+        rows.append(row + '</form>')
+    return ('<details><summary>⚙️ Управление (сброс · скрытие · имена)</summary>'
+            '<p class="note">Скрытие убирает сессии только с дашборда (файл цел); сброс дня уводит файл '
+            'в архив рядом (вернуть может Алексей). Имя пустым = убрать место из ростера.</p>'
+            + ''.join(rows) +
+            '<form method="post" style="margin:10px 0 4px"><input type="hidden" name="date" value="' + esc(date) + '">'
+            '<button name="act" value="reset_day" onclick="return confirm(\'Убрать ВСЕ данные за ' + esc(date) +
+            ' в архив? Дашборд станет пустым.\')">🗑 Сбросить весь день ' + esc(date) + ' (в архив)</button></form>'
+            '</details>')
+
+
 def render_dash(date, demo=False, review=False):
     """Дашборд наблюдателя: сначала «кому помочь», потом всё остальное (ревью Codex 10.07)."""
     fn = os.path.join(DIR, date + '.jsonl')
     lines = open(fn, encoding='utf-8').readlines() if os.path.exists(fn) else []
     raws, bad = parse_lines(lines)
     dumps = dedupe(raws, include_demo=demo)
+    try:  # скрытые с дашборда сессии (кнопка 🗑 в «Управлении») — из файла не удаляются
+        with open(os.path.join(DIR, 'hidden-' + date + '.json'), encoding='utf-8') as f:
+            hidden = set(json.load(f))
+        dumps = [d for d in dumps if str(d.get('sid')) not in hidden]
+    except Exception:
+        pass
     names = {}
     try:  # место→имя из заявок (кладёт генератор персональных ссылок; наружу имена не уходят)
         with open(os.path.join(DIR, 'seats.json'), encoding='utf-8') as f:
@@ -92,13 +187,15 @@ def render_dash(date, demo=False, review=False):
     except Exception:
         pass
     kids = build_children(dumps, names)
+    now = datetime.now(MSK)
     # ростер: места из seats.json, от которых нет НИ ОДНОГО дампа — раньше «не открыл ссылку»
     # был мёртвой веткой (ребёнок просто отсутствовал в таблице; аудит 10.07). Показываем только
-    # когда занятие началось (есть хоть один дамп) — до старта пустые места не пугают.
-    if dumps:
+    # пока занятие ЖИВОЕ (чья-то активность моложе 30 мин) — протухшие тесты в файле дня не должны
+    # красить ростер красным (смок Алексея 10.07: «Тест WebKit — не открыл» через 2 часа после теста).
+    fresh = any(k['last_seen'] and (now - k['last_seen']).total_seconds() < 1800 for k in kids)
+    if fresh:
         have = {str(k['seat']) for k in kids}
         kids += [roster_child(s, n) for s, n in names.items() if str(s) not in have]
-    now = datetime.now(MSK)
     seen_all = [k['last_seen'] for k in kids if k['last_seen']]
     last = max(seen_all) if seen_all else None
 
@@ -114,18 +211,19 @@ def render_dash(date, demo=False, review=False):
         """(эмодзи, МЕТКА-действие, приоритет 0=красный, причина для блока помощи).
         Приоритеты: 0 красный · 1 оранжевый БУКСУЕТ · 2 жёлтый · 3 зелёный · 4 готово · 5 неактивен.
         Красный по тишине/загрузке ВЫШЕ оранжевого: буксует = активен, но не продвигается."""
-        if k.get('mixed'):
-            return ('⚠️', 'ДВЕ СЕССИИ', 0, 'на этом месте две одновременные сессии — похоже, ссылку переслали; выясни, кто второй')
         if not k['last_seen']:
             return ('🔴', 'НУЖНА ПОМОЩЬ', 0, 'данных нет — похоже, не открыл свою ссылку')
-        if k.get('boot_dead'):
-            return ('🔴', 'НУЖНА ПОМОЩЬ', 0, 'камера или загрузка не встала — помоги переподключить (камера занята звонком?)')
-        if k['stage'] in DONE_STAGES:
-            return ('🏁', 'ГОТОВО', 4, '')
+        if k['stage'] in DONE_STAGES and not k.get('mixed'):
+            return ('🏁', 'ГОТОВО', 4, '')   # дошедший до финала остаётся 🏁 и после закрытия вкладки
         s = (now - k['last_seen']).total_seconds()
         if s >= 1800:
-            # >30 мин — сессия дохлая (закрыл/старый тест): не пугать «нужна помощь» (смок Алексея 10.07)
+            # >30 мин тишины — сессия дохлая (закрыл/старый тест): НЕАКТИВЕН гасит ЛЮБОЙ статус,
+            # включая mixed/boot_dead — старые тесты не должны кричать красным (смоки Алексея 10.07 ×2)
             return ('⚪', 'НЕАКТИВЕН', 5, '')
+        if k.get('mixed'):
+            return ('⚠️', 'ДВЕ СЕССИИ', 0, 'на этом месте две одновременные сессии — похоже, ссылку переслали; выясни, кто второй')
+        if k.get('boot_dead'):
+            return ('🔴', 'НУЖНА ПОМОЩЬ', 0, 'камера или загрузка не встала — помоги переподключить (камера занята звонком?)')
         if s >= 300:
             return ('🔴', 'НУЖНА ПОМОЩЬ', 0, f'нет активности {int(s // 60)} мин, остановился на «{stage_label(k["stage"])}»')
         # буксует = свежая активность, но упёрся: гейт держит / перебирает код замка / серия
@@ -205,6 +303,7 @@ def render_dash(date, demo=False, review=False):
         + ''.join(f"<p>{i + 1}. {esc(s)}</p>" for i, s in enumerate(k['survey']))
         for k in kids if k['survey'] or (k['hyp'] != '—' and not str(k['hyp']).startswith('🤷')))
     texts_block = f'<h2>Полные тексты</h2>{texts}' if texts else ''
+    admin = render_admin(date, kids_s)
 
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="15">
@@ -238,6 +337,7 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
 Номер у этапа — порядок в уроке (01 старт → 15 опрос готов). «Перезап.» — перезагрузки страницы (много = проблемы камеры/сети). «?·xxxx» — зашёл не по своей ссылке.</p></details>
 <p class="note">дата: <a href="?date={esc(date)}{'&demo=1' if demo else ''}">{esc(date)}</a>
  · <a href="?{'demo=1' if not demo else ''}">{'показать' if not demo else 'скрыть'} demo-сессии</a> (боты-тесты)</p>
+{admin}
 <details{' open' if review else ''}><summary>📋 Рубрика и ответы детей — смотреть ПОСЛЕ занятия</summary>
 <p><b>{esc(summary)}</b></p>
 <table><tr><th>кто</th><th>дошёл до</th><th>гипотеза</th><th>guess</th><th>починка</th><th>до→после</th><th>клетка (предв.)</th><th>фазы, мин</th><th>железо</th></tr>{rub}</table>

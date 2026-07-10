@@ -320,7 +320,7 @@ def build_children(dumps, names=None):
             'fps_min': fps_min, 'fps_med': fps_med,
             'stage_min': stage_times(events),
             'dur_min': round(max((e.get('t', 0) for e in events), default=0) / 60000, 1),
-            'roster_only': False,
+            'roster_only': False, 'sids': [str(d.get('sid')) for d in sessions],
         })
     return out
 
@@ -337,7 +337,8 @@ def roster_child(seat, name):
             'klass': 'не открыл ссылку', 'mixed': False, 'restarts': 0, 'broke': False,
             'inv': {}, 'inv_tail': 0, 'lock_fails': 0, 'stuck_last': None, 'cam_drops': 0,
             'cert': False, 'boot_dead': False, 'os': '?', 'mobile': False,
-            'fps_min': None, 'fps_med': None, 'stage_min': {}, 'dur_min': 0, 'roster_only': True}
+            'fps_min': None, 'fps_med': None, 'stage_min': {}, 'dur_min': 0, 'roster_only': True,
+            'sids': []}
 
 
 def split_by_date(raws):
