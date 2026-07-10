@@ -137,6 +137,95 @@ def last_seen(d):
     return recv
 
 
+def _ev_time(d, t_ms):
+    """Абсолютное время события с офсетом t_ms — та же пара клиентских часов, что в last_seen():
+    recv − (now − started − t). Нет now/started (старые дампы) → None."""
+    recv = _parse_iso(d.get('_recv'))
+    if not recv:
+        return None
+    try:
+        started = _parse_iso(d.get('started'))
+        cnow = d.get('now')
+        if started and isinstance(cnow, (int, float)) and isinstance(t_ms, (int, float)):
+            stale = max(0.0, float(cnow) - started.timestamp() * 1000 - float(t_ms))
+            return recv - timedelta(milliseconds=stale)
+    except Exception:
+        pass
+    return None
+
+
+def _first_t(events, types):
+    if isinstance(types, str):
+        types = (types,)
+    for e in events:
+        if e.get('type') in types and isinstance(e.get('t'), (int, float)):
+            return e['t']
+    return None
+
+
+# фазы урока для таймингов: дельты между first-occurrence якорями (аудит 10.07 — «где буксуют»
+# между прогонами 13.07→15.07 было нечем измерить). Пропущенный якорь → фаза не считается.
+_PHASES = [('сбор', 'guide_start', 'card'),
+           ('проверка', 'card', ('break_shown', 'no_break', 'inconclusive')),
+           ('разбор', ('break_shown', 'no_break', 'inconclusive'), 'fix_start'),  # гипотеза+угадайка+замок+разгадка
+           ('починка', 'fix_start', 'final'),
+           ('опрос', 'final', 'survey_done')]
+
+
+def stage_times(events):
+    """Минуты на фазах урока (по главной сессии). Отрицательные/битые дельты пропускаются."""
+    out = {}
+    for name, a, b in _PHASES:
+        ta, tb = _first_t(events, a), _first_t(events, b)
+        if ta is not None and tb is not None and tb > ta:
+            out[name] = round((tb - ta) / 60000, 1)
+    return out
+
+
+def _invalid_tail(events):
+    """Сколько shot_invalid подряд в ХВОСТЕ событий (perf-heartbeat пропускаем, любой другой
+    тип обрывает серию) — live-сигнал «не может собрать кадр прямо сейчас»."""
+    n = 0
+    for e in reversed(events):
+        t = e.get('type')
+        if t == 'perf':
+            continue
+        if t == 'shot_invalid':
+            n += 1
+        else:
+            break
+    return n
+
+
+def _lock_fails(events):
+    """Неудачные вводы кода разгадки БЕЗ последующего успеха — в ТОЙ ЖЕ сессии (старый unlock
+    с другого F5 не должен маскировать текущий перебор — Codex 10.07)."""
+    if ev(events, 'reveal_unlock') or ev(events, 'reveal_shown'):
+        return 0
+    ns = [e.get('n') for e in ev(events, 'reveal_attempt') if isinstance(e.get('n'), (int, float))]
+    return int(max(ns)) if ns else 0
+
+
+def _boot_dead(sessions, raw_recv):
+    """Последняя ПРИНЯТАЯ сессия места упала на загрузке и не поднялась (boot_fail без
+    последующего boot_ok). Retry с успехом в той же/новой сессии снимает флаг (Codex 10.07)."""
+    latest = max(sessions, key=raw_recv)
+    dead = False
+    for e in latest['events']:
+        if e.get('type') == 'boot_fail':
+            dead = True
+        elif e.get('type') == 'boot_ok':
+            dead = False
+    return dead
+
+
+def _fps_stats(events):
+    vals = sorted(v for v in (e.get('fps') for e in ev(events, 'perf')) if isinstance(v, (int, float)))
+    if not vals:
+        return None, None
+    return int(vals[0]), int(vals[len(vals) // 2])
+
+
 def build_children(dumps, names=None):
     """Дампы → список «детей» (группировка по seat поверх sid — F5 плодит sid).
 
@@ -179,6 +268,30 @@ def build_children(dumps, names=None):
         fixes = ev(events, 'fix_choice')
         surv = ev(events, 'survey_answer')
         seen = max((t for t in (last_seen(d) for d in sessions) if t), default=None)
+        # r1/r2: из final_summary; НЕТ final_summary («не досидел») → fallback из последнего
+        # check_done ленты — иначе у недосидевших теряется точность раунда 1 (аудит 10.07)
+        if fs:
+            r1, r2 = fs.get('r1'), fs.get('r2')
+        else:
+            def _cd(rounds):
+                for e in reversed(events):
+                    if e.get('type') == 'check_done' and e.get('round') in rounds \
+                            and isinstance(e.get('correct'), int) and isinstance(e.get('total'), int):
+                        return {'correct': e['correct'], 'total': e['total']}
+                return None
+            r1, r2 = _cd((0, 1)), _cd((2,))
+        # агрегаты по ВСЕМ сессиям места: невалидные кадры (какой гейт душит), дропы камеры, артефакт
+        inv = {}
+        for d in sessions:
+            for e in ev(d['events'], 'shot_invalid'):
+                w = e.get('why') or '?'
+                inv[w] = inv.get(w, 0) + 1
+        cam_drops = sum(len(ev(d['events'], 'cam_drop')) for d in sessions)
+        cert = any(ev(d['events'], 'cert_made') for d in sessions)
+        # session-scoped (главная сессия): железо, тайминги, буксование — старый F5 не должен искажать
+        fps_min, fps_med = _fps_stats(events)
+        stuck_last = max((t for t in (_ev_time(d, (ev(d['events'], 'gate_stuck') or [{}])[-1].get('t'))
+                                      for d in sessions) if t), default=None)
         if isinstance(seat, str) and seat.startswith('?'):
             klass = 'без места (открыл не по своей ссылке)'
         elif not fs and len(events) <= 3:
@@ -194,14 +307,58 @@ def build_children(dumps, names=None):
             'guessCat': (fs or {}).get('guessCat') or '—',
             'fixChosen': ((fs or {}).get('fixChosen') or '—') + (f" ({len(fixes)} поп.)" if fixes else ''),
             'stuck': len(ev(events, 'gate_stuck')),
-            'r1': (fs or {}).get('r1'), 'r2': (fs or {}).get('r2'),
+            'r1': r1, 'r2': r2,
             'survey': [s.get('text', '') for s in surv],
             'klass': klass + (' · ⚠️ данные смешаны (две одновременные сессии)' if mixed else ''),
             'mixed': mixed, 'restarts': len(sessions) - 1,
             'broke': bool(ev(events, 'break_shown')),
+            # аудит 10.07: операционка и live-сигналы буксования
+            'inv': inv, 'inv_tail': _invalid_tail(events), 'lock_fails': _lock_fails(events),
+            'stuck_last': stuck_last, 'cam_drops': cam_drops, 'cert': cert,
+            'boot_dead': _boot_dead(sessions, raw_recv),
+            'os': main_d.get('os') or '?', 'mobile': bool(main_d.get('mobile')),
+            'fps_min': fps_min, 'fps_med': fps_med,
+            'stage_min': stage_times(events),
+            'dur_min': round(max((e.get('t', 0) for e in events), default=0) / 60000, 1),
+            'roster_only': False,
         })
     return out
 
 
+def roster_child(seat, name):
+    """Синтетическая строка ростера: место роздано (seats.json), но НИ ОДНОГО дампа не пришло.
+    Только для live-таблицы «кому помочь» — в рубрику/итоги не включать (roster_only)."""
+    try:
+        seat = int(seat)
+    except (TypeError, ValueError):
+        pass
+    return {'seat': seat, 'name': name or '', 'stage': '—', 'last_seen': None, 'hyp': '—',
+            'guessCat': '—', 'fixChosen': '—', 'stuck': 0, 'r1': None, 'r2': None, 'survey': [],
+            'klass': 'не открыл ссылку', 'mixed': False, 'restarts': 0, 'broke': False,
+            'inv': {}, 'inv_tail': 0, 'lock_fails': 0, 'stuck_last': None, 'cam_drops': 0,
+            'cert': False, 'boot_dead': False, 'os': '?', 'mobile': False,
+            'fps_min': None, 'fps_med': None, 'stage_min': {}, 'dur_min': 0, 'roster_only': True}
+
+
+def split_by_date(raws):
+    """Сырые записи → {дата приёма: [записи]}. Один seat в разные дни — РАЗНЫЕ дети:
+    dedupe/build_children дат не знают, поэтому многодневный вход режем ДО них (Codex 10.07)."""
+    by = {}
+    for r in raws:
+        t = _parse_iso(r.get('recv'))
+        by.setdefault(t.date().isoformat() if t else 'без даты', []).append(r)
+    return by
+
+
 def fmt_r(r):
     return f"{r['correct']}/{r['total']}" if r else '—'
+
+
+def fmt_stages(sm):
+    return ' · '.join(f'{k} {v}' for k, v in sm.items()) if sm else '—'
+
+
+def fmt_hw(k):
+    fps = f"fps {k['fps_min']}–{k['fps_med']}" if k['fps_min'] is not None else 'fps —'
+    return (k['os'] + ('·моб' if k['mobile'] else '') + ' · ' + fps
+            + (f" · 📷×{k['cam_drops']}" if k['cam_drops'] else ''))

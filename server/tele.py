@@ -14,9 +14,10 @@ import html, json, os, re, threading, time
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
-from telemetry_model import parse_lines, dedupe, build_children, fmt_r, cut, stage_label
+from telemetry_model import (parse_lines, dedupe, build_children, fmt_r, cut, stage_label,
+                             roster_child, fmt_stages, fmt_hw)
 
-DIR = '/var/lib/ws-tele'
+DIR = os.environ.get('WS_TELE_DIR', '/var/lib/ws-tele')   # env — для локального теста
 MAX = 262144
 MSK = timezone(timedelta(hours=3))
 _lock = threading.Lock()  # append из потоков — сериализуем, чтобы строки JSONL не перемешивались
@@ -91,6 +92,12 @@ def render_dash(date, demo=False, review=False):
     except Exception:
         pass
     kids = build_children(dumps, names)
+    # ростер: места из seats.json, от которых нет НИ ОДНОГО дампа — раньше «не открыл ссылку»
+    # был мёртвой веткой (ребёнок просто отсутствовал в таблице; аудит 10.07). Показываем только
+    # когда занятие началось (есть хоть один дамп) — до старта пустые места не пугают.
+    if dumps:
+        have = {str(k['seat']) for k in kids}
+        kids += [roster_child(s, n) for s, n in names.items() if str(s) not in have]
     now = datetime.now(MSK)
     seen_all = [k['last_seen'] for k in kids if k['last_seen']]
     last = max(seen_all) if seen_all else None
@@ -104,22 +111,40 @@ def render_dash(date, demo=False, review=False):
         return (k['name'] + f" (место {k['seat']})") if k['name'] else f"место {k['seat']}"
 
     def status(k):
-        """(эмодзи, МЕТКА-действие, приоритет 0=красный, причина для блока помощи)."""
+        """(эмодзи, МЕТКА-действие, приоритет 0=красный, причина для блока помощи).
+        Приоритеты: 0 красный · 1 оранжевый БУКСУЕТ · 2 жёлтый · 3 зелёный · 4 готово · 5 неактивен.
+        Красный по тишине/загрузке ВЫШЕ оранжевого: буксует = активен, но не продвигается."""
         if k.get('mixed'):
             return ('⚠️', 'ДВЕ СЕССИИ', 0, 'на этом месте две одновременные сессии — похоже, ссылку переслали; выясни, кто второй')
-        if k['stage'] in DONE_STAGES:
-            return ('🏁', 'ГОТОВО', 3, '')
         if not k['last_seen']:
             return ('🔴', 'НУЖНА ПОМОЩЬ', 0, 'данных нет — похоже, не открыл свою ссылку')
+        if k.get('boot_dead'):
+            return ('🔴', 'НУЖНА ПОМОЩЬ', 0, 'камера или загрузка не встала — помоги переподключить (камера занята звонком?)')
+        if k['stage'] in DONE_STAGES:
+            return ('🏁', 'ГОТОВО', 4, '')
         s = (now - k['last_seen']).total_seconds()
-        if s < 120: return ('🟢', 'РАБОТАЕТ', 2, '')
-        if s < 300: return ('🟡', 'ПОДОЖДАТЬ', 1, 'притих — думает или перерыв')
-        if s < 1800: return ('🔴', 'НУЖНА ПОМОЩЬ', 0, f'нет активности {int(s // 60)} мин, остановился на «{stage_label(k["stage"])}»')
-        # >30 мин — сессия дохлая (закрыл/старый тест): не пугать «нужна помощь» (смок Алексея 10.07)
-        return ('⚪', 'НЕАКТИВЕН', 4, '')
+        if s >= 1800:
+            # >30 мин — сессия дохлая (закрыл/старый тест): не пугать «нужна помощь» (смок Алексея 10.07)
+            return ('⚪', 'НЕАКТИВЕН', 5, '')
+        if s >= 300:
+            return ('🔴', 'НУЖНА ПОМОЩЬ', 0, f'нет активности {int(s // 60)} мин, остановился на «{stage_label(k["stage"])}»')
+        # буксует = свежая активность, но упёрся: гейт держит / перебирает код замка / серия
+        # невалидных кадров (аудит 10.07: раньше такой ребёнок выглядел зелёным «РАБОТАЕТ»)
+        why_stuck = ''
+        if k.get('stuck_last') and (now - k['stuck_last']).total_seconds() < 180:
+            why_stuck = f'застрял на гейте («{stage_label(k["stage"])}»)'
+        elif k.get('lock_fails', 0) >= 5:
+            why_stuck = f'подбирает код разгадки ({k["lock_fails"]} неверных) — код 4712 называет только ведущий после гипотез'
+        elif k.get('inv_tail', 0) >= 4:
+            why_stuck = f'{k["inv_tail"]} невалидных кадра подряд — не может собрать пример'
+        if why_stuck:
+            return ('🟠', 'БУКСУЕТ', 1, why_stuck)
+        if s < 120: return ('🟢', 'РАБОТАЕТ', 3, '')
+        return ('🟡', 'ПОДОЖДАТЬ', 2, 'притих — думает или перерыв')
 
     kids_s = sorted(kids, key=lambda k: (status(k)[2], str(k['seat'])))
     reds = [k for k in kids_s if status(k)[2] == 0]
+    oranges = [k for k in kids_s if status(k)[2] == 1]
 
     # баннер: действие важнее зелёного успеха
     if not dumps:
@@ -127,11 +152,12 @@ def render_dash(date, demo=False, review=False):
                   '<p>Сервер жив (страница отвечает). До старта занятия пусто — это нормально. '
                   'Если занятие уже идёт — проверь, что дети открыли свои ссылки (план Б — в пакете ведущего).</p>')
     else:
-        n_idle = sum(1 for k in kids_s if status(k)[2] == 4)
+        n_idle = sum(1 for k in kids_s if status(k)[2] == 5)
         n_act = len(kids) - n_idle
         idle_txt = f' · неактивных: {n_idle}' if n_idle else ''
-        if reds:
-            banner = (f'<div class="big warn">⚠️ Детей в работе: {n_act} · <b>нужна помощь: {len(reds)}</b>{idle_txt} · '
+        org_txt = f' · <b>буксуют: {len(oranges)}</b>' if oranges else ''
+        if reds or oranges:
+            banner = (f'<div class="big warn">⚠️ Детей в работе: {n_act} · <b>нужна помощь: {len(reds)}</b>{org_txt}{idle_txt} · '
                       f'последняя запись {rel(last)}</div>')
         else:
             banner = (f'<div class="big ok">✅ Всё спокойно · детей в работе: {n_act}{idle_txt} · последняя запись {rel(last)}'
@@ -140,7 +166,10 @@ def render_dash(date, demo=False, review=False):
     helpb = ''.join(
         f'<div class="red"><b>🔴 {esc(who(k))}</b> — {esc(status(k)[3])}<br>'
         f'<span class="act">→ окликни голосом или напиши в личку</span></div>'
-        for k in reds)
+        for k in reds) + ''.join(
+        f'<div class="org"><b>🟠 {esc(who(k))}</b> — {esc(status(k)[3])}<br>'
+        f'<span class="act2">→ активен, но не продвигается — предложи помощь голосом</span></div>'
+        for k in oranges)
     if dumps and not helpb:
         helpb = '<p class="note">🟢 Сейчас помощь никому не нужна.</p>'
 
@@ -152,16 +181,25 @@ def render_dash(date, demo=False, review=False):
         f"{(' · ' + str(k['restarts']) + ' перезап.') if k['restarts'] else ''}</td></tr>"
         for k in kids_s)
 
-    fin = sum(1 for k in kids if k['stage'] in DONE_STAGES)
-    broke = sum(1 for k in kids if k['broke'])
-    noseat = sum(1 for k in kids if isinstance(k['seat'], str) and str(k['seat']).startswith('?'))
-    summary = (f'Итог: дошли до финала {fin} из {len(kids)} · поломка сработала у {broke} из {len(kids)} · '
-               f'без персональной ссылки: {noseat}')
+    real = [k for k in kids if not k.get('roster_only')]   # ростер-строки — только для live-таблицы
+    fin = sum(1 for k in real if k['stage'] in DONE_STAGES)
+    broke = sum(1 for k in real if k['broke'])
+    noseat = sum(1 for k in real if isinstance(k['seat'], str) and str(k['seat']).startswith('?'))
+    # медианы времён фаз по группе — «где буксуют» для доводки между прогонами (аудит 10.07)
+    med = {}
+    for ph in ('сбор', 'проверка', 'разбор', 'починка', 'опрос'):
+        vals = sorted(k['stage_min'][ph] for k in real if k.get('stage_min', {}).get(ph) is not None)
+        if vals:
+            med[ph] = vals[len(vals) // 2]
+    med_txt = (' · ⏱ медианы фаз, мин: ' + ' · '.join(f'{p} {v}' for p, v in med.items())) if med else ''
+    summary = (f'Итог: дошли до финала {fin} из {len(real)} · поломка сработала у {broke} из {len(real)} · '
+               f'без персональной ссылки: {noseat}{med_txt}')
     rub = ''.join(
         f"<tr><td>{esc(k['seat'])}{(' · ' + esc(k['name'])) if k['name'] else ''}</td><td>{esc(stage_label(k['stage']))}</td><td>{esc(cut(k['hyp']))}</td>"
         f"<td>{esc(k['guessCat'])}</td><td>{esc(k['fixChosen'])}</td>"
-        f"<td>{esc(fmt_r(k['r1']))}→{esc(fmt_r(k['r2']))}</td><td>{esc(k['klass'])}</td></tr>"
-        for k in kids_s)
+        f"<td>{esc(fmt_r(k['r1']))}→{esc(fmt_r(k['r2']))}</td><td>{esc(k['klass'])}{' · 🎓 серт' if k.get('cert') else ''}</td>"
+        f"<td class='note'>{esc(fmt_stages(k.get('stage_min')))}</td><td class='note'>{esc(fmt_hw(k))}</td></tr>"
+        for k in kids_s if not k.get('roster_only'))
     texts = ''.join(
         f"<h4>{esc(who(k))}</h4><p>гипотеза: {esc(k['hyp'])}</p>"
         + ''.join(f"<p>{i + 1}. {esc(s)}</p>" for i, s in enumerate(k['survey']))
@@ -176,10 +214,12 @@ body{{background:#f5f7fa;color:#1a2330;font:16px/1.5 -apple-system,system-ui,san
 .ok{{background:#e8f7ee;border:1px solid #35b46a}}.warn{{background:#fdeaea;border:1px solid #d64545}}
 .red{{background:#fff;border:2px solid #d64545;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}}
 .red .act{{color:#b83232;font-weight:700}}
+.org{{background:#fff;border:2px solid #e08a2e;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}}
+.org .act2{{color:#b06a1a;font-weight:700}}
 table{{border-collapse:collapse;width:100%;margin:10px 0 24px;background:#fff;border-radius:10px}}
 td,th{{padding:8px 10px;border-bottom:1px solid #e2e7ee;text-align:left;font-size:15px}}
 th{{color:#66738a;font-size:13px;text-transform:uppercase}}
-tr.p0 td{{background:#fdeaea}}tr.p1 td{{background:#fdf6e3}}tr.p4 td{{color:#9aa5b8}}
+tr.p0 td{{background:#fdeaea}}tr.p1 td{{background:#fbeedd}}tr.p2 td{{background:#fdf6e3}}tr.p5 td{{color:#9aa5b8}}
 h2{{margin:20px 0 4px}}h4{{margin:14px 0 2px;color:#2557d6}}
 p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary{{cursor:pointer;font-weight:800;font-size:16px}}
 .note{{color:#66738a;font-size:13px}}</style></head><body>
@@ -188,7 +228,8 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
 <h2>Все дети <span class="note">(красные сверху · страница сама обновляется каждые 15 сек)</span></h2>
 <table><tr><th>кто</th><th>что делать</th><th>стадия</th><th>активность</th><th></th></tr>{live or '<tr><td colspan=5>—</td></tr>'}</table>
 <details><summary>Что означают статусы</summary><p>
-🔴 НУЖНА ПОМОЩЬ — нет активности &gt;5 мин или не открыл ссылку → окликни/напиши ·
+🔴 НУЖНА ПОМОЩЬ — нет активности &gt;5 мин, не открыл ссылку или не встала камера → окликни/напиши ·
+🟠 БУКСУЕТ — активен, но упёрся (гейт держит / подбирает код / серия невалидных кадров) → предложи помощь ·
 🟡 ПОДОЖДАТЬ — притих 2–5 мин (думает, перерыв) ·
 🟢 РАБОТАЕТ — активен &lt;2 мин ·
 🏁 ГОТОВО — дошёл до финала ·
@@ -199,7 +240,7 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
  · <a href="?{'demo=1' if not demo else ''}">{'показать' if not demo else 'скрыть'} demo-сессии</a> (боты-тесты)</p>
 <details{' open' if review else ''}><summary>📋 Рубрика и ответы детей — смотреть ПОСЛЕ занятия</summary>
 <p><b>{esc(summary)}</b></p>
-<table><tr><th>кто</th><th>дошёл до</th><th>гипотеза</th><th>guess</th><th>починка</th><th>до→после</th><th>клетка (предв.)</th></tr>{rub}</table>
+<table><tr><th>кто</th><th>дошёл до</th><th>гипотеза</th><th>guess</th><th>починка</th><th>до→после</th><th>клетка (предв.)</th><th>фазы, мин</th><th>железо</th></tr>{rub}</table>
 {texts_block}
 <p class="note">Клетки — предварительные: тексты размечаются руками по кодбуку (rubric.py).</p>
 </details></body></html>"""

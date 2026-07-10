@@ -409,11 +409,15 @@ const TELE_URL='/tele';                // same-origin ручка на ws.meriler
 const TELE={
   sid:(Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
   seat:null, t0:Date.now(), events:[], _saveT:0,
-  push(type,data){ this.events.push({t:Date.now()-this.t0,type,...(data||{})}); this._save();
+  push(type,data){ this.events.push({t:Date.now()-this.t0,type,...(data||{})});
     // 'seat'/'task_done' — ранняя регистрация (ребёнок виден серверу с первых минут); 'perf' пушится
     // раз в 30с в живых состояниях = heartbeat для дашборда (иначе на долгом сборе активный ребёнок
-    // «краснеет» — аудит Codex 10.07); 'gate_stuck' — застрявший виден сразу
-    if(type==='seat'||type==='task_done'||type==='check_done'||type==='break_shown'||type==='final'||type==='survey_done'||type==='hypothesis'||type==='reveal_unlock'||type==='perf'||type==='gate_stuck')this.send(); },
+    // «краснеет» — аудит Codex 10.07); 'gate_stuck' — застрявший виден сразу;
+    // 'boot_fail'/'cam_drop' — аварии видны немедленно (аудит 10.07: ребёнок с упавшей камерой был
+    // невидимкой до pagehide); 'embed_fail' — немедленно только ПЕРВЫЙ (дальше и так в дампе вех)
+    const imm=type==='seat'||type==='task_done'||type==='check_done'||type==='break_shown'||type==='final'||type==='survey_done'||type==='hypothesis'||type==='reveal_unlock'||type==='perf'||type==='gate_stuck'||type==='boot_fail'||type==='cam_drop'||(type==='embed_fail'&&!this._efImm&&(this._efImm=true));
+    if(imm)this._saveT=0;                 // аварийное/веховое — мимо троттла _save: дамп не должен потеряться
+    this._save(); if(imm)this.send(); },
   _save(){ const now=Date.now(); if(now-this._saveT<1500)return; this._saveT=now;
     try{ localStorage.setItem('tele_'+this.sid, JSON.stringify(this.dump())); }catch(e){} },
   dump(){ const ua=navigator.userAgent;
@@ -446,6 +450,10 @@ const TELE={
     const a=document.createElement('a'); a.href=URL.createObjectURL(b);
     a.download='tele-'+(this.seat??'x')+'-'+this.sid+'.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000); }
 };
+// место из персональной ссылки известно ДО загрузки: boot_fail обязан прилетать с местом,
+// иначе упавший ребёнок виден на дашборде как «без места» (аудит 10.07). Регистрация
+// события seat{via:'link'} остаётся в enterGuide («дошёл до урока») — тут только идентификация.
+{ const q=parseInt(QP.get('seat'),10); if(WS&&q>=1&&q<=99)TELE.seat=q; }
 addEventListener('pagehide',()=>{ TELE._saveT=0; TELE._save(); TELE.send(true); });
 addEventListener('online',()=>{ TELE.resend(); });   // сеть вернулась — досылаем всё накопленное
 
@@ -627,7 +635,9 @@ async function initCamera(){ if(DEMO)return;
     try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640},frameRate:{ideal:24,max:30}},audio:false})}
     catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}catch(e2){throw new Error('CAM:'+e2.name)} }
     cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
-    s.getVideoTracks()[0].addEventListener('ended',()=>{TELE.push('cam_drop',{auto:true});hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
+    // latch camWasDown: обрыв считаем ОДИН раз на инцидент — иначе ватчдог (интервал 2с) задублирует
+    // cam_drop от этого же обрыва (аудит Codex 10.07); сбрасывает latch ватчдог/камера-ретрай
+    s.getVideoTracks()[0].addEventListener('ended',()=>{if(!camWasDown){camWasDown=true;TELE.push('cam_drop',{auto:true});}hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
   } finally { initCamera._busy=false; }
 }
 async function initModel(){
@@ -742,7 +752,9 @@ function enterGuide(){ GUIDE.on=true; TELE.push('guide_start');
   // номер места из персональной ссылки (?seat=N, бот рассылает каждому свою) — детей цифрами не грузим;
   // экран выбора остаётся fallback'ом для ссылок без параметра (запасной ребёнок, опоздавший)
   const qs=parseInt(QP.get('seat'),10);
-  if(WS&&TELE.seat==null&&qs>=1&&qs<=99){ TELE.seat=qs; TELE.push('seat',{n:qs,via:'link'}); try{localStorage.setItem('ws_seat',qs)}catch(e){} }
+  if(WS&&TELE.seat==null&&qs>=1&&qs<=99)TELE.seat=qs;   // страховка (ранняя инициализация в блоке TELE)
+  // «seat известен» (ранняя идентификация) ≠ «seat зарегистрирован в уроке» — событие шлём один раз тут
+  if(WS&&TELE.seat!=null&&!TELE._seatReg){ TELE._seatReg=true; TELE.push('seat',{n:TELE.seat,via:'link'}); try{localStorage.setItem('ws_seat',TELE.seat)}catch(e){} }
   if(WS && TELE.seat==null) showSeatScreen(); else startFirstTask(); }
 function startFirstTask(){ startTask('t1a'); }
 function showSeatScreen(){ state='gpause'; showScreen('seat');
@@ -1626,8 +1638,8 @@ $('#camRetry').onclick=async()=>{ $('#camRetry').disabled=true;
 setInterval(()=>{
   if(DEMO||state==='intro'||!$('#loading').classList.contains('hidden'))return;
   const down=!cam.srcObject||cam.readyState<2||!(cam.srcObject.getVideoTracks?.()[0]?.readyState==='live');
-  if(down&&!camWasDown){ camWasDown=true; TELE.push('cam_drop'); predCache=null; smooth.length=0; $('#camfix').classList.remove('hidden'); }
-  else if(!down&&camWasDown){ camWasDown=false; $('#camfix').classList.add('hidden'); }
+  if(down){ if(!camWasDown){ camWasDown=true; TELE.push('cam_drop'); predCache=null; smooth.length=0; } $('#camfix').classList.remove('hidden'); }
+  else if(camWasDown){ camWasDown=false; $('#camfix').classList.add('hidden'); }
 },2000);
 /* ---- debug-приборы (?debug=1): гейт, разбивка веток KNN, выгрузка телеметрии ---- */
 let dbText=null;
