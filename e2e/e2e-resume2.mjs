@@ -9,6 +9,16 @@ async (page) => {
   const KEY = 'ws_save_95';
   const getSave = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), KEY);
   const putSave = (s) => page.evaluate(({ k, v }) => localStorage.setItem(k, JSON.stringify(v)), { k: KEY, v: s });
+  const doCard = async (d, retries = 3) => {
+    await demo(d);
+    await page.waitForFunction(() => !document.querySelector('#ckShot').classList.contains('hidden'), null, { timeout: 30000 });
+    await page.waitForTimeout(400);
+    await page.click('#ckShot');
+    await page.waitForFunction(() => !document.querySelector('#ckNext').classList.contains('hidden') || !document.querySelector('#ckRetry').classList.contains('hidden'), null, { timeout: 30000 });
+    const invalid = await page.evaluate(() => !document.querySelector('#ckRetry').classList.contains('hidden'));
+    if (invalid) { if (retries <= 0) return 'INVALID-STUCK'; await page.click('#ckRetry'); return doCard(d, retries - 1); }
+    return 'ok';
+  };
 
   try {
     // ---- заготовка: реальный сейв вехи r1 ----
@@ -24,7 +34,17 @@ async (page) => {
     await page.click('#scGo');
     await waitStep('ИИ обучен');
     const base = await getSave();
-    ok('заготовка: сейв r1 записан', !!base && base.ms === 'r1' && base.ex.length === 12);
+    ok('заготовка: сейв r1 записан (с cycleId)', !!base && base.ms === 'r1' && base.ex.length === 12 && !!base.cy);
+
+    // ---- 0. слот занят ЧУЖИМ циклом (вторая вкладка того же места): наши вехи его НЕ перезаписывают ----
+    await putSave({ ...base, cy: 'FOREIGN99', ms: 'final', g: { ...base.g, outcome: 'fixed', res2: { correct: 4, total: 4 } } });
+    await page.click('#scGo'); // → проверка R1 (веха checked1 по её итогу)
+    await doCard({ cls: 0, size: 1.0, present: true }); await page.click('#ckNext');
+    await doCard({ cls: 1, size: 0.3, present: true }); await page.click('#ckNext');
+    await doCard({ cls: 0, size: 0.3, present: true }); await page.click('#ckNext'); // «Почему?!»
+    await page.waitForFunction(() => !document.querySelector('#hypo').classList.contains('hidden'));
+    const s0 = await getSave();
+    ok('чужой цикл: слот цел (cy=FOREIGN99, ms=final), веха checked1 не записалась поверх', !!s0 && s0.cy === 'FOREIGN99' && s0.ms === 'final');
 
     // ---- 1. «Поехали» поверх старого сейва: первая веха ПЕРЕЗАПИСЫВАЕТ слот (без ранг-защиты) ----
     await putSave({ ...base, ms: 'revealed', g: { ...base.g, guessKey: 'size', guessCat: 'data-right' } });
@@ -41,7 +61,7 @@ async (page) => {
     await page.click('#scGo');
     await waitStep('ИИ обучен');
     const s1 = await getSave();
-    ok('fresh-start поверх revealed: веха стала r1, не revealed (нет телепорта на разгадку)', !!s1 && s1.ms === 'r1' && !s1.g.guessCat);
+    ok('fresh-start поверх revealed: веха стала r1, новый cycleId, guessCat чист', !!s1 && s1.ms === 'r1' && !s1.g.guessCat && !!s1.cy && s1.cy !== base.cy);
 
     // ---- 2. fixdata с провальным первым res2 → всегда повтор проверки R2, не ложный финал ----
     await putSave({ ...s1, ms: 'fixdata', g: { ...s1.g, res1: { correct: 2, total: 3 }, res2: { correct: 1, total: 4 }, guessKey: 'size', guessCat: 'data-right', fixChosen: 'self', fixTries: 1 } });

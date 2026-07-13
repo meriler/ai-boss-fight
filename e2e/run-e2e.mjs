@@ -1,4 +1,4 @@
-// Одноразовый e2e-раннер v4.html (playwright-core + кэшированный chromium MCP)
+// Одноразовый e2e-раннер v5.html (playwright-core + кэшированный chromium MCP)
 import { chromium } from 'playwright-core';
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
@@ -14,8 +14,10 @@ page.setDefaultTimeout(30000);
 try {
   const out = await scenario(page);
   console.log(out);
+  if (/\bFAIL |EXCEPTION/.test(String(out))) process.exitCode = 1;   // FAIL в выводе = ненулевой код (ревью Codex 14.07)
 } catch (e) {
   console.log('RUNNER EXCEPTION: ' + e.message);
+  process.exitCode = 1;
 } finally {
   await browser.close();
 }

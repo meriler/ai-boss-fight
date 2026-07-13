@@ -731,42 +731,63 @@ function saveKey(){ return WS ? ('ws_save_'+(TELE.seat??'x')) : null; }
 function _b64(buf){ const u=buf.buffer?new Uint8Array(buf.buffer,buf.byteOffset||0,buf.byteLength):new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=4096)s+=String.fromCharCode.apply(null,u.subarray(i,i+4096)); return btoa(s); }
 function _unb64(s){ const b=atob(s),u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
 const SAVE_RANK={r1:1,checked1:2,revealed:3,fixdata:4,final:5};
-let SAVE_FRESH=false;   // «Поехали» = новый цикл: первая же веха перезаписывает слот ЦЕЛИКОМ, без ранг-защиты.
-                        // Иначе старый ms='revealed' (тот же seat, <6ч) + свежий датасет = смешанный снапшот,
-                        // и F5 телепортирует ребёнка на разгадку мимо проверки и замка (Codex CRIT 14.07)
+/* Цикл сейва (Codex R2 14.07): «Поехали» рождает новый cycleId, «Продолжить» усыновляет id снимка.
+   Ранг-защита вех действует только ВНУТРИ цикла; слот с чужим cy (вторая вкладка того же места)
+   не перезаписывается — чужой final не приезжает поверх свежего r1. SAVE_FRESH гаснет только после
+   ПОДТВЕРЖДЁННОЙ записи: неудачная первая запись не возвращает старый ранг в силу. */
+let SAVE_FRESH=false, SAVE_CYCLE=null;
+function _tsOk(ts){ const age=Date.now()-ts; return Number.isFinite(ts)&&age>-60e3&&age<6*3600e3; }
 function saveMilestone(ms){ const key=saveKey(); if(!key||!KNN.ex.length)return; try{
-  if(!SAVE_FRESH){ const prev=loadSave(); // внутри одного цикла веха не откатывается (повторная проверка R1 после restore)
-    if(prev&&SAVE_RANK[prev.ms]>SAVE_RANK[ms])ms=prev.ms; }
-  SAVE_FRESH=false;
-  const body=JSON.stringify({v:1, ts:Date.now(), ms,
+  if(!SAVE_CYCLE)SAVE_CYCLE=Math.random().toString(36).slice(2,10);
+  const prev=loadSave();
+  if(!SAVE_FRESH&&prev){
+    if(prev.cy&&prev.cy!==SAVE_CYCLE)return;               // слот занят другим циклом (другая вкладка) — не трогаем
+    if(SAVE_RANK[prev.ms]>SAVE_RANK[ms])ms=prev.ms;        // внутри цикла веха не откатывается (повторная проверка R1)
+  }
+  const body=JSON.stringify({v:1, cy:SAVE_CYCLE, ts:Date.now(), ms,
     ex:KNN.ex.map(x=>({e:_b64(x.emb),p:_b64(x.pix),l:x.l})),
     counts:[counts[0],counts[1]],
     th:[THUMBS[0],THUMBS[1]].map(a=>a.map(x=>({d:_b64(x.img.data),r:x.round}))),
     g:{res1:GUIDE.res1,res2:GUIDE.res2,guessKey:GUIDE.guessKey,guessCat:GUIDE.guessCat,
        fixChosen:GUIDE.fixChosen,fixTries:GUIDE.fixTries,outcome:GUIDE.outcome}});
-  try{ localStorage.setItem(key,body); }
-  catch(err){ // квота: выкинуть протухшие чужие ws_save_* и попробовать ровно ещё раз
-    try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('ws_save_')||k===key)continue;
-        let dead=true; try{ const d=JSON.parse(localStorage.getItem(k)); dead=!(d&&Date.now()-d.ts<6*3600e3); }catch(_){}
+  let wrote=false;
+  try{ localStorage.setItem(key,body); wrote=true; }
+  catch(err){ // ТОЛЬКО при квоте: выкинуть достоверно протухшие v1-сейвы и попробовать ровно ещё раз
+    const q=err&&(err.name==='QuotaExceededError'||err.code===22||/quota/i.test(String(err)));
+    if(q)try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('ws_save_')||k===key)continue;
+        let dead=false; try{ const d=JSON.parse(localStorage.getItem(k)); dead=!!d&&d.v===1&&!_tsOk(d.ts); }catch(_){}
         if(dead)localStorage.removeItem(k); }
-      localStorage.setItem(key,body); }catch(_){}
+      localStorage.setItem(key,body); wrote=true; }catch(_){}
   }
+  if(wrote)SAVE_FRESH=false;   // флаг «новый цикл» живёт до первой УСПЕШНОЙ записи (Codex R2)
 }catch(e){} }
 function loadSave(){ const key=saveKey(); if(!key)return null; try{
   const s=JSON.parse(localStorage.getItem(key)||'null');
   if(!s||s.v!==1||!Array.isArray(s.ex)||!s.ex.length||!s.g||!Array.isArray(s.counts))return null;
-  if(!Number.isFinite(s.ts)||Math.abs(Date.now()-s.ts)>6*3600e3)return null;   // NaN/строка/будущее ts — не проходят TTL
+  if(!_tsOk(s.ts))return null;   // NaN/строка/будущее — не проходят
   return s; }catch(e){ return null; } }
 function clearSave(){ const key=saveKey(); if(key)try{localStorage.removeItem(key)}catch(e){} }
 function applySave(s){
-  KNN.clear(); s.ex.forEach(x=>{ const eb=_unb64(x.e),pb=_unb64(x.p);
-    if(!eb.length||eb.length%4||!pb.length||pb.length%4)throw new Error('bad save ex');   // обрезанный base64 не должен родить кривой Float32Array
-    KNN.ex.push({emb:new Float32Array(eb.buffer), pix:new Float32Array(pb.buffer), l:x.l}); });
-  counts[0]=s.counts[0]; counts[1]=s.counts[1];
-  THUMBS[0].length=0; THUMBS[1].length=0;
+  // транзакционность (Codex R2): сначала декодируем и проверяем ВСЁ во временные массивы,
+  // мутируем runtime только целиком — битый хвост снимка не оставляет полу-применённую модель
+  const ex=[], th=[[],[]];
+  s.ex.forEach(x=>{ const eb=_unb64(x.e),pb=_unb64(x.p);
+    if(!eb.length||eb.length%4||!pb.length||pb.length%4)throw new Error('bad save ex');
+    if(!(x.l===0||x.l===1))throw new Error('bad save label');
+    ex.push({emb:new Float32Array(eb.buffer), pix:new Float32Array(pb.buffer), l:x.l}); });
+  const el0=ex[0].emb.length, pl0=ex[0].pix.length;
+  if(ex.some(x=>x.emb.length!==el0||x.pix.length!==pl0))throw new Error('bad save dims');
+  if(!Array.isArray(s.th)||s.th.length!==2)throw new Error('bad save th');
   s.th.forEach((a,c)=>a.forEach(x=>{ const d=_unb64(x.d);
     if(d.length!==4096)throw new Error('bad save thumb');   // строго 32×32×4
-    THUMBS[c].push({img:new ImageData(new Uint8ClampedArray(d.buffer),32,32),round:x.r}); }));
+    th[c].push({img:new ImageData(new Uint8ClampedArray(d.buffer),32,32),round:x.r}); }));
+  const c0=s.counts[0]|0, c1=s.counts[1]|0;
+  if(c0<0||c1<0)throw new Error('bad save counts');
+  // --- всё проверено, применяем атомарно ---
+  KNN.clear(); ex.forEach(x=>KNN.ex.push(x));
+  counts[0]=c0; counts[1]=c1;
+  THUMBS[0].length=0; THUMBS[1].length=0;
+  th.forEach((a,c)=>a.forEach(x=>THUMBS[c].push(x)));
   Object.assign(GUIDE,{res1:s.g.res1,res2:s.g.res2,guessKey:s.g.guessKey,guessCat:s.g.guessCat,
     fixChosen:s.g.fixChosen,fixTries:s.g.fixTries||0,outcome:s.g.outcome});
   if(THUMBS[0].length&&!certFrame){ certFrame=THUMBS[0][0].img; }  // сертификату нужен кадр ладони
@@ -1079,6 +1100,7 @@ function finishGuidedCheck(correct,total){
     GUIDE.res2={correct,total};
     if(correct>=3||GUIDE.fixTries>=1){ GUIDE.outcome=correct>=3?'fixed':'partial'; showFinal(); }
     else{ GUIDE.fixTries++; TELE.push('fix_retry');
+      saveMilestone('fixdata');   // пере-снимок с актуальными res2/fixTries: ранний check_done их не видел (Codex R2 п.6)
       // повторная починка идёт МИМО выбора (уже выбирал) — вернуть t2a нейтральный интро-текст
       stepCard({big:'🤔',title:'ИИ ещё путается!',text:'Так бывает. Добавим ему ещё немного разных примеров — и проверим снова.',btn:'🔧 Чинить дальше',onGo:()=>{Object.assign(TASK_INTRO.t2a,T2A_NEUTRAL);startTask('t2a');}}); }
   }
@@ -1663,7 +1685,7 @@ async function boot(){$('#intro').classList.add('hidden');$('#loading').classLis
     setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 let RESUME=false;
-$('#start').onclick=()=>{RESUME=false;SAVE_FRESH=true;boot();};$('#retry').onclick=boot;   // Поехали = новый цикл сейва
+$('#start').onclick=()=>{RESUME=false;SAVE_FRESH=true;SAVE_CYCLE=Math.random().toString(36).slice(2,10);boot();};$('#retry').onclick=boot;   // Поехали = новый цикл сейва
 // «Продолжить с места»: кнопка видна, только если есть свежий сейв для этого места
 try{ if(WS&&loadSave())$('#resume').classList.remove('hidden'); }catch(e){}
 $('#resume').onclick=()=>{ RESUME=true; boot(); };
@@ -1674,10 +1696,12 @@ function resumeFlow(){
   // битый сейв не должен ронять boot() в «❌ Не загрузилось» с вечным Повторить (ревью 14.07)
   try{ applySave(s); }catch(e){ console.error('resume:',e); clearSave();
     showToast('Не смог прочитать сохранёнку —\nначнём заново 🙂',1600); startFirstTask(); return; }
+  SAVE_CYCLE=s.cy||SAVE_CYCLE;   // «Продолжить» усыновляет цикл снимка (Codex R2)
   refresh(); updateHint();
   TELE.push('resume',{ms:s.ms});
   const FIN=['fixed','partial','no_break','inconclusive'];
-  if(s.ms==='final'&&FIN.includes(GUIDE.outcome)){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
+  const finOk=FIN.includes(GUIDE.outcome)&&((GUIDE.outcome!=='fixed'&&GUIDE.outcome!=='partial')||GUIDE.res2);   // fixed/partial без res2 = битый инвариант
+  if(s.ms==='final'&&finOk){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
   else if(s.ms==='fixdata'){ // ВСЕГДА через проверку R2: res2 в сейве бывает провальным ПЕРВЫМ замером
     // (F5 во время дополнительной починки) — прямой showFinal рисовал «Почти починил» до второй проверки (Codex CRIT 14.07)
     state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)}); }
@@ -1721,7 +1745,7 @@ $('#reset').onclick=(e)=>{ // прогон 13.07: удаление пересп�
     clearTimeout(b._t); b._t=setTimeout(()=>{b._arm=0;b.textContent=b._old;},2500); return; }
   if(now-b._arm<450)return;   // второй клик дабл-тапа — не осознанное подтверждение
   clearTimeout(b._t); b._arm=0; b.textContent=b._old;
-  stopKeyHold();
+  stopCollect();
   TELE.push('reset');KNN.clear();counts=[0,0];THUMBS[0].length=0;THUMBS[1].length=0;predCache=null;provenTier=0;smooth=[];clearSave();refresh();updateHint()};
 /* ---- кнопки урока ---- */
 $('#fixBtn').onclick=()=>{ TELE.push('fix_start'); showFixPick(); };
@@ -1785,12 +1809,18 @@ function renderDebug(p){
 <b>пороги</b> big ${CFG.bigLo}–${CFG.bigHi} · small ${CFG.smLo}–${CFG.smHi}  <b>детектор</b> ${hander?'ok':'НЕТ'}
 <b>примеры</b> ✋${counts[0]} ✊${counts[1]}${knn}`;
 }
-function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
+/* pointer-сбор — общий реестр с клавишами: stopCollect() гасит ОБА канала (reset/blur/смена класса — Codex R2 п.13) */
+let _ptrHold={t:null,el:null};
+function stopPtrHold(){ if(_ptrHold.t)clearInterval(_ptrHold.t);
+  if(_ptrHold.el)_ptrHold.el.classList.remove('rec');
+  _ptrHold={t:null,el:null}; if(_keyHold.cls<0)recCls=-1; }
+function stopCollect(){ stopKeyHold(); stopPtrHold(); }
+function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;
   const del=el.querySelector('.del');
   del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);THUMBS[i].pop();TELE.push('sample_del',{cls:i});refresh();updateHint();SFX.buzz();}});
-  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');recCls=i;addExample(i);
-    t=setInterval(()=>{ if(state!=='train'){clearInterval(t);el.classList.remove('rec');recCls=-1;return;} addExample(i); },450)};
-  const up=()=>{clearInterval(t);el.classList.remove('rec');recCls=-1};
+  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;stopCollect();el.classList.add('rec');recCls=i;addExample(i);
+    _ptrHold={el,t:setInterval(()=>{ if(state!=='train'){stopPtrHold();return;} addExample(i); },450)}};
+  const up=()=>stopPtrHold();
   el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
 /* Клавиши 1/2: собирать примеры, не отрывая руку от жеста (прогон 13.07: «руки накрест» —
    мышь на кнопке + жест в камеру одновременно неудобно). Держишь клавишу — идёт сбор. */
@@ -1803,7 +1833,7 @@ window.addEventListener('keydown',e=>{
   const cls=e.key==='1'?0:e.key==='2'?1:-1;
   if(cls<0||_keyHold.cls===cls)return;
   if(e.target&&/INPUT|TEXTAREA/.test(e.target.tagName))return;
-  stopKeyHold();   // переключение 1↔2 снимает .rec со старого класса
+  stopCollect();   // переключение 1↔2 и клавиша поверх зажатого pointer: старый сбор гаснет целиком
   _keyHold={cls,t:setInterval(()=>{ if(state!=='train'){stopKeyHold();return;} addExample(cls); },450)};
   const el=teachrow.children[cls]; if(el)el.classList.add('rec'); recCls=cls;
   addExample(cls);
@@ -1813,8 +1843,8 @@ window.addEventListener('keyup',e=>{
   if(cls<0||_keyHold.cls!==cls)return;
   stopKeyHold();
 });
-window.addEventListener('blur',stopKeyHold);   // Cmd+Tab/клик в звонок уносит keyup мимо страницы — сбор не должен продолжаться (ревью 14.07)
-document.addEventListener('visibilitychange',()=>{ if(document.hidden)stopKeyHold(); });
+window.addEventListener('blur',stopCollect);   // Cmd+Tab/клик в звонок уносит keyup/pointerup мимо страницы — сбор не должен продолжаться (ревью 14.07)
+document.addEventListener('visibilitychange',()=>{ if(document.hidden)stopCollect(); });
 window.addEventListener('resize',resize);
 if(DEMO)$('.badge').textContent='демо: без камеры, кадр синтетический';
 </script>
