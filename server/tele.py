@@ -92,6 +92,25 @@ class H(BaseHTTPRequestHandler):
                         pass
                     with open(hid, 'w', encoding='utf-8') as f:
                         json.dump(sorted(set(cur) | set(sids)), f)
+            elif act in ('sess_start', 'sess_stop'):
+                # маркеры занятия (просьба Алексея, прогон 13.07): по ним будут резаться отчёты.
+                # Отдельный файл, НЕ строки в JSONL — parse_lines/рубрика их не видят и не травятся.
+                sf = os.path.join(DIR, 'session-' + date + '.json')
+                cur = {}
+                try:
+                    with open(sf, encoding='utf-8') as f:
+                        cur = json.load(f)
+                except Exception:
+                    pass
+                if not isinstance(cur, dict):
+                    cur = {}
+                now_iso = datetime.now(MSK).strftime('%Y-%m-%dT%H:%M:%S')
+                if act == 'sess_start':
+                    cur = {'start': now_iso}   # новый старт открывает новое окно (прежний стоп сброшен)
+                else:
+                    cur['stop'] = now_iso
+                with open(sf, 'w', encoding='utf-8') as f:
+                    json.dump(cur, f)
             elif act == 'rename':
                 seat = (q.get('seat') or [''])[0]
                 name = (q.get('name') or [''])[0].strip()[:60]
@@ -137,6 +156,41 @@ def esc(s):
 
 
 DONE_STAGES = ('опрос готов', 'сертификат', 'финал', 'лаборатория', 'игра')
+
+
+def load_session(date):
+    """Окно занятия из session-<date>.json: (start, stop, auto). Старт без стопа старше 2 часов
+    считается закрытым в start+2ч (автофиниш) — «забыли нажать ⏹» не растягивает отчёт на весь день."""
+    try:
+        with open(os.path.join(DIR, 'session-' + date + '.json'), encoding='utf-8') as f:
+            s = json.load(f)
+        def _p(v):
+            return datetime.strptime(v, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=MSK) if v else None
+        start, stop, auto = _p(s.get('start')), _p(s.get('stop')), False
+        if start and not stop and datetime.now(MSK) - start > timedelta(hours=2):
+            stop, auto = start + timedelta(hours=2), True
+        return start, stop, auto
+    except Exception:
+        return None, None, False
+
+
+def render_session(date):
+    """Строка-пульт «▶ старт / ⏹ финиш» под баннером: маркеры окна занятия для резки отчётов."""
+    start, stop, auto = load_session(date)
+    hm = lambda t: t.astimezone(MSK).strftime('%H:%M')
+    frm = ('<form method="post" style="display:inline;margin-left:10px">'
+           '<input type="hidden" name="date" value="' + esc(date) + '">')
+    if not start:
+        body = ('занятие не начато' + frm +
+                '<button name="act" value="sess_start">▶ Старт занятия</button></form>')
+    elif not stop:
+        body = ('🟢 занятие идёт с <b>' + hm(start) + '</b> (автофиниш через 2 ч)' + frm +
+                '<button name="act" value="sess_stop" onclick="return confirm(\'Завершить занятие? Маркер попадёт в отчёт.\')">⏹ Финиш</button></form>')
+    else:
+        body = ('⏹ занятие: <b>' + hm(start) + '–' + hm(stop) + '</b>' + (' (автофиниш)' if auto else '') + frm +
+                '<button name="act" value="sess_start" onclick="return confirm(\'Начать НОВОЕ окно занятия? Прежние метки затрутся.\')">▶ Старт заново</button></form>')
+    return ('<div class="sess">🎬 ' + body +
+            '<span class="note" style="margin-left:8px">метки старт/финиш — для резки отчёта по времени урока</span></div>')
 
 
 def render_admin(date, kids_s):
@@ -304,6 +358,7 @@ def render_dash(date, demo=False, review=False):
         for k in kids if k['survey'] or (k['hyp'] != '—' and not str(k['hyp']).startswith('🤷')))
     texts_block = f'<h2>Полные тексты</h2>{texts}' if texts else ''
     admin = render_admin(date, kids_s)
+    sess = render_session(date)
 
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="15">
@@ -321,8 +376,11 @@ th{{color:#66738a;font-size:13px;text-transform:uppercase}}
 tr.p0 td{{background:#fdeaea}}tr.p1 td{{background:#fbeedd}}tr.p2 td{{background:#fdf6e3}}tr.p5 td{{color:#9aa5b8}}
 h2{{margin:20px 0 4px}}h4{{margin:14px 0 2px;color:#2557d6}}
 p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary{{cursor:pointer;font-weight:800;font-size:16px}}
-.note{{color:#66738a;font-size:13px}}</style></head><body>
+.note{{color:#66738a;font-size:13px}}
+.sess{{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:9px 14px;margin:0 0 12px;font-size:15px}}
+.sess button{{font-size:14px;padding:4px 12px;border-radius:8px;border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer;font-weight:700}}</style></head><body>
 {banner}
+{sess}
 {helpb}
 <h2>Все дети <span class="note">(красные сверху · страница сама обновляется каждые 15 сек)</span></h2>
 <table><tr><th>кто</th><th>что делать</th><th>стадия</th><th>активность</th><th></th></tr>{live or '<tr><td colspan=5>—</td></tr>'}</table>

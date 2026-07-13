@@ -56,10 +56,10 @@ async (page) => {
   await shot('07-fixpick');
   await page.locator('#fixbtns .choice', { hasText: 'Наоборот' }).click();
   await waitStep('Маленькие ладони');
-  await shot('08-t2a-intro-ALBOM');
+  await page.waitForTimeout(600); await shot("08-t2a-intro-ALBOM");
   await demo({ cls: 0, size: 0.3, present: true });
   await page.click('#scGo');
   await waitStep('большие кулаки');
-  await shot('09-t2b-intro-ALBOM');
+  await page.waitForTimeout(600); await shot("09-t2b-intro-ALBOM");
   return log.join('\n');
 }
