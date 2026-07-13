@@ -26,7 +26,7 @@ async (page) => {
   };
 
   try {
-    await page.goto('http://localhost:8642/v4.html?demo=1&ws=1&debug=1');
+    await page.goto('http://localhost:8642/v5.html?demo=1&ws=1&debug=1');
     await page.click('#start');
     await waitVis('#seat', 90000);
     ok('WS: экран номера места после загрузки', true);

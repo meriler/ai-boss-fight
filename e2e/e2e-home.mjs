@@ -17,7 +17,7 @@ async (page) => {
   };
   try {
     // ===== self-paced (без ?ws): гипотезы и замка НЕТ, выбор починки ЕСТЬ =====
-    await page.goto('http://localhost:8642/v4.html?demo=1&debug=1');
+    await page.goto('http://localhost:8642/v5.html?demo=1&debug=1');
     await page.click('#start');
     // seat НЕ должен появиться — сразу интро t1a
     await waitStep('Научим ИИ ладони', 90000);

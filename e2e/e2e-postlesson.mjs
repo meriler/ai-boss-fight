@@ -26,7 +26,7 @@ async (page) => {
   };
 
   try {
-    await page.goto('http://localhost:8642/v4.html?demo=1&ws=1&debug=1');
+    await page.goto('http://localhost:8642/v5.html?demo=1&ws=1&debug=1');
     await page.click('#start');
     await waitVis('#seat', 90000);
     ok('WS: экран номера места после загрузки', true);
@@ -219,7 +219,9 @@ async (page) => {
     await page.click('#gFinal');
     await page.waitForFunction(() => !document.querySelector('#final').classList.contains('hidden'));
     ok('игра → «Финал» возвращает в хаб', true);
-    ok('unlocked персистится (localStorage)', await page.evaluate(() => localStorage.getItem('ws_unlocked') === '1'));
+    // v5: ключ по месту (ws_unlocked_<seat>) — прогонная правка 13.07, глобальный ws_unlocked упразднён
+    ok('unlocked персистится (localStorage, ключ по месту)', await page.evaluate(() =>
+      Object.keys(localStorage).some(k => k.startsWith('ws_unlocked_') && localStorage.getItem(k) === '1')));
     log.push('события: ' + [...new Set(types)].join(','));
     return log.join('\n');
   } catch (e) {
