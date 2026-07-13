@@ -40,7 +40,8 @@
   /* z-index:30 — тост ОБЯЗАН быть выше .screen (20): фидбеки замка и пустой гипотезы живут на экранах */
   #toast{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(24px,7vw,42px);font-weight:900;text-align:center;text-shadow:0 4px 16px #000;pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line;width:min(92vw,640px);z-index:30}
   /* «щёлк» принятого кадра: мягкая вспышка + 📸 (прогон 13.07 — при темпе 900мс не видно, что кадр записался) */
-  #shotfx{position:absolute;inset:0;pointer-events:none;z-index:28;background:rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;font-size:54px;opacity:0}
+  /* z-index:8 — над камерой/рамкой (4-6), но ПОД guide(14)/карточками(16)/экранами(20): вспышка не смеет закрывать текст */
+  #shotfx{position:absolute;inset:0;pointer-events:none;z-index:8;background:rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;font-size:54px;opacity:0}
   #shotfx.go{animation:shotpop .26s ease-out}
   @keyframes shotpop{0%{opacity:1;transform:scale(.88)}60%{opacity:.55;transform:scale(1)}100%{opacity:0;transform:scale(1.06)}}
   #bigmsg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);width:min(90vw,640px);text-align:center;font-size:clamp(22px,5.5vw,34px);font-weight:800;color:#fff;text-shadow:0 3px 16px #000;background:rgba(8,11,18,.5);border-radius:18px;padding:16px 20px;backdrop-filter:blur(3px);pointer-events:none;line-height:1.3}
@@ -139,6 +140,8 @@
   #hypoEye{position:absolute;right:6px;top:6px;width:44px;height:44px;min-height:0;padding:0;border-radius:10px;background:rgba(40,50,64,.85);font-size:18px;flex:none}
   /* замок разгадки (ws): код ведущего */
   #lockcode{width:min(240px,60vw);border-radius:14px;border:2px solid var(--line);background:#10151e;color:var(--text);font-size:26px;font-weight:800;text-align:center;padding:12px;font-family:inherit;letter-spacing:6px}
+  #lockcode::placeholder{font-size:15px;letter-spacing:0;font-weight:600;color:var(--muted)}
+  #lockNext.dim{opacity:.45;filter:saturate(.4)}   /* до ввода кода кнопка не зазывает (дети тыкали пустую) */
   #lockcode:focus{outline:none;border-color:var(--accent)}
   /* ввод номера места */
   /* колонки сжимаемые: фиксированные 64px вылезали за узкое окно/зум — терялись целые столбцы (смок 09.07) */
@@ -286,7 +289,7 @@
     <p id="guesssub"></p>
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
       <canvas id="probeshot" width="32" height="32" style="width:112px;height:112px;image-rendering:pixelated;border:2px solid var(--line);border-radius:12px"></canvas>
-      <span style="font-size:12px;color:var(--muted)">что видел ИИ в этот момент</span>
+      <span style="font-size:14px;color:var(--muted)">что видел ИИ в этот момент</span>
     </div>
     <div id="guessbtns" style="display:flex;flex-direction:column;gap:10px"></div>
   </div>
@@ -298,10 +301,10 @@
     <p id="hyposub" style="color:var(--text)"></p>
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
       <canvas id="hyposhot" width="32" height="32" style="width:112px;height:112px;image-rendering:pixelated;border:2px solid var(--line);border-radius:12px"></canvas>
-      <span style="font-size:12px;color:var(--muted)">что видел ИИ в этот момент</span>
+      <span style="font-size:14px;color:var(--muted)">что видел ИИ в этот момент</span>
     </div>
     <div style="position:relative;width:min(460px,88vw)">
-      <textarea id="hypotext" class="masked" placeholder="напиши пару слов — буквы скрыты точками"></textarea>
+      <textarea id="hypotext" class="masked" placeholder="напиши пару слов — буквы скрыты точками (👁 покажет)"></textarea>
       <button id="hypoEye" class="ghost" title="показать/скрыть текст">👁</button>
     </div>
     <button id="hypoNext" class="ok" style="width:min(340px,74vw);flex:0 0 auto">Дальше →</button>
@@ -316,7 +319,7 @@
     <p>Ведущий разберёт догадки с группой и назовёт код разгадки. Пропустил код? Переспроси в чате занятия.</p>
     <p style="color:var(--text);font-weight:700">А пока ждёшь — рассмотри улики 🕵️ Вот всё, что видел твой ИИ:</p>
     <div id="lockgal"></div>
-    <input id="lockcode" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="····">
+    <input id="lockcode" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="код от ведущего">
     <button id="lockNext" class="ok" style="width:min(340px,74vw);flex:0 0 auto">Открыть разгадку →</button>
   </div>
 
@@ -722,42 +725,58 @@ const THUMBS=[[],[]];   // ImageData 32×32 каждого примера (по 
    Восстановление — только в БЕЗОПАСНЫЕ точки входа (проверка/разгадка/финал),
    state machine не трогаем. Всё лежит локально на устройстве ребёнка (как и
    телеметрия), наружу не уходит; сейв живёт 6 часов. */
-const SAVE_KEY = WS ? ('ws_save_'+(TELE.seat??'x')) : null;
-function _b64(buf){ const u=new Uint8Array(buf.buffer||buf); let s=''; for(let i=0;i<u.length;i+=4096)s+=String.fromCharCode.apply(null,u.subarray(i,i+4096)); return btoa(s); }
+/* ключ — ФУНКЦИЯ, не константа: у ребёнка без персональной ссылки seat появляется позже
+   (экран выбора места), замороженный ключ смешивал всех безссылочных в один слот ws_save_x (ревью 14.07) */
+function saveKey(){ return WS ? ('ws_save_'+(TELE.seat??'x')) : null; }
+function _b64(buf){ const u=buf.buffer?new Uint8Array(buf.buffer,buf.byteOffset||0,buf.byteLength):new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=4096)s+=String.fromCharCode.apply(null,u.subarray(i,i+4096)); return btoa(s); }
 function _unb64(s){ const b=atob(s),u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
 const SAVE_RANK={r1:1,checked1:2,revealed:3,fixdata:4,final:5};
-function saveMilestone(ms){ if(!SAVE_KEY||!KNN.ex.length)return; try{
-  const prev=loadSave(); // веха не должна откатываться (повторная проверка R1 после restore)
-  if(prev&&SAVE_RANK[prev.ms]>SAVE_RANK[ms])ms=prev.ms;
-  localStorage.setItem(SAVE_KEY, JSON.stringify({v:1, ts:Date.now(), ms,
+let SAVE_FRESH=false;   // «Поехали» = новый цикл: первая же веха перезаписывает слот ЦЕЛИКОМ, без ранг-защиты.
+                        // Иначе старый ms='revealed' (тот же seat, <6ч) + свежий датасет = смешанный снапшот,
+                        // и F5 телепортирует ребёнка на разгадку мимо проверки и замка (Codex CRIT 14.07)
+function saveMilestone(ms){ const key=saveKey(); if(!key||!KNN.ex.length)return; try{
+  if(!SAVE_FRESH){ const prev=loadSave(); // внутри одного цикла веха не откатывается (повторная проверка R1 после restore)
+    if(prev&&SAVE_RANK[prev.ms]>SAVE_RANK[ms])ms=prev.ms; }
+  SAVE_FRESH=false;
+  const body=JSON.stringify({v:1, ts:Date.now(), ms,
     ex:KNN.ex.map(x=>({e:_b64(x.emb),p:_b64(x.pix),l:x.l})),
     counts:[counts[0],counts[1]],
     th:[THUMBS[0],THUMBS[1]].map(a=>a.map(x=>({d:_b64(x.img.data),r:x.round}))),
     g:{res1:GUIDE.res1,res2:GUIDE.res2,guessKey:GUIDE.guessKey,guessCat:GUIDE.guessCat,
-       fixChosen:GUIDE.fixChosen,outcome:GUIDE.outcome}}));
+       fixChosen:GUIDE.fixChosen,fixTries:GUIDE.fixTries,outcome:GUIDE.outcome}});
+  try{ localStorage.setItem(key,body); }
+  catch(err){ // квота: выкинуть протухшие чужие ws_save_* и попробовать ровно ещё раз
+    try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('ws_save_')||k===key)continue;
+        let dead=true; try{ const d=JSON.parse(localStorage.getItem(k)); dead=!(d&&Date.now()-d.ts<6*3600e3); }catch(_){}
+        if(dead)localStorage.removeItem(k); }
+      localStorage.setItem(key,body); }catch(_){}
+  }
 }catch(e){} }
-function loadSave(){ if(!SAVE_KEY)return null; try{
-  const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');
-  if(!s||s.v!==1||!s.ex||!s.ex.length)return null;
-  if(Date.now()-s.ts>6*3600e3)return null;
+function loadSave(){ const key=saveKey(); if(!key)return null; try{
+  const s=JSON.parse(localStorage.getItem(key)||'null');
+  if(!s||s.v!==1||!Array.isArray(s.ex)||!s.ex.length||!s.g||!Array.isArray(s.counts))return null;
+  if(!Number.isFinite(s.ts)||Math.abs(Date.now()-s.ts)>6*3600e3)return null;   // NaN/строка/будущее ts — не проходят TTL
   return s; }catch(e){ return null; } }
-function clearSave(){ if(SAVE_KEY)try{localStorage.removeItem(SAVE_KEY)}catch(e){} }
+function clearSave(){ const key=saveKey(); if(key)try{localStorage.removeItem(key)}catch(e){} }
 function applySave(s){
-  KNN.clear(); s.ex.forEach(x=>{ KNN.ex.push({emb:new Float32Array(_unb64(x.e).buffer),
-    pix:new Float32Array(_unb64(x.p).buffer), l:x.l}); });
+  KNN.clear(); s.ex.forEach(x=>{ const eb=_unb64(x.e),pb=_unb64(x.p);
+    if(!eb.length||eb.length%4||!pb.length||pb.length%4)throw new Error('bad save ex');   // обрезанный base64 не должен родить кривой Float32Array
+    KNN.ex.push({emb:new Float32Array(eb.buffer), pix:new Float32Array(pb.buffer), l:x.l}); });
   counts[0]=s.counts[0]; counts[1]=s.counts[1];
   THUMBS[0].length=0; THUMBS[1].length=0;
   s.th.forEach((a,c)=>a.forEach(x=>{ const d=_unb64(x.d);
+    if(d.length!==4096)throw new Error('bad save thumb');   // строго 32×32×4
     THUMBS[c].push({img:new ImageData(new Uint8ClampedArray(d.buffer),32,32),round:x.r}); }));
   Object.assign(GUIDE,{res1:s.g.res1,res2:s.g.res2,guessKey:s.g.guessKey,guessCat:s.g.guessCat,
-    fixChosen:s.g.fixChosen,outcome:s.g.outcome});
+    fixChosen:s.g.fixChosen,fixTries:s.g.fixTries||0,outcome:s.g.outcome});
   if(THUMBS[0].length&&!certFrame){ certFrame=THUMBS[0][0].img; }  // сертификату нужен кадр ладони
 }
-/* какую веху пишем по событию телеметрии (единая точка — вехи и так идут через TELE.push) */
+/* какую веху пишем по событию телеметрии (единая точка — вехи и так идут через TELE.push).
+   check_done — только GUIDED-раунды 1/2: свободная проверка лаборатории (round=0) не веха урока (Codex 14.07) */
 function trySaveOn(type,data){ if(!WS)return; try{
   if(type==='task_done'&&data&&data.task==='t1b')saveMilestone('r1');
   else if(type==='task_done'&&data&&data.task==='t2b')saveMilestone('fixdata');
-  else if(type==='check_done'&&data)saveMilestone(data.round===2?'fixdata':'checked1');
+  else if(type==='check_done'&&data&&data.guided&&(data.round===1||data.round===2))saveMilestone(data.round===2?'fixdata':'checked1');
   else if(type==='reveal_unlock')saveMilestone('revealed');
   else if(type==='final')saveMilestone('final');
   else if(type==='survey_done')saveMilestone('final');
@@ -830,7 +849,8 @@ function showSeatScreen(){ state='gpause'; showScreen('seat');
   const g=$('#seatgrid'); if(!g.children.length){
     for(let n=1;n<=15;n++){ const b=document.createElement('button'); b.className='ghost'; b.textContent=n;
       b.onclick=()=>{ TELE.seat=n; TELE.push('seat',{n}); try{localStorage.setItem('ws_seat',n)}catch(e){}
-        showScreen(null); startFirstTask(); }; g.appendChild(b); } } }
+        try{ if(localStorage.getItem('ws_unlocked_'+n))GUIDE.unlocked=true; }catch(e){}   // ключи по месту — перечитать ПОСЛЕ выбора (ревью 14.07)
+        showScreen(null); if(RESUME&&loadSave())resumeFlow(); else startFirstTask(); }; g.appendChild(b); } } }
 function stepCard({big,title,text,btn,onGo}){
   state='gpause'; showScreen(null); guideEl.classList.add('hidden'); checkui.classList.add('hidden');
   $('#scBig').textContent=big; $('#scTitle').innerHTML=title; $('#scText').innerHTML=text||'';
@@ -845,8 +865,8 @@ const TASK_INTRO={
   t1b:{big:'✊',title:'Теперь кулаки!',text:'Сожми кулак и отодвинь руку, чтобы он стал маленьким, как контур. Ещё 6 фото.'},
   // «шевели рукой» — только в починке: в R1 однообразие кадров НАМЕРЕННОЕ (усиливает ловушку)
   // «старые примеры остаются» — Настя на прогоне 13.07 путалась, участвует ли прежний альбом в починке
-  t2a:{big:'✋',title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><span style="color:var(--muted)">Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'},
-  t2b:{big:'✊',title:'И большие кулаки',text:'И наоборот: кулак БЛИЗКО, большой как контур. Тоже чуть по-разному. Ещё 3 фото.<br><span style="color:var(--muted)">Старые примеры никуда не денутся — альбом ИИ только растёт.</span>'},
+  t2a:{big:'✋',title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'},
+  t2b:{big:'✊',title:'И большие кулаки',text:'И наоборот: кулак БЛИЗКО, большой как контур. Тоже чуть по-разному. Ещё 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры тоже в альбоме — он только растёт.</span>'},
 };
 function startTask(key){
   const intro=TASK_INTRO[key];
@@ -1283,7 +1303,9 @@ function buildGallery(gal,allRounds){ // «улики»: R1-примеры ре�
     gal.appendChild(row);
   });
 }
-function showLockScreen(){ state='gpause'; buildGallery($('#lockgal')); $('#lockcode').value=''; showScreen('lock'); $('#lockcode').focus(); }
+function showLockScreen(){ state='gpause'; buildGallery($('#lockgal')); $('#lockcode').value='';
+  $('#lockNext').classList.add('dim'); showScreen('lock'); $('#lockcode').focus(); }
+$('#lockcode').addEventListener('input',()=>{ $('#lockNext').classList.toggle('dim',!$('#lockcode').value.trim()); });
 $('#lockNext').onclick=()=>{
   const v=$('#lockcode').value.trim();
   if(v!==CFG.revealCode){
@@ -1296,6 +1318,7 @@ $('#lockNext').onclick=()=>{
 $('#lockcode').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();$('#lockNext').click();} });
 
 function showRevealScreen(){
+  state='gpause';   // resume приходит сюда напрямую — state не должен остаться 'intro' (Codex 14.07)
   GUIDE.guess=(GUIDE.guessKey==='size');
   // реакция по КАТЕГОРИИ выбора и без «не угадал» — экран бывает на общей демонстрации;
   // «мало примеров» валидируем: рамка оценки считает это причиной ПРО ДАННЫЕ, не ошибкой
@@ -1304,7 +1327,7 @@ function showRevealScreen(){
   $('#revtitle').textContent=T[GUIDE.guessCat]||'Вот разгадка 🔍';
   buildGallery($('#gal'));
   const pre=GUIDE.guessCat==='data-generic'?'Примеров и правда немного — но главное, что они все ПОХОЖИЕ.<br>':'';
-  $('#revkey').innerHTML=pre+'Все ладони — <b>БОЛЬШИЕ</b>. Все кулаки — <b>МАЛЕНЬКИЕ</b>.<br>ИИ выучил <b>РАЗМЕР</b>, а не жест — он знает только твои примеры.<br><span style="color:var(--muted)">Это была наша ловушка 😏 — инструкции нарочно так просили. Ты всё сделал правильно.</span>';
+  $('#revkey').innerHTML=pre+'Все ладони — <b>БОЛЬШИЕ</b>. Все кулаки — <b>МАЛЕНЬКИЕ</b>.<br>ИИ выучил <b>РАЗМЕР</b>, а не жест — он знает только твои примеры.<br><span style="color:var(--muted)">Это была наша ловушка 😏 — инструкции нарочно так просили.</span> <b>Ты всё сделал правильно!</b>';
   TELE.push('reveal_shown');
   showScreen('reveal');
 }
@@ -1315,7 +1338,7 @@ const FIX_OPTS=[
   {key:'opposite', correct:true, label:'🔄 Наоборот: маленьких ладоней и больших кулаков'},
   {key:'retake',   correct:false,label:'📷 Те же примеры, но переснять почётче'},
 ];
-const T2A_NEUTRAL={title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><span style="color:var(--muted)">Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'};
+const T2A_NEUTRAL={title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'};
 function showFixPick(){
   state='gpause'; GUIDE.fixAttempts=0; GUIDE.fixChosen=null;
   $('#fixhint').classList.add('hidden');
@@ -1348,7 +1371,7 @@ function fixPick(o){
 function goFix(){    // одна карточка: интро t2a и есть подтверждение (двойная модалка — трение)
   const self=GUIDE.fixChosen==='self';
   TASK_INTRO.t2a.title=self?'Точно! Маленькие ладони':T2A_NEUTRAL.title;
-  TASK_INTRO.t2a.text =self?'ИИ нужно то, чего он не видел. Покажи ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><span style="color:var(--muted)">Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>':T2A_NEUTRAL.text;
+  TASK_INTRO.t2a.text =self?'ИИ нужно то, чего он не видел. Покажи ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>':T2A_NEUTRAL.text;
   showScreen(null); startTask('t2a');
 }
 function showFinal(){
@@ -1640,7 +1663,7 @@ async function boot(){$('#intro').classList.add('hidden');$('#loading').classLis
     setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 let RESUME=false;
-$('#start').onclick=()=>{RESUME=false;boot();};$('#retry').onclick=boot;
+$('#start').onclick=()=>{RESUME=false;SAVE_FRESH=true;boot();};$('#retry').onclick=boot;   // Поехали = новый цикл сейва
 // «Продолжить с места»: кнопка видна, только если есть свежий сейв для этого места
 try{ if(WS&&loadSave())$('#resume').classList.remove('hidden'); }catch(e){}
 $('#resume').onclick=()=>{ RESUME=true; boot(); };
@@ -1648,10 +1671,16 @@ $('#resume').onclick=()=>{ RESUME=true; boot(); };
 function resumeFlow(){
   const s=loadSave();
   if(!s){ startFirstTask(); return; }
-  applySave(s); refresh(); updateHint();
+  // битый сейв не должен ронять boot() в «❌ Не загрузилось» с вечным Повторить (ревью 14.07)
+  try{ applySave(s); }catch(e){ console.error('resume:',e); clearSave();
+    showToast('Не смог прочитать сохранёнку —\nначнём заново 🙂',1600); startFirstTask(); return; }
+  refresh(); updateHint();
   TELE.push('resume',{ms:s.ms});
-  if(s.ms==='final'&&(GUIDE.res2||GUIDE.outcome)){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен — не гонять ребёнка по R1 заново
-  else if(s.ms==='fixdata'){ if(GUIDE.res2){showFinal();} else {state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)});} }
+  const FIN=['fixed','partial','no_break','inconclusive'];
+  if(s.ms==='final'&&FIN.includes(GUIDE.outcome)){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
+  else if(s.ms==='fixdata'){ // ВСЕГДА через проверку R2: res2 в сейве бывает провальным ПЕРВЫМ замером
+    // (F5 во время дополнительной починки) — прямой showFinal рисовал «Почти починил» до второй проверки (Codex CRIT 14.07)
+    state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)}); }
   else if(s.ms==='revealed'){ showRevealScreen(); }
   else { state='gpause'; stepCard({big:'⏩',title:'С возвращением!',text:'Твои '+(counts[0]+counts[1])+' примеров целы — ИИ помнит всё. Быстро повторим проверку и поедем дальше.',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)}); }
 }
@@ -1665,7 +1694,7 @@ if(WS){ try{$('#winhint').classList.remove('hidden');}catch(e){}
   // техпомощь = ребёнок читает бейдж вслух («место 5, проверка») + дашборд наблюдателя
   const SB=$('#stagebadge'); SB.classList.remove('hidden');
   const SBN={intro:'старт',loading:'загрузка',gteach:'сбор данных',gcheck:'проверка',train:'лаборатория',
-    'train-pause':'лаборатория',check:'проверка',game:'игра',gameover:'игра'};
+    'train-pause':'лаборатория',check:'проверка',game:'игра',gameover:'игра',labgal:'галерея'};
   const SCR={seat:'выбор места',hypo:'гипотеза',guess:'угадайка',lock:'замок',reveal:'разгадка',
     fixpick:'починка',final:'финал',survey:'опрос',result:'итог'};
   setInterval(()=>{
@@ -1686,11 +1715,13 @@ $('#ckExit').onclick=()=>{ if(!CHK||CHK.guided)return; CHK=null; checkui.classLi
 $('#toGallery').onclick=()=>{ if(state!=='train')return; buildGallery($('#labgalrows'),true);
   state='labgal'; $('#labgal').classList.remove('hidden'); bottom.classList.add('hidden'); TELE.push('lab_gallery'); };
 $('#labgalClose').onclick=()=>{ $('#labgal').classList.add('hidden'); bottom.classList.remove('hidden'); state='train'; updateHint(); };
-$('#reset').onclick=(e)=>{ // прогон 13.07: кнопки путались, удаление датасета должно переспрашивать
-  const b=e.currentTarget;
-  if(!b._arm){ b._arm=true; const old=b.textContent; b.textContent='❗️Точно стереть все примеры? Жми ещё раз';
-    setTimeout(()=>{b._arm=false;b.textContent=old;},2500); return; }
-  b._arm=false;
+$('#reset').onclick=(e)=>{ // прогон 13.07: удаление переспрашивает; дабл-клик НЕ проскакивает оба шага (ревью 14.07)
+  const b=e.currentTarget, now=performance.now();
+  if(!b._arm){ b._arm=now; b._old=b.textContent; b.textContent='❗️Точно стереть все примеры? Жми ещё раз';
+    clearTimeout(b._t); b._t=setTimeout(()=>{b._arm=0;b.textContent=b._old;},2500); return; }
+  if(now-b._arm<450)return;   // второй клик дабл-тапа — не осознанное подтверждение
+  clearTimeout(b._t); b._arm=0; b.textContent=b._old;
+  stopKeyHold();
   TELE.push('reset');KNN.clear();counts=[0,0];THUMBS[0].length=0;THUMBS[1].length=0;predCache=null;provenTier=0;smooth=[];clearSave();refresh();updateHint()};
 /* ---- кнопки урока ---- */
 $('#fixBtn').onclick=()=>{ TELE.push('fix_start'); showFixPick(); };
@@ -1757,28 +1788,33 @@ function renderDebug(p){
 function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;let t=null;
   const del=el.querySelector('.del');
   del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);THUMBS[i].pop();TELE.push('sample_del',{cls:i});refresh();updateHint();SFX.buzz();}});
-  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');recCls=i;addExample(i);t=setInterval(()=>addExample(i),450)};
+  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;el.classList.add('rec');recCls=i;addExample(i);
+    t=setInterval(()=>{ if(state!=='train'){clearInterval(t);el.classList.remove('rec');recCls=-1;return;} addExample(i); },450)};
   const up=()=>{clearInterval(t);el.classList.remove('rec');recCls=-1};
   el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
 /* Клавиши 1/2: собирать примеры, не отрывая руку от жеста (прогон 13.07: «руки накрест» —
    мышь на кнопке + жест в камеру одновременно неудобно). Держишь клавишу — идёт сбор. */
 let _keyHold={t:null,cls:-1};
+function stopKeyHold(){ if(_keyHold.t)clearInterval(_keyHold.t);
+  if(_keyHold.cls>=0){ const el=teachrow.children[_keyHold.cls]; if(el)el.classList.remove('rec'); recCls=-1; }
+  _keyHold={t:null,cls:-1}; }
 window.addEventListener('keydown',e=>{
   if(state!=='train'||e.repeat)return;
   const cls=e.key==='1'?0:e.key==='2'?1:-1;
   if(cls<0||_keyHold.cls===cls)return;
   if(e.target&&/INPUT|TEXTAREA/.test(e.target.tagName))return;
-  clearInterval(_keyHold.t);
-  _keyHold={cls,t:setInterval(()=>addExample(cls),450)};
+  stopKeyHold();   // переключение 1↔2 снимает .rec со старого класса
+  _keyHold={cls,t:setInterval(()=>{ if(state!=='train'){stopKeyHold();return;} addExample(cls); },450)};
   const el=teachrow.children[cls]; if(el)el.classList.add('rec'); recCls=cls;
   addExample(cls);
 });
 window.addEventListener('keyup',e=>{
   const cls=e.key==='1'?0:e.key==='2'?1:-1;
   if(cls<0||_keyHold.cls!==cls)return;
-  clearInterval(_keyHold.t); _keyHold={t:null,cls:-1};
-  const el=teachrow.children[cls]; if(el)el.classList.remove('rec'); recCls=-1;
+  stopKeyHold();
 });
+window.addEventListener('blur',stopKeyHold);   // Cmd+Tab/клик в звонок уносит keyup мимо страницы — сбор не должен продолжаться (ревью 14.07)
+document.addEventListener('visibilitychange',()=>{ if(document.hidden)stopKeyHold(); });
 window.addEventListener('resize',resize);
 if(DEMO)$('.badge').textContent='демо: без камеры, кадр синтетический';
 </script>
