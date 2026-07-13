@@ -255,7 +255,7 @@
     <button id="resume" class="ghost hidden">⏩ Продолжить с места (после перезагрузки)</button>
     <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
     <div class="badge hidden" id="winhint">🪟 Звонок и тренажёр держи в РАЗНЫХ ОКНАХ браузера (не вкладках) — иначе звонок может заглохнуть</div>
-    <div class="badge" id="preload">⏳ подгружаю ИИ фоном…</div>
+    <div class="badge" id="preload">⏳ подгружаю ИИ фоном… можешь сразу жать «Поехали»</div>
     <!-- сверка режима на техчеке: битая/обрезанная ссылка видна за 5 секунд («у всех есть этот бейдж?») -->
     <div class="badge hidden" id="modebadge"></div>
   </div>
@@ -755,8 +755,9 @@ function saveMilestone(ms){ const key=saveKey(); if(!key||!KNN.ex.length)return;
   catch(err){ // ТОЛЬКО при квоте: выкинуть достоверно протухшие v1-сейвы и попробовать ровно ещё раз
     const q=err&&(err.name==='QuotaExceededError'||err.code===22||/quota/i.test(String(err)));
     if(q)try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('ws_save_')||k===key)continue;
-        let dead=false; try{ const d=JSON.parse(localStorage.getItem(k)); dead=!!d&&d.v===1&&!_tsOk(d.ts); }catch(_){}
-        if(dead)localStorage.removeItem(k); }
+        const raw=localStorage.getItem(k); let dead=false;
+        try{ const d=JSON.parse(raw); dead=!!d&&d.v===1&&!_tsOk(d.ts); }catch(_){}
+        if(dead&&localStorage.getItem(k)===raw)localStorage.removeItem(k); }   // пере-сверка: слот могла обновить другая вкладка
       localStorage.setItem(key,body); wrote=true; }catch(_){}
   }
   if(wrote)SAVE_FRESH=false;   // флаг «новый цикл» живёт до первой УСПЕШНОЙ записи (Codex R2)
@@ -775,8 +776,10 @@ function applySave(s){
     if(!eb.length||eb.length%4||!pb.length||pb.length%4)throw new Error('bad save ex');
     if(!(x.l===0||x.l===1))throw new Error('bad save label');
     ex.push({emb:new Float32Array(eb.buffer), pix:new Float32Array(pb.buffer), l:x.l}); });
-  const el0=ex[0].emb.length, pl0=ex[0].pix.length;
-  if(ex.some(x=>x.emb.length!==el0||x.pix.length!==pl0))throw new Error('bad save dims');
+  const el0=ex[0].emb.length;
+  if(ex.some(x=>x.emb.length!==el0||x.pix.length!==1024))throw new Error('bad save dims');   // pix строго 32×32 (grabFeature)
+  for(const x of ex){ for(let i=0;i<x.pix.length;i++)if(!Number.isFinite(x.pix[i]))throw new Error('bad save nan');
+    for(let i=0;i<x.emb.length;i++)if(!Number.isFinite(x.emb[i]))throw new Error('bad save nan'); }
   if(!Array.isArray(s.th)||s.th.length!==2)throw new Error('bad save th');
   s.th.forEach((a,c)=>a.forEach(x=>{ const d=_unb64(x.d);
     if(d.length!==4096)throw new Error('bad save thumb');   // строго 32×32×4
@@ -1700,7 +1703,8 @@ function resumeFlow(){
   refresh(); updateHint();
   TELE.push('resume',{ms:s.ms});
   const FIN=['fixed','partial','no_break','inconclusive'];
-  const finOk=FIN.includes(GUIDE.outcome)&&((GUIDE.outcome!=='fixed'&&GUIDE.outcome!=='partial')||GUIDE.res2);   // fixed/partial без res2 = битый инвариант
+  const r2=GUIDE.res2, r2ok=!!r2&&Number.isFinite(r2.correct)&&Number.isFinite(r2.total)&&r2.correct>=0&&r2.total>0;   // res2={} — не результат
+  const finOk=FIN.includes(GUIDE.outcome)&&((GUIDE.outcome!=='fixed'&&GUIDE.outcome!=='partial')||r2ok);   // fixed/partial без валидного res2 = битый инвариант
   if(s.ms==='final'&&finOk){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
   else if(s.ms==='fixdata'){ // ВСЕГДА через проверку R2: res2 в сейве бывает провальным ПЕРВЫМ замером
     // (F5 во время дополнительной починки) — прямой showFinal рисовал «Почти починил» до второй проверки (Codex CRIT 14.07)

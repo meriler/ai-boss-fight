@@ -109,8 +109,9 @@ class H(BaseHTTPRequestHandler):
                     cur = {'start': now_iso}   # новый старт открывает новое окно (прежний стоп сброшен)
                 else:
                     cur['stop'] = now_iso
-                with open(sf, 'w', encoding='utf-8') as f:
+                with open(sf + '.tmp', 'w', encoding='utf-8') as f:
                     json.dump(cur, f)
+                os.replace(sf + '.tmp', sf)    # атомарно: читатель не увидит полузаписанный файл
             elif act == 'rename':
                 seat = (q.get('seat') or [''])[0]
                 name = (q.get('name') or [''])[0].strip()[:60]
