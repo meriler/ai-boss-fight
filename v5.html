@@ -206,6 +206,8 @@
     <h2 id="scTitle"></h2>
     <p id="scText"></p>
     <button id="scGo" class="ok">▶️ Начали!</button>
+    <button id="scAlbum" class="ghost hidden">📒 Мой альбом</button>
+    <button id="scExit" class="ghost hidden">✖ Вернуться к финалу</button>
   </div>
 
   <!-- потеря/занятость камеры -->
@@ -277,8 +279,8 @@
   <!-- угадайка: почему ИИ ошибся -->
   <!-- галерея датасета в лаборатории (прогон 13.07: «датасет нигде не виден») -->
   <div class="screen hidden" id="labgal" style="z-index:22">
-    <h1>📸 Учебник твоего ИИ</h1>
-    <p style="color:var(--muted)">Все примеры, на которых он учится. Видишь закономерности?</p>
+    <h1>📒 Альбом твоего ИИ</h1>
+    <p style="color:var(--muted)">Все примеры, на которых он учится. Что в альбоме — то он и знает. Видишь закономерности?</p>
     <div id="labgalrows" style="max-height:56vh;overflow:auto"></div>
     <button id="labgalClose" class="ok">← Назад в лабораторию</button>
   </div>
@@ -351,6 +353,7 @@
       <button id="fMore" class="ghost hidden">➕ Потренировать ещё (по желанию)</button>
       <button id="fCert" class="ok">🏆 Сделать сертификат</button>
       <button id="fSurvey" class="hidden">📝 Три вопроса от ведущего</button>
+      <button id="fAlbum" class="ghost">📒 Мой альбом</button>
       <button id="fLab" class="ghost">🧪 Лаборатория: играй с ИИ дальше</button>
       <button id="fGame" class="ghost">🎮 Игра-бонус</button>
     </div>
@@ -878,11 +881,14 @@ function showSeatScreen(){ state='gpause'; showScreen('seat');
       b.onclick=()=>{ TELE.seat=n; TELE.push('seat',{n}); try{localStorage.setItem('ws_seat',n)}catch(e){}
         try{ if(localStorage.getItem('ws_unlocked_'+n))GUIDE.unlocked=true; }catch(e){}   // ключи по месту — перечитать ПОСЛЕ выбора (ревью 14.07)
         showScreen(null); if(RESUME&&loadSave())resumeFlow(); else startFirstTask(); }; g.appendChild(b); } } }
-function stepCard({big,title,text,btn,onGo}){
+function stepCard({big,title,text,btn,onGo,album,exit}){
   state='gpause'; showScreen(null); guideEl.classList.add('hidden'); checkui.classList.add('hidden');
   $('#scBig').textContent=big; $('#scTitle').innerHTML=title; $('#scText').innerHTML=text||'';
   $('#scGo').textContent=(btn||'▶️ Начали!')+' (пробел)';
   $('#scGo').onclick=()=>{ $('#stepcard').classList.add('hidden'); onGo(); };
+  // «альбом виден там, где о нём говорим» (фидбек Алексея 14.07): карточки починки показывают сам альбом
+  $('#scAlbum').classList.toggle('hidden',!album);
+  $('#scExit').classList.toggle('hidden',!exit);
   // две карточки подряд («собрано» → интро задачи): дабл-тап не должен проскочить вторую
   $('#scGo').disabled=true; setTimeout(()=>{$('#scGo').disabled=false;},350);
   $('#stepcard').classList.remove('hidden');
@@ -897,7 +903,9 @@ const TASK_INTRO={
 };
 function startTask(key){
   const intro=TASK_INTRO[key];
-  stepCard({...intro,btn:'▶️ Начали!',onGo:()=>{
+  const fix=key==='t2a'||key==='t2b';
+  // починка: альбом открывается кнопкой (не словами); дообучение ПОСЛЕ финала — с выходом назад
+  stepCard({...intro,album:fix,exit:fix&&!!GUIDE.outcome,btn:'▶️ Начали!',onGo:()=>{
     const t=TASKS[key]; GUIDE.task={...t,key,got:0}; GUIDE.gateMs=0; GUIDE.lastAdd=0;
     state='gteach';
     guideEl.classList.remove('hidden'); topEl.classList.add('hidden'); bottom.classList.add('hidden');
@@ -932,7 +940,7 @@ function nextAfterTask(key){
   if(key==='t1a') stepCard({big:'✅',title:'6 ладоней собрано!',text:'ИИ их запомнил.',btn:'Дальше →',onGo:()=>startTask('t1b')});
   else if(key==='t1b') stepCard({big:'🎓',title:'ИИ обучен!',text:'6 ладоней и 6 кулаков. Теперь проверим, чему он на самом деле научился. Показывай жесты и жми «ЗАМЕРИТЬ».',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)});
   else if(key==='t2a') startTask('t2b');
-  else if(key==='t2b') stepCard({big:'🔧',title:'Починка готова!',text:'Ты добавил ИИ маленькие ладони и большие кулаки. Проверим ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)});
+  else if(key==='t2b') stepCard({big:'🔧',title:'Починка готова!',text:'Ты добавил ИИ маленькие ладони и большие кулаки. Загляни в альбом — старые и новые примеры вместе. Проверим ещё раз?',album:true,exit:!!GUIDE.outcome,btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)});
 }
 
 /* ====================== ПРОВЕРКА (общая для урока и лаборатории) ====================== */
@@ -977,7 +985,10 @@ function startGuidedCheck(round){
   CHK={cards:guidedCards(round),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[],guided:true,round,gateMs:0};
   bottom.classList.add('hidden'); topEl.classList.remove('hidden'); checkui.classList.remove('hidden');
   $('#ckverdict').textContent=''; ckButtons('shot');
-  $('#ckExit').classList.add('hidden');      // урок ведёт сам — выхода из проверки нет
+  // урок ведёт сам — выхода нет; НО опциональное дообучение после финала (outcome есть) — не тоннель (фидбек 14.07)
+  const optional=round===2&&!!GUIDE.outcome;
+  $('#ckExit').textContent=optional?'✖ Хватит — к финалу':'← В лабораторию';
+  $('#ckExit').classList.toggle('hidden',!optional);
 }
 /* кнопка ЗАМЕРИТЬ: короткий отсчёт 2-1 (Codex: 3-2-1 медленно при частых замерах) → замер.
    Руки нет в кадре — отсчёт мягко ЖДЁТ (не сбрасывается): меньше обидных пустых замеров. */
@@ -1108,7 +1119,7 @@ function finishGuidedCheck(correct,total){
     else{ GUIDE.fixTries++; TELE.push('fix_retry');
       saveMilestone('fixdata');   // пере-снимок с актуальными res2/fixTries: ранний check_done их не видел (Codex R2 п.6)
       // повторная починка идёт МИМО выбора (уже выбирал) — вернуть t2a нейтральный интро-текст
-      stepCard({big:'🤔',title:'ИИ ещё путается!',text:'Так бывает. Добавим ему ещё немного разных примеров — и проверим снова.',btn:'🔧 Чинить дальше',onGo:()=>{Object.assign(TASK_INTRO.t2a,T2A_NEUTRAL);startTask('t2a');}}); }
+      stepCard({big:'🤔',title:'ИИ ещё путается!',text:'Так бывает. Добавим ему ещё немного разных примеров — и проверим снова.',album:true,btn:'🔧 Чинить дальше',onGo:()=>{Object.assign(TASK_INTRO.t2a,T2A_NEUTRAL);startTask('t2a');}}); }
   }
 }
 function recommend(pc,outcome){
@@ -1439,6 +1450,7 @@ function showFinal(){
   // принцип «мгновенный retry без штрафа»). Не под замком: это учебный цикл, не пост-урочный режим
   $('#fMore').classList.toggle('hidden',!((o==='fixed'||o==='partial')&&r2&&r2.correct<r2.total));
   $('#fCert').classList.toggle('hidden',locked);
+  $('#fAlbum').classList.toggle('hidden',locked);   // no_break-финал до кода: альбом мог бы спойлерить общий разбор
   $('#fLab').classList.toggle('hidden',locked);
   $('#fGame').classList.toggle('hidden',locked);
   $('#fSurvey').classList.toggle('hidden',!WS||GUIDE.unlocked);
@@ -1713,7 +1725,7 @@ function resumeFlow(){
   if(s.ms==='final'&&finOk){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
   else if(s.ms==='fixdata'){ // ВСЕГДА через проверку R2: res2 в сейве бывает провальным ПЕРВЫМ замером
     // (F5 во время дополнительной починки) — прямой showFinal рисовал «Почти починил» до второй проверки (Codex CRIT 14.07)
-    state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)}); }
+    state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',album:true,btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)}); }
   else if(s.ms==='revealed'){ showRevealScreen(); }
   else { state='gpause'; stepCard({big:'⏩',title:'С возвращением!',text:'Твои '+(counts[0]+counts[1])+' примеров целы — ИИ помнит всё. Быстро повторим проверку и поедем дальше.',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)}); }
 }
@@ -1744,10 +1756,26 @@ $('#gLab').onclick=()=>{ if(state==='game')state='gameover'; backToTrain(); };
 $('#gFinal').onclick=goFinal;
 $('#gCert').onclick=()=>{ TELE.push('cert_made'); const r=GUIDE.res2||GUIDE.res1||{correct:0,total:0}; makeCert(r.correct,r.total,certFrame); };
 $('#toGame').onclick=()=>{ TELE.push('game_played'); startGame(); };
-$('#ckExit').onclick=()=>{ if(!CHK||CHK.guided)return; CHK=null; checkui.classList.add('hidden'); backToTrain(); };
+$('#ckExit').onclick=()=>{ if(!CHK)return;
+  if(CHK.guided){ if(!GUIDE.outcome)return;   // выход только из ОПЦИОНАЛЬНОЙ проверки дообучения — обязательный урок не рвём
+    CHK=null; checkui.classList.add('hidden'); topEl.classList.add('hidden'); $('#ckExit').textContent='← В лабораторию'; showFinal(); return; }
+  CHK=null; checkui.classList.add('hidden'); backToTrain(); };
 $('#toGallery').onclick=()=>{ if(state!=='train')return; buildGallery($('#labgalrows'),true);
+  $('#labgalClose').textContent='← Назад в лабораторию';
   state='labgal'; $('#labgal').classList.remove('hidden'); bottom.classList.add('hidden'); TELE.push('lab_gallery'); };
-$('#labgalClose').onclick=()=>{ $('#labgal').classList.add('hidden'); bottom.classList.remove('hidden'); state='train'; updateHint(); };
+/* альбом-оверлей ИЗ УРОКА (карточки починки, финал): поверх текущего экрана, закрытие возвращает как было.
+   Фидбек Алексея 14.07: понятие «альбом» должно показывать сам альбом, а не жить словами в тексте */
+function openAlbumOverlay(){ buildGallery($('#labgalrows'),true);
+  openAlbumOverlay._prev=state; state='labgal';
+  $('#labgalClose').textContent='← Назад';
+  $('#labgal').classList.remove('hidden'); TELE.push('lab_gallery'); }
+$('#labgalClose').onclick=()=>{ $('#labgal').classList.add('hidden');
+  if(openAlbumOverlay._prev!=null){ state=openAlbumOverlay._prev; openAlbumOverlay._prev=null; return; }   // оверлей из урока
+  $('#labgalClose').textContent='← Назад в лабораторию';
+  bottom.classList.remove('hidden'); state='train'; updateHint(); };
+$('#scAlbum').onclick=openAlbumOverlay;
+$('#fAlbum').onclick=openAlbumOverlay;
+$('#scExit').onclick=()=>{ $('#stepcard').classList.add('hidden'); showFinal(); };   // выход из опционального дообучения (телеметрию не трогаем — заморозка)
 $('#reset').onclick=(e)=>{ // прогон 13.07: удаление переспрашивает; дабл-клик НЕ проскакивает оба шага (ревью 14.07)
   const b=e.currentTarget, now=performance.now();
   if(!b._arm){ b._arm=now; b._old=b.textContent; b.textContent='❗️Точно стереть все примеры? Жми ещё раз';
@@ -1777,7 +1805,8 @@ addEventListener('keydown',e=>{
   if(/^(textarea|input)$/i.test(e.target.tagName))return;
   const vis=el=>el&&!el.classList.contains('hidden')&&!el.disabled;
   let btn=null;
-  if(!checkui.classList.contains('hidden'))
+  if(!$('#labgal').classList.contains('hidden')) btn=$('#labgalClose');   // альбом-оверлей сверху: пробел = закрыть, не клик сквозь
+  else if(!checkui.classList.contains('hidden'))
     btn=[$('#ckShot'),$('#ckRetry'),$('#ckNext')].find(vis);
   else if(!$('#stepcard').classList.contains('hidden')) btn=vis($('#scGo'))?$('#scGo'):null;
   else if(!$('#reveal').classList.contains('hidden'))   btn=vis($('#fixBtn'))?$('#fixBtn'):null;

@@ -1,0 +1,289 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Прототип навигации · Лаборатория тренера ИИ</title>
+<style>
+/* ===== ЧЕРНОВОЙ макет: тестируем НАВИГАЦИЮ, не вид. Серые заглушки = будущий контент ===== */
+:root{--bg:#0b0e14;--card:#10151e;--line:#2a3445;--text:#e8eef7;--muted:#8fa0b8;--ok:#46e08a;--warn:#ffcf5c;--accent:#7aa2ff;--bad:#ff6b8b}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",system-ui,sans-serif;user-select:none}
+body{display:flex;flex-direction:column;min-height:100vh}
+main{flex:1;padding:18px 16px 96px;max-width:760px;margin:0 auto;width:100%}
+h1{font-size:22px;margin:6px 0 2px}h2{font-size:18px;margin:14px 0 6px}
+p{color:var(--muted);margin:4px 0;line-height:1.45}
+button{font:inherit;border:0;border-radius:14px;padding:12px 18px;font-weight:800;cursor:pointer;background:#232c3d;color:var(--text)}
+button.ok{background:var(--ok);color:#08331c}
+button.ghost{background:transparent;border:2px solid var(--line)}
+.screen{display:none}.screen.on{display:block;animation:in .15s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+/* миссия-виджет */
+.mission{background:linear-gradient(135deg,#1b2a4a,#14203a);border:2px solid var(--accent);border-radius:16px;padding:12px 14px;display:flex;gap:12px;align-items:center;margin:10px 0 16px}
+.mission .mnum{font-size:26px}
+.mission .mtxt b{display:block;font-size:16px}
+.mission .mtxt span{color:var(--muted);font-size:13px}
+.mission button{margin-left:auto;flex:0 0 auto}
+/* плитки хаба */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tile{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:14px;min-height:110px;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:4px}
+.tile:hover{border-color:var(--accent)}
+.tile .ti{font-size:30px}.tile b{font-size:15px}.tile span{font-size:12px;color:var(--muted)}
+.tile .cnt{position:absolute;top:10px;right:12px;background:var(--accent);color:#0b1220;border-radius:99px;font-size:12px;font-weight:900;padding:2px 8px}
+.tile.locked{opacity:.55;cursor:not-allowed;min-height:128px}
+.tile.locked span{visibility:hidden}   /* подпись прячем — вместо неё строка «когда откроется» */
+.tile.locked::after{content:"🔒 "attr(data-when);position:absolute;inset:auto 12px 12px 12px;font-size:11px;color:var(--warn)}
+/* альбом */
+.shelf{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 0}
+.shelf h3{margin:0 0 8px;font-size:15px}
+.cards{display:flex;flex-wrap:wrap;gap:8px}
+.crd{width:74px;height:74px;border-radius:10px;background:#182234;border:1px solid var(--line);position:relative;display:flex;align-items:center;justify-content:center;cursor:default}
+.crd .x{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:99px;background:var(--bad);color:#fff;font-size:12px;font-weight:900;border:0;padding:0;line-height:22px;cursor:pointer}
+.crd.add{border:2px dashed var(--accent);background:transparent;color:var(--accent);font-size:26px;cursor:pointer}
+.crd .rnd{font-size:9px;color:var(--warn);position:absolute;bottom:3px;left:5px}
+/* съёмка */
+.cambox{background:#151d2c;border:2px dashed var(--line);border-radius:18px;height:270px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;margin:10px 0;position:relative}
+.cambox .sil{font-size:84px;opacity:.85}
+.cambox .gate{color:var(--ok);font-weight:800;font-size:14px}
+.flyrow{display:flex;gap:8px;align-items:center;margin:8px 0}
+.tabs{display:flex;gap:8px;margin:8px 0}
+.tabs button{border:2px solid var(--line)}
+.tabs button.act{border-color:var(--ok);background:#123322}
+/* проверка */
+.checkcard{background:var(--card);border:2px solid var(--warn);border-radius:16px;padding:16px;text-align:center;margin:10px 0}
+/* нижняя навигация */
+nav{position:fixed;bottom:0;left:0;right:0;background:#0d1119ee;border-top:1px solid var(--line);display:flex;justify-content:center;gap:4px;padding:8px 6px;backdrop-filter:blur(8px)}
+nav button{display:flex;flex-direction:column;align-items:center;gap:2px;background:transparent;border-radius:12px;padding:6px 12px;font-size:11px;font-weight:700;color:var(--muted);min-width:76px}
+nav button .ni{font-size:22px}
+nav button.act{background:#1b2a4a;color:var(--text)}
+nav button.lock{opacity:.45}
+nav button .lk{position:absolute;margin:-4px 0 0 26px;font-size:10px}
+/* верхняя полоска */
+header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0d1119ee;backdrop-filter:blur(8px);z-index:5}
+header .stars{margin-left:auto;font-size:14px;letter-spacing:2px}
+header .dev{font-size:11px;color:var(--muted)}
+.toast{position:fixed;left:50%;top:18%;transform:translateX(-50%);background:#1b2a4a;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;font-weight:800;opacity:0;transition:.2s;pointer-events:none;z-index:50}
+.toast.on{opacity:1}
+.note{font-size:12px;color:var(--warn)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.devbar{position:fixed;top:52px;right:8px;background:#0d1119dd;border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px;color:var(--muted);z-index:6}
+.devbar select{background:#182234;color:var(--text);border:1px solid var(--line);border-radius:8px;font-size:11px;padding:2px}
+</style></head><body>
+
+<header>
+  <b>🧪 Лаборатория тренера ИИ</b><span class="dev">· черновой макет навигации</span>
+  <div class="stars" id="stars"></div>
+</header>
+<div class="devbar">этап (dev): <select id="devstage"></select></div>
+
+<main>
+  <!-- ================= ХАБ ================= -->
+  <section class="screen" id="s-hub">
+    <h1 id="hub-hi">Твоя лаборатория</h1>
+    <p>Это твоя база. Зоны открываются по ходу миссий — как уровни в игре.</p>
+    <div class="mission" id="missionw">
+      <div class="mnum" id="m-ico">🗺</div>
+      <div class="mtxt"><b id="m-title">Миссия 1: научи ИИ ладоням</b><span id="m-sub">Сними 6 больших ладоней</span></div>
+      <button class="ok" onclick="goMission()">▶ Играть</button>
+    </div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <!-- ================= АЛЬБОМ ================= -->
+  <section class="screen" id="s-album">
+    <h1>📒 Альбом ИИ</h1>
+    <p>Всё, чему научился твой ИИ, — карточки. Что в альбоме — то он и знает. ✖ убирает карточку, ➕ ведёт на съёмку.</p>
+    <div class="shelf"><h3>✋ Ладони (<span id="cnt0">0</span>)</h3><div class="cards" id="shelf0"></div></div>
+    <div class="shelf"><h3>✊ Кулаки (<span id="cnt1">0</span>)</h3><div class="cards" id="shelf1"></div></div>
+    <div class="row"><button class="ghost" onclick="wipe()" id="wipeBtn">🗑 Стереть весь альбом</button></div>
+    <p class="note" id="albnote"></p>
+  </section>
+
+  <!-- ================= СЪЁМКА / ТРЕНИРОВКА ================= -->
+  <section class="screen" id="s-train">
+    <h1>📸 Тренировка</h1>
+    <p>Тут камера. Держи кнопку (или клавишу 1/2) — карточки летят в альбом.</p>
+    <div class="tabs">
+      <button id="tab0" class="act" onclick="setCls(0)">✋ Ладони</button>
+      <button id="tab1" onclick="setCls(1)">✊ Кулаки</button>
+    </div>
+    <div class="cambox">
+      <div class="sil" id="cam-sil">✋</div>
+      <div class="gate">⌖ [тут живая камера с контуром]</div>
+      <button class="ok" onmousedown="snapStart()" onmouseup="snapStop()" onmouseleave="snapStop()" ontouchstart="snapStart()" ontouchend="snapStop()">📸 Держи, чтобы снимать</button>
+    </div>
+    <div class="flyrow"><span class="note">последние кадры → </span><div class="cards" id="fresh"></div><span style="font-size:20px">→ 📒</span></div>
+  </section>
+
+  <!-- ================= ПРОВЕРКА ================= -->
+  <section class="screen" id="s-check">
+    <h1>🔍 Полигон проверки</h1>
+    <p>ИИ сдаёт экзамен: показывай, что просит карточка, и жми «Замерить». Выйти можно всегда — прогресс не сгорает.</p>
+    <div class="checkcard">
+      <div style="font-size:34px" id="ck-ico">✋</div>
+      <b id="ck-task">Покажи ладонь — БОЛЬШУЮ, как контур</b>
+      <div class="row" style="justify-content:center;margin-top:10px">
+        <button class="ok" onclick="ckShot()">📸 Замерить</button>
+      </div>
+      <p id="ck-verdict"></p>
+    </div>
+  </section>
+
+  <!-- ================= МИССИЯ (оверлей-карточка шага) ================= -->
+  <section class="screen" id="s-mission">
+    <h1 id="ms-title">Миссия</h1>
+    <p id="ms-text"></p>
+    <div class="row">
+      <button class="ok" id="ms-go">▶ Вперёд</button>
+      <button class="ghost" onclick="show('hub')">← В лабораторию</button>
+    </div>
+    <p class="note">← всегда можно выйти: миссия подождёт, прогресс не сгорает. Вернёшься — продолжишь с этого же места.</p>
+  </section>
+
+  <!-- ================= НАГРАДЫ ================= -->
+  <section class="screen" id="s-prize">
+    <h1>🏆 Награды</h1>
+    <p>Сюда падают сертификат и звёзды миссий. [заглушка]</p>
+    <div class="row"><button class="ok" onclick="toast('Тут будет сертификат 🏆')">Сделать сертификат</button></div>
+  </section>
+</main>
+
+<nav id="nav"></nav>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ====== фейковое состояние: только для теста навигации ====== */
+const S={
+  stage:0,             // индекс этапа урока (см. STAGES)
+  cls:0, cards:[[],[]],// альбом: карточки-заглушки {big:bool}
+  unlocked:new Set(['hub','mission']),  // открытые зоны
+};
+const STAGES=[
+ {key:'m1',   title:'Миссия 1: научи ИИ ладоням', sub:'Сними 6 больших ладоней',        opens:['train'],       ico:'✋'},
+ {key:'m2',   title:'Миссия 2: теперь кулаки',    sub:'Сними 6 маленьких кулаков',      opens:['album'],       ico:'✊'},
+ {key:'m3',   title:'Миссия 3: экзамен для ИИ',   sub:'3 проверки на полигоне',         opens:['check'],       ico:'🔍'},
+ {key:'m4',   title:'Миссия 4: расследование',    sub:'ИИ ошибся! Разберись, почему',   opens:[],              ico:'🕵️'},
+ {key:'m5',   title:'Миссия 5: почини ИИ',        sub:'Добавь в альбом контрпримеры',   opens:[],              ico:'🔧'},
+ {key:'m6',   title:'Миссия 6: докажи!',          sub:'Повтори проверки — было/стало',  opens:['prize','game'],ico:'🏆'},
+ {key:'free', title:'Все миссии пройдены!',       sub:'Лаборатория открыта целиком',    opens:[],              ico:'🎉'},
+];
+const ZONES=[
+ {id:'hub',   ico:'🧪', name:'Лаборатория', sub:'твоя база',           when:''},
+ {id:'album', ico:'📒', name:'Альбом',      sub:'карточки ИИ',         when:'после миссии 2'},
+ {id:'train', ico:'📸', name:'Тренировка',  sub:'снимать карточки',    when:'после миссии 1'},
+ {id:'check', ico:'🔍', name:'Проверка',    sub:'экзамен для ИИ',      when:'после миссии 3'},
+ {id:'prize', ico:'🏆', name:'Награды',     sub:'сертификат',          when:'по коду ведущего'},
+];
+const $=s=>document.querySelector(s);
+let cur='hub';
+
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('on'),1600); }
+
+function show(id){
+  if(!S.unlocked.has(id)&&id!=='mission'){ const z=ZONES.find(z=>z.id===id); toast('🔒 Откроется '+(z?z.when:'позже')); return; }
+  cur=id; document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  $('#s-'+id).classList.add('on'); render();
+}
+
+/* ---- рендер ---- */
+function render(){
+  // прогресс-звёзды
+  $('#stars').textContent='⭐'.repeat(Math.min(S.stage,6))+'☆'.repeat(Math.max(0,6-S.stage));
+  // миссия-виджет
+  const st=STAGES[Math.min(S.stage,STAGES.length-1)];
+  $('#m-ico').textContent=st.ico; $('#m-title').textContent=st.title; $('#m-sub').textContent=st.sub;
+  // плитки хаба
+  const t=$('#tiles'); t.innerHTML='';
+  ZONES.filter(z=>z.id!=='hub').concat([{id:'game',ico:'🎮',name:'Игра «Знаки»',sub:'бонус',when:'по коду ведущего'}]).forEach(z=>{
+    const d=document.createElement('div'); const open=S.unlocked.has(z.id);
+    d.className='tile'+(open?'':' locked'); d.dataset.when=z.when;
+    d.innerHTML=`<div class="ti">${z.ico}</div><b>${z.name}</b><span>${z.sub}</span>`+
+      (z.id==='album'&&open?`<div class="cnt">${S.cards[0].length+S.cards[1].length}</div>`:'');
+    d.onclick=()=>show(z.id==='game'?'prize':z.id);
+    t.appendChild(d);
+  });
+  // альбом
+  [0,1].forEach(c=>{
+    const sh=$('#shelf'+c); sh.innerHTML='';
+    S.cards[c].forEach((card,i)=>{
+      const el=document.createElement('div'); el.className='crd';
+      el.style.fontSize=(card.big?44:22)+'px'; el.textContent=c===0?'✋':'✊';
+      if(card.r2){const r=document.createElement('div');r.className='rnd';r.textContent='нов.';el.appendChild(r);}
+      const x=document.createElement('button'); x.className='x'; x.textContent='✕';
+      x.onclick=e=>{e.stopPropagation(); S.cards[c].splice(i,1); toast('Карточка убрана из альбома'); render();};
+      el.appendChild(x); sh.appendChild(el);
+    });
+    const add=document.createElement('div'); add.className='crd add'; add.textContent='＋';
+    add.title='Снять ещё'; add.onclick=()=>{setCls(c); show('train');};
+    sh.appendChild(add);
+    $('#cnt'+c).textContent=S.cards[c].length;
+  });
+  $('#albnote').textContent=S.stage<4?'👀 Приглядись: что общего у всех твоих ладоней? (на занятии этот вопрос прозвучит в миссии 4)':'';
+  // нижняя навигация
+  const n=$('#nav'); n.innerHTML='';
+  ZONES.forEach(z=>{
+    const open=S.unlocked.has(z.id);
+    const b=document.createElement('button');
+    b.className=(cur===z.id?'act':'')+(open?'':' lock');
+    b.innerHTML=`<span class="ni">${z.ico}${open?'':'<span class="lk">🔒</span>'}</span>${z.name}`;
+    b.onclick=()=>show(z.id);
+    n.appendChild(b);
+  });
+  // dev-переключалка
+  const dv=$('#devstage');
+  if(!dv.options.length){ STAGES.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=i+': '+s.key;dv.appendChild(o);});
+    dv.onchange=()=>jumpStage(+dv.value); }
+  dv.value=Math.min(S.stage,STAGES.length-1);
+  $('#cam-sil').textContent=S.cls===0?'✋':'✊';
+  $('#tab0').classList.toggle('act',S.cls===0); $('#tab1').classList.toggle('act',S.cls===1);
+}
+
+/* ---- миссии ---- */
+function goMission(){
+  const st=STAGES[Math.min(S.stage,STAGES.length-1)];
+  $('#ms-title').textContent=st.ico+' '+st.title;
+  const M={
+    m1:['Показывай ладонь так, чтобы совпала с контуром. ИИ сам сфотографирует 6 штук — карточки лягут в альбом.','📸 На съёмку',()=>{fill(0,6,true);advance();show('album');toast('6 карточек ✋ в альбоме! Зона «Альбом» открыта 📒')}],
+    m2:['Теперь кулак — маленький, как контур. Ещё 6 карточек.','📸 На съёмку',()=>{fill(1,6,false);advance();show('album');toast('Альбом пополнился ✊')}],
+    m3:['ИИ сдаёт экзамен: 3 задания на полигоне.','🔍 На полигон',()=>{advance();show('check')}],
+    m4:['ИИ перепутал маленькую ладонь с кулаком! Открой альбом и найди, что общего у всех ладоней…','📒 В альбом (расследовать)',()=>{advance();show('album');toast('Подсказка: сравни РАЗМЕР ✋ и ✊')}],
+    m5:['Почини данными: добавь в альбом МАЛЕНЬКИЕ ладони и БОЛЬШИЕ кулаки. Старые карточки остаются — смотри, они в альбоме.','📸 Чинить',()=>{fill(0,3,false,true);fill(1,3,true,true);advance();show('album');toast('Контрпримеры в альбоме (метка «нов.»)')}],
+    m6:['Повтори проверки — сравним «было/стало».','🔍 Доказать',()=>{advance();show('prize');S.unlocked.add('game');toast('🏆 Миссии пройдены! Игра открыта')}],
+    free:['Свободный режим: играй с альбомом, ломай и чини ИИ.','🧪 В лабораторию',()=>show('hub')],
+  }[st.key];
+  $('#ms-text').textContent=M[0]; const go=$('#ms-go'); go.textContent=M[1]; go.onclick=M[2];
+  show('mission');
+}
+function advance(){ const st=STAGES[Math.min(S.stage,STAGES.length-1)]; st.opens.forEach(z=>S.unlocked.add(z)); S.stage++; }
+function jumpStage(n){ S.stage=0; S.unlocked=new Set(['hub','mission']); S.cards=[[],[]];
+  for(let i=0;i<n;i++){ const st=STAGES[i]; st.opens.forEach(z=>S.unlocked.add(z));
+    if(st.key==='m1')fill(0,6,true); if(st.key==='m2')fill(1,6,false);
+    if(st.key==='m5'){fill(0,3,false,true);fill(1,3,true,true);}
+    S.stage++; }
+  show(S.unlocked.has('album')?'album':'hub'); }
+function fill(c,n,big,r2){ for(let i=0;i<n;i++)S.cards[c].push({big,r2:!!r2}); }
+
+/* ---- съёмка (фейк) ---- */
+function setCls(c){ S.cls=c; render(); }
+let snapT=null;
+function snapStart(){ if(snapT)return; snap(); snapT=setInterval(snap,600); }
+function snapStop(){ clearInterval(snapT); snapT=null; }
+function snap(){
+  const big=S.cls===0; S.cards[S.cls].push({big:Math.random()>.4?big:!big,r2:S.stage>=4});
+  const f=$('#fresh'); const el=document.createElement('div'); el.className='crd'; el.style.width='46px'; el.style.height='46px';
+  el.style.fontSize='20px'; el.textContent=S.cls===0?'✋':'✊'; f.prepend(el);
+  while(f.children.length>3)f.lastChild.remove();
+  render();
+}
+/* ---- проверка (фейк) ---- */
+const CK=[['✋','Покажи ладонь — БОЛЬШУЮ, как контур','✅ Верно!'],['✊','Кулак — маленький, как контур','✅ Верно!'],['✋','Ладонь — МАЛЕНЬКАЯ, издалека','❌ ИИ сказал: ✊ кулак! Почему?!']];
+let cki=0;
+function ckShot(){
+  const c=CK[cki%3]; $('#ck-verdict').textContent=c[2];
+  cki++; const n=CK[cki%3]; setTimeout(()=>{ $('#ck-ico').textContent=n[0]; $('#ck-task').textContent=n[1]; $('#ck-verdict').textContent+=' → следующая карточка'; },600);
+}
+/* ---- сброс альбома ---- */
+function wipe(){ const b=$('#wipeBtn');
+  if(!b._arm){ b._arm=1; b.textContent='❗️Точно стереть всё? Жми ещё раз'; setTimeout(()=>{b._arm=0;b.textContent='🗑 Стереть весь альбом';},2200); return; }
+  b._arm=0; b.textContent='🗑 Стереть весь альбом'; S.cards=[[],[]]; toast('Альбом пуст'); render();
+}
+show('hub');
+</script>
+</body></html>
