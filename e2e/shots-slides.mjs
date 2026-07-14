@@ -21,7 +21,7 @@ async (page) => {
   };
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('http://localhost:8642/v4.html?demo=1&ws=1');
+  await page.goto('http://localhost:8642/v5.html?demo=1&ws=1');
   await shot('scr-01-intro');
   await page.click('#start');
   await waitVis('#seat', 90000);
