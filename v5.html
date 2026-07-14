@@ -251,7 +251,7 @@
   </div>
 
   <!-- потеря/занятость камеры -->
-  <div id="camfix" class="midcard hidden">
+  <div id="camfix" class="midcard hidden" style="z-index:27"><!-- выше .screen(20)/панели(24)/альбома(26): «камера отпала» видна и на хабе (ревью 14.07) -->
     <div class="big">📷</div>
     <h2>Камера не отвечает</h2>
     <p>Если камера включена в видеозвонке — она занята. Выключи её в звонке (демонстрация экрана пусть остаётся) и нажми кнопку.</p>
@@ -332,7 +332,7 @@
 
   <!-- угадайка: почему ИИ ошибся -->
   <!-- галерея датасета в лаборатории (прогон 13.07: «датасет нигде не виден») -->
-  <div class="screen hidden" id="labgal" style="z-index:22">
+  <div class="screen hidden" id="labgal" style="z-index:26"><!-- выше панели зон (24): пока ватчер не спрятал её, клики не проходят сквозь альбом -->
     <h1>📒 Альбом твоего ИИ</h1>
     <p style="color:var(--muted)">Все примеры, на которых он учится. Что в альбоме — то он и знает. Видишь закономерности?</p>
     <div id="labgalrows" style="max-height:56vh;overflow:auto"></div>
@@ -1048,7 +1048,9 @@ function navGo(id){
   if(state!=='hub'&&!navToHub())return;   // отказ базы (идёт замер) = зона не открывается (Codex R5)
   if(id==='album'){ openAlbumOverlay(); }
   else if(id==='shoot'){ enterLab(); }
-  else if(id==='range'){ NAV.rangeFromHub=true; topEl.classList.remove('hidden'); showScreen(null); startCheck(); }
+  else if(id==='range'){ // guard ДО мутаций UI: иначе пустой экран + зависший rangeFromHub (ревью 14.07)
+    if(!counts[0]||!counts[1]){ showToast('Нужен хотя бы 1 пример каждого:\n✋ и ✊ — сначала в Съёмку',1800); return; }
+    NAV.rangeFromHub=true; topEl.classList.remove('hidden'); showScreen(null); startCheck(); }
   else if(id==='prize'){ showScreen(null); goFinal(); }
   navRender(true);
 }
@@ -1651,6 +1653,7 @@ function goFix(){    // одна карточка: интро t2a и есть п
 function showFinal(){
   state='gpause';
   NAV.finalSeen=true;   // финал был — свободные зоны базы (съёмка/полигон) открываются c кодом ведущего
+  NAV.lesson=null;      // урок закончен: протухший мид-урочный якорь (gteach с GUIDE.task=null) вёл в мёртвый экран и запирал зоны (ревью 14.07)
   const o=GUIDE.outcome, r2=GUIDE.res2, r1=GUIDE.res1;
   if(o==='no_break'){
     $('#fbig').textContent='😮'; $('#ftitle').textContent='ИИ не обманулся!';
@@ -1736,10 +1739,10 @@ function surveyNext(){
 /* ---- лаборатория: свободный режим (обученная модель остаётся) ---- */
 function enterLab(){
   // онбординг один раз: «зажми и держи» неочевидно, дети тыкали кнопки классов одиночными кликами (смок 10.07)
-  if(!GUIDE.labIntroShown){ GUIDE.labIntroShown=true;
+  if(!GUIDE.labIntroShown){   // флаг — по факту «Понятно»: уход на Базу с карточки не сжигает онбординг (ревью 14.07)
     stepCard({zone:true,big:'🧪',title:'Лаборатория',
-      text:'Тут ты сам тренер! <b>ЗАЖМИ</b> кнопку класса или держи <b>клавишу 1</b> (ладонь) / <b>2</b> (кулак) — ИИ фотографирует, пока держишь. «📸 Мои примеры» покажет его учебник. ⌫ удаляет последний кадр.<br><br>Миссии детектива: ① сломай ИИ фоном или светом — и почини · ② убери себя из кадра: что изменится? · ③ покажи жест другой рукой. Не просто играй — <b>ищи, ЧТО меняет ответ</b>.',
-      btn:'✅ Понятно',onGo:enterLab});
+      text:'Тут ты сам тренер! <b>ЗАЖМИ</b> кнопку класса или держи <b>клавишу 1</b> (ладонь) / <b>2</b> (кулак) — ИИ фотографирует, пока держишь. «📒 Альбом» покажет все карточки. ⌫ удаляет последний кадр.<br><br>Миссии детектива: ① сломай ИИ фоном или светом — и почини · ② убери себя из кадра: что изменится? · ③ покажи жест другой рукой. Не просто играй — <b>ищи, ЧТО меняет ответ</b>.',
+      btn:'✅ Понятно',onGo:()=>{GUIDE.labIntroShown=true;enterLab();}});
     return; }
   TELE.push('lab_entered'); showScreen(null); guideEl.classList.add('hidden');
   state='train'; topEl.classList.remove('hidden'); bottom.classList.remove('hidden');
@@ -2012,11 +2015,11 @@ $('#toGallery').onclick=()=>{ if(state!=='train')return; buildGallery($('#labgal
 function openAlbumOverlay(){ buildGallery($('#labgalrows'),true,albumEditable());
   openAlbumOverlay._prev=state; state='labgal';
   $('#labgalClose').textContent='← Назад';
-  $('#labgal').classList.remove('hidden'); TELE.push('lab_gallery'); }
+  $('#labgal').classList.remove('hidden'); TELE.push('lab_gallery'); try{navRender();}catch(e){} }
 $('#labgalClose').onclick=()=>{ $('#labgal').classList.add('hidden');
-  if(openAlbumOverlay._prev!=null){ state=openAlbumOverlay._prev; openAlbumOverlay._prev=null; return; }   // оверлей из урока
+  if(openAlbumOverlay._prev!=null){ state=openAlbumOverlay._prev; openAlbumOverlay._prev=null; try{navRender();}catch(e){} return; }   // оверлей из урока
   $('#labgalClose').textContent='← Назад в лабораторию';
-  bottom.classList.remove('hidden'); state='train'; updateHint(); };
+  bottom.classList.remove('hidden'); state='train'; updateHint(); try{navRender();}catch(e){} };
 $('#scAlbum').onclick=openAlbumOverlay;
 $('#fAlbum').onclick=openAlbumOverlay;
 $('#scExit').onclick=()=>{ $('#stepcard').classList.add('hidden'); showFinal(); };   // выход из опционального дообучения (телеметрию не трогаем — заморозка)
