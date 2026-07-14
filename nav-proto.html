@@ -68,8 +68,9 @@ header .dev{font-size:11px;color:var(--muted)}
 </style></head><body>
 
 <header>
-  <b>🧪 Лаборатория тренера ИИ</b><span class="dev">· черновой макет навигации</span>
-  <div class="stars" id="stars"></div>
+  <button id="backBtn" class="ghost" style="padding:6px 12px;font-size:14px" onclick="goBack()">← Назад</button>
+  <b>🧪 Лаборатория тренера ИИ</b><span class="dev">· черновой макет навигации v2</span>
+  <div class="stars" id="stagebadge" style="font-size:12px;letter-spacing:0;color:var(--muted)"></div>
 </header>
 <div class="devbar">этап (dev): <select id="devstage"></select></div>
 
@@ -77,11 +78,11 @@ header .dev{font-size:11px;color:var(--muted)}
   <!-- ================= ХАБ ================= -->
   <section class="screen" id="s-hub">
     <h1 id="hub-hi">Твоя лаборатория</h1>
-    <p>Это твоя база. Зоны открываются по ходу миссий — как уровни в игре.</p>
+    <p>Это твоя база. Зоны открываются по ходу занятия — куда идти дальше, говорит ведущий.</p>
     <div class="mission" id="missionw">
-      <div class="mnum" id="m-ico">🗺</div>
-      <div class="mtxt"><b id="m-title">Миссия 1: научи ИИ ладоням</b><span id="m-sub">Сними 6 больших ладоней</span></div>
-      <button class="ok" onclick="goMission()">▶ Играть</button>
+      <div class="mnum" id="m-ico">🎧</div>
+      <div class="mtxt"><b id="m-title">Сейчас по уроку: сбор ладоней</b><span id="m-sub">слушай ведущего — он скажет, когда дальше</span></div>
+      <button class="ok" onclick="resumeLesson()">▶ Продолжить урок</button>
     </div>
     <div class="tiles" id="tiles"></div>
   </section>
@@ -110,31 +111,40 @@ header .dev{font-size:11px;color:var(--muted)}
       <button class="ok" onmousedown="snapStart()" onmouseup="snapStop()" onmouseleave="snapStop()" ontouchstart="snapStart()" ontouchend="snapStop()">📸 Держи, чтобы снимать</button>
     </div>
     <div class="flyrow"><span class="note">последние кадры → </span><div class="cards" id="fresh"></div><span style="font-size:20px">→ 📒</span></div>
+    <!-- тупика нет: как только снято достаточно — интерфейс сам говорит, что дальше -->
+    <div class="mission" id="tr-next" style="display:none">
+      <div class="mnum">✅</div>
+      <div class="mtxt"><b id="tr-next-t">Снято достаточно!</b><span>карточки уже в альбоме</span></div>
+      <button class="ok" onclick="resumeLesson()">▶ Дальше по уроку</button>
+    </div>
   </section>
 
-  <!-- ================= ПРОВЕРКА ================= -->
+  <!-- ================= ПОЛИГОН ================= -->
   <section class="screen" id="s-check">
     <h1>🔍 Полигон проверки</h1>
-    <p>ИИ сдаёт экзамен: показывай, что просит карточка, и жми «Замерить». Выйти можно всегда — прогресс не сгорает.</p>
+    <p>Первые два задания — как учили. Дальше — сюрпризы, сколько захочешь. Счёт: <b id="ck-score">0 из 0</b></p>
     <div class="checkcard">
       <div style="font-size:34px" id="ck-ico">✋</div>
       <b id="ck-task">Покажи ладонь — БОЛЬШУЮ, как контур</b>
-      <div class="row" style="justify-content:center;margin-top:10px">
-        <button class="ok" onclick="ckShot()">📸 Замерить</button>
+      <p id="ck-verdict" style="min-height:22px;font-weight:800"></p>
+      <div class="row" style="justify-content:center;margin-top:6px" id="ck-btns">
+        <button class="ok" id="ck-shot" onclick="ckShot()">📸 Замерить</button>
+        <button class="ghost" id="ck-more" style="display:none" onclick="ckNext()">📸 Ещё задание</button>
+        <button class="ghost" id="ck-alb" style="display:none" onclick="show('album')">📒 Посмотреть, на чём он учился</button>
+        <button class="ghost" id="ck-done" style="display:none" onclick="resumeLesson()">✅ Хватит — дальше по уроку</button>
       </div>
-      <p id="ck-verdict"></p>
     </div>
   </section>
 
-  <!-- ================= МИССИЯ (оверлей-карточка шага) ================= -->
+  <!-- ================= ШАГ УРОКА (карточка, ведущий диктует темп) ================= -->
   <section class="screen" id="s-mission">
-    <h1 id="ms-title">Миссия</h1>
+    <h1 id="ms-title">Шаг урока</h1>
     <p id="ms-text"></p>
     <div class="row">
       <button class="ok" id="ms-go">▶ Вперёд</button>
-      <button class="ghost" onclick="show('hub')">← В лабораторию</button>
+      <button class="ghost" onclick="show('hub')">🧪 В лабораторию</button>
     </div>
-    <p class="note">← всегда можно выйти: миссия подождёт, прогресс не сгорает. Вернёшься — продолжишь с этого же места.</p>
+    <p class="note">выйти можно всегда: урок подождёт, прогресс не сгорает — «▶ Продолжить урок» вернёт ровно сюда.</p>
   </section>
 
   <!-- ================= НАГРАДЫ ================= -->
@@ -156,13 +166,13 @@ const S={
   unlocked:new Set(['hub','mission']),  // открытые зоны
 };
 const STAGES=[
- {key:'m1',   title:'Миссия 1: научи ИИ ладоням', sub:'Сними 6 больших ладоней',        opens:['train'],       ico:'✋'},
- {key:'m2',   title:'Миссия 2: теперь кулаки',    sub:'Сними 6 маленьких кулаков',      opens:['album'],       ico:'✊'},
- {key:'m3',   title:'Миссия 3: экзамен для ИИ',   sub:'3 проверки на полигоне',         opens:['check'],       ico:'🔍'},
- {key:'m4',   title:'Миссия 4: расследование',    sub:'ИИ ошибся! Разберись, почему',   opens:[],              ico:'🕵️'},
- {key:'m5',   title:'Миссия 5: почини ИИ',        sub:'Добавь в альбом контрпримеры',   opens:[],              ico:'🔧'},
- {key:'m6',   title:'Миссия 6: докажи!',          sub:'Повтори проверки — было/стало',  opens:['prize','game'],ico:'🏆'},
- {key:'free', title:'Все миссии пройдены!',       sub:'Лаборатория открыта целиком',    opens:[],              ico:'🎉'},
+ {key:'m1',   title:'научи ИИ ладоням',        sub:'Сними 6 больших ладоней',        opens:['train'],       ico:'✋'},
+ {key:'m2',   title:'теперь кулаки',           sub:'Сними 6 маленьких кулаков',      opens:['album'],       ico:'✊'},
+ {key:'m3',   title:'экзамен для ИИ',          sub:'3 проверки на полигоне',         opens:['check'],       ico:'🔍'},
+ {key:'m4',   title:'расследование',           sub:'ИИ ошибся! Разберись, почему',   opens:[],              ico:'🕵️'},
+ {key:'m5',   title:'почини ИИ',               sub:'Добавь в альбом контрпримеры',   opens:[],              ico:'🔧'},
+ {key:'m6',   title:'докажи, что починил',     sub:'Повтори проверки — было/стало',  opens:['prize','game'],ico:'🏆'},
+ {key:'free', title:'свободный режим',         sub:'Занятие пройдено — лаборатория открыта целиком', opens:[], ico:'🎉'},
 ];
 const ZONES=[
  {id:'hub',   ico:'🧪', name:'Лаборатория', sub:'твоя база',           when:''},
@@ -173,22 +183,27 @@ const ZONES=[
 ];
 const $=s=>document.querySelector(s);
 let cur='hub';
+const HIST=[];   // навигация с историей: «← Назад» возвращает по своим следам
 
 function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('on'),1600); }
 
-function show(id){
+function show(id,noHist){
   if(!S.unlocked.has(id)&&id!=='mission'){ const z=ZONES.find(z=>z.id===id); toast('🔒 Откроется '+(z?z.when:'позже')); return; }
+  if(!noHist&&cur!==id){ HIST.push(cur); if(HIST.length>20)HIST.shift(); }
   cur=id; document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
   $('#s-'+id).classList.add('on'); render();
+  if(id==='check')ckRender();   // полигон всегда встречает готовым заданием, не прошлым вердиктом
 }
+function goBack(){ const prev=HIST.pop(); show(prev||'hub',true); }
 
 /* ---- рендер ---- */
 function render(){
-  // прогресс-звёзды
-  $('#stars').textContent='⭐'.repeat(Math.min(S.stage,6))+'☆'.repeat(Math.max(0,6-S.stage));
-  // миссия-виджет
+  // этап-бейдж (как stagebadge в демке) + «Назад» активна только если есть куда
   const st=STAGES[Math.min(S.stage,STAGES.length-1)];
-  $('#m-ico').textContent=st.ico; $('#m-title').textContent=st.title; $('#m-sub').textContent=st.sub;
+  $('#stagebadge').textContent='этап: '+st.title;
+  $('#backBtn').style.visibility=HIST.length?'visible':'hidden';
+  // строка урока (темп диктует ведущий)
+  $('#m-ico').textContent=st.ico; $('#m-title').textContent='Сейчас по уроку: '+st.title; $('#m-sub').textContent=st.sub+' · слушай ведущего';
   // плитки хаба
   const t=$('#tiles'); t.innerHTML='';
   ZONES.filter(z=>z.id!=='hub').concat([{id:'game',ico:'🎮',name:'Игра «Знаки»',sub:'бонус',when:'по коду ведущего'}]).forEach(z=>{
@@ -235,10 +250,10 @@ function render(){
   $('#tab0').classList.toggle('act',S.cls===0); $('#tab1').classList.toggle('act',S.cls===1);
 }
 
-/* ---- миссии ---- */
-function goMission(){
+/* ---- шаги урока (ведущий диктует темп голосом; кнопка возвращает в текущий шаг) ---- */
+function resumeLesson(){
   const st=STAGES[Math.min(S.stage,STAGES.length-1)];
-  $('#ms-title').textContent=st.ico+' '+st.title;
+  $('#ms-title').textContent=st.ico+' Шаг урока: '+st.title;
   const M={
     m1:['Показывай ладонь так, чтобы совпала с контуром. ИИ сам сфотографирует 6 штук — карточки лягут в альбом.','📸 На съёмку',()=>{fill(0,6,true);advance();show('album');toast('6 карточек ✋ в альбоме! Зона «Альбом» открыта 📒')}],
     m2:['Теперь кулак — маленький, как контур. Ещё 6 карточек.','📸 На съёмку',()=>{fill(1,6,false);advance();show('album');toast('Альбом пополнился ✊')}],
@@ -270,15 +285,32 @@ function snap(){
   const f=$('#fresh'); const el=document.createElement('div'); el.className='crd'; el.style.width='46px'; el.style.height='46px';
   el.style.fontSize='20px'; el.textContent=S.cls===0?'✋':'✊'; f.prepend(el);
   while(f.children.length>3)f.lastChild.remove();
+  // тупика нет: собрал достаточно → плашка «дальше» появляется сама
+  const enough=S.cards[S.cls].length>=6;
+  $('#tr-next').style.display=enough?'flex':'none';
+  if(enough)$('#tr-next-t').textContent='✅ '+(S.cls===0?'Ладоней':'Кулаков')+' в альбоме: '+S.cards[S.cls].length+' — достаточно!';
   render();
 }
-/* ---- проверка (фейк) ---- */
-const CK=[['✋','Покажи ладонь — БОЛЬШУЮ, как контур','✅ Верно!'],['✊','Кулак — маленький, как контур','✅ Верно!'],['✋','Ладонь — МАЛЕНЬКАЯ, издалека','❌ ИИ сказал: ✊ кулак! Почему?!']];
-let cki=0;
+/* ---- полигон (фейк): первые 2 задания всегда «как учили», дальше рандом без лимита ----
+   петля вердикта: замер → результат → ЯВНЫЕ кнопки (ещё / в альбом / хватит) — никаких тупиков */
+const CK_FIXED=[['✋','Покажи ладонь — БОЛЬШУЮ, как контур',true],['✊','Кулак — маленький, как контур',true]];
+const CK_RND=[['✋','Ладонь — МАЛЕНЬКАЯ, издалека',false],['✊','Кулак — БОЛЬШОЙ, близко',false],
+              ['✋','Ладонь — как хочешь',true],['✊','Кулак — под наклоном',true]];
+let ckN=0, ckOk=0, ckCard=CK_FIXED[0];
+function ckRender(){ $('#ck-ico').textContent=ckCard[0]; $('#ck-task').textContent=ckCard[1];
+  $('#ck-score').textContent=ckOk+' из '+ckN;
+  $('#ck-verdict').textContent='';
+  $('#ck-shot').style.display=''; $('#ck-more').style.display='none'; $('#ck-alb').style.display='none'; $('#ck-done').style.display='none'; }
 function ckShot(){
-  const c=CK[cki%3]; $('#ck-verdict').textContent=c[2];
-  cki++; const n=CK[cki%3]; setTimeout(()=>{ $('#ck-ico').textContent=n[0]; $('#ck-task').textContent=n[1]; $('#ck-verdict').textContent+=' → следующая карточка'; },600);
+  const correct=ckCard[2]||Math.random()>0.4; ckN++; if(correct)ckOk++;
+  $('#ck-score').textContent=ckOk+' из '+ckN;
+  $('#ck-verdict').textContent=correct?'✅ Верно!':'❌ ИИ ошибся — сказал не то!';
+  $('#ck-verdict').style.color=correct?'var(--ok)':'var(--bad)';
+  $('#ck-shot').style.display='none';
+  $('#ck-more').style.display=''; $('#ck-done').style.display='';
+  $('#ck-alb').style.display=correct?'none':'';   // ошибка сразу конвертируется в действие: глянуть альбом
 }
+function ckNext(){ ckCard=ckN<2?CK_FIXED[ckN]:CK_RND[(Math.random()*CK_RND.length)|0]; ckRender(); }
 /* ---- сброс альбома ---- */
 function wipe(){ const b=$('#wipeBtn');
   if(!b._arm){ b._arm=1; b.textContent='❗️Точно стереть всё? Жми ещё раз'; setTimeout(()=>{b._arm=0;b.textContent='🗑 Стереть весь альбом';},2200); return; }

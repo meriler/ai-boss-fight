@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Обучи свой первый ИИ — слайды занятия</title>
+<style>
+  :root{
+    --bg:#0e1420; --card:#171f2e; --line:#2a3550; --text:#eef2fa; --muted:#93a0b8;
+    --palm:#35d07f; --fist:#7aa2ff; --warn:#ffcf5c; --bad:#ff5c8a; --neut:#93a0b8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
+  .slide{height:100%;display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:2.8vmin;padding:5.5vmin 6vmin 4vmin;text-align:center;position:relative}
+  .slide.on{display:flex}
+  .tag{font-size:1.9vmin;font-weight:800;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+  h1{font-size:5.8vmin;line-height:1.1;font-weight:900;max-width:88vw}
+  h1 .p{color:var(--palm)} h1 .f{color:var(--fist)} h1 .w{color:var(--warn)} h1 .b{color:var(--bad)}
+  .sub{font-size:2.6vmin;color:var(--muted);max-width:78vw;line-height:1.4}
+  .sub b{color:var(--text)}
+  .chat{font-size:2.9vmin;font-weight:800;background:var(--card);border:2px solid var(--warn);
+    border-radius:2.2vmin;padding:1.7vmin 3vmin;color:var(--text)}
+  .chat::before{content:'💬 В ЧАТ:\00a0';color:var(--warn)}
+  /* бейдж канала действия — верхний правый угол */
+  .chan{position:absolute;top:2vmin;right:2.4vmin;font-size:2vmin;font-weight:900;letter-spacing:.06em;
+    padding:.9vmin 2vmin;border-radius:1.6vmin;color:#0b1020}
+  .chan.c-chat{background:var(--warn)} .chan.c-app{background:var(--palm)}
+  .big{font-size:10vmin;line-height:1}
+  img.scr{max-width:72vw;max-height:50vh;border-radius:2vmin;border:2px solid var(--line);
+    box-shadow:0 1.6vmin 5vmin rgba(0,0,0,.5)}
+  img.photo{max-width:64vw;max-height:48vh;border-radius:2vmin}
+  img.gen{max-width:66vw;max-height:52vh;border-radius:2vmin}
+  .screenbadge{font-size:2vmin;font-weight:800;color:#0b1020;background:var(--palm);
+    border-radius:1.6vmin;padding:.7vmin 1.8vmin}
+  .row{display:flex;gap:2.4vmin;align-items:center;justify-content:center;flex-wrap:wrap;max-width:92vw}
+  .col{display:flex;flex-direction:column;gap:1.4vmin;align-items:center}
+  .arrow{font-size:4.2vmin;color:var(--muted);font-weight:900}
+  /* карточка-пример: рамка = класс. До C5 руки ОДНОГО размера (.b2)! */
+  .ex{width:10.5vmin;height:10.5vmin;background:#0b101c;border:.45vmin solid var(--line);border-radius:1.6vmin;
+    display:flex;align-items:center;justify-content:center;position:relative;flex:0 0 auto}
+  .ex.palm{border-color:var(--palm)} .ex.fist{border-color:var(--fist)}
+  .ex.q{border-style:dashed;border-color:var(--neut)}
+  .ex.qq{border-style:dashed;border-color:var(--warn)}
+  .ex .lbl{position:absolute;bottom:-1.4vmin;left:50%;transform:translateX(-50%);font-size:1.6vmin;
+    font-weight:900;padding:.15vmin 1vmin;border-radius:1vmin;color:#0b1020;white-space:nowrap}
+  .ex.palm .lbl{background:var(--palm)} .ex.fist .lbl{background:var(--fist)} .ex.q .lbl{background:var(--neut)}
+  .ex.hot{box-shadow:0 0 0 .55vmin rgba(255,207,92,.55)}
+  .ex.dim{opacity:.32}
+  .b1{font-size:7vmin} .b2{font-size:5vmin} .b3{font-size:2.8vmin}
+  .album{background:var(--card);border:.3vmin solid var(--line);border-radius:2vmin;padding:2vmin;
+    display:flex;flex-direction:column;gap:2vmin}
+  .album .ttl{font-size:2.1vmin;font-weight:900;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+  .album .sec{display:flex;gap:1.8vmin;align-items:center;justify-content:center}
+  table.mx{border-collapse:separate;border-spacing:1.1vmin}
+  table.mx th{color:var(--muted);font-size:2vmin;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:.4vmin}
+  table.mx td{background:var(--card);border:.3vmin solid var(--line);border-radius:1.6vmin;
+    width:17vmin;height:12.5vmin;vertical-align:middle;text-align:center}
+  table.mx td.miss{border-style:dashed;border-color:var(--warn)}
+  table.mx td .q{font-size:4.6vmin;color:var(--warn);font-weight:900}
+  .strike{position:relative;display:inline-block}
+  .strike::after{content:'';position:absolute;left:-3%;top:48%;width:106%;height:.55vmin;background:var(--bad);transform:rotate(-5deg);border-radius:1vmin}
+  .verdict{font-size:2.6vmin;font-weight:900;background:#0b101c;border:.3vmin solid var(--line);border-radius:1.6vmin;padding:1.4vmin 2.4vmin;line-height:1.35}
+  .pillrow{display:flex;gap:1.8vmin;justify-content:center;flex-wrap:wrap}
+  .pill{font-size:4.2vmin;font-weight:900;background:var(--card);border:.4vmin solid var(--line);
+    border-radius:2vmin;padding:1.8vmin 3.4vmin}
+  .zone{font-size:3.2vmin;font-weight:900;background:var(--card);border:.45vmin solid var(--neut);
+    border-radius:2.2vmin;padding:2.6vmin 4vmin}
+  .zone.z2{border-color:var(--warn)}
+  .flow{display:flex;gap:1.4vmin;align-items:stretch;justify-content:center;flex-wrap:wrap;max-width:94vw}
+  .fstep{background:var(--card);border:.3vmin solid var(--line);border-radius:1.8vmin;padding:1.6vmin 2vmin;
+    font-size:2.3vmin;font-weight:800;max-width:23vmin;display:flex;flex-direction:column;gap:.9vmin;align-items:center;justify-content:center;line-height:1.3}
+  .fstep .fi{font-size:4.6vmin}
+  .fstep .fs{font-weight:400;color:var(--muted);font-size:2vmin}
+  .winbox{background:var(--card);border:.35vmin solid var(--line);border-radius:1.8vmin;padding:1.5vmin;
+    display:flex;flex-direction:column;gap:1vmin;align-items:center;min-width:27vmin}
+  .winbox .bar{width:100%;height:2.1vmin;background:#0b101c;border-radius:1vmin;display:flex;align-items:center;gap:.7vmin;padding:0 1vmin}
+  .winbox .dot{width:1vmin;height:1vmin;border-radius:50%;background:var(--muted)}
+  .winbox .wt{font-size:2.5vmin;font-weight:900}
+  .winbox .st{font-size:2.1vmin;color:var(--muted)}
+  .ok-ic{color:var(--palm);font-weight:900} .no-ic{color:var(--bad);font-weight:900}
+  .fact{font-size:2.5vmin;font-weight:800;background:var(--card);border:.3vmin solid var(--line);border-radius:1.6vmin;padding:1.4vmin 2.2vmin}
+  .memowrap{position:relative;display:inline-block}
+  .memolbl{position:absolute;font-size:1.9vmin;font-weight:900;background:rgba(14,20,32,.9);
+    border:.25vmin solid var(--warn);color:var(--warn);border-radius:1.2vmin;padding:.5vmin 1.3vmin;white-space:nowrap}
+  /* мини-карта миссии */
+  .mmap{position:absolute;top:2vmin;left:2.4vmin;display:flex;gap:.8vmin;align-items:center}
+  .mmap .ms{font-size:3vmin;opacity:.3;filter:grayscale(1)}
+  .mmap .ms.cur{opacity:1;filter:none;transform:scale(1.3);background:rgba(255,207,92,.22);border-radius:1vmin;padding:.3vmin .6vmin}
+  .mmap .ms.done{opacity:.8;filter:none}
+  #hud{position:fixed;bottom:1.4vmin;right:2vmin;font-size:1.9vmin;color:var(--muted);font-weight:700;z-index:5}
+  #notes{display:none;position:fixed;left:0;right:0;bottom:0;background:#05070c;color:#cfe0ff;
+    border-top:2px solid var(--fist);padding:1.5vmin 3vmin;font-size:2.2vmin;line-height:1.45;z-index:6;max-height:42vh;overflow:auto}
+  #notes b{color:var(--warn)}
+  body.notes #notes{display:block}
+  .timer{font-size:17vmin;font-weight:900;font-variant-numeric:tabular-nums;color:var(--palm);cursor:pointer}
+  .codebig{font-size:10vmin;font-weight:900;letter-spacing:.08em;color:var(--warn);line-height:1}
+  .fieldmock{background:#10151e;border:.35vmin solid var(--line);border-radius:1.6vmin;padding:1.7vmin 2.8vmin;
+    font-size:3.1vmin;color:var(--muted);min-width:30vmin;text-align:left}
+  .fieldmock b{color:var(--text);letter-spacing:.3vmin}
+  .t2{display:none!important}
+  .slide.rev .t2{display:flex!important}
+  .slide.rev .verdict.t2{display:block!important}
+  .slide.rev .t2.inline{display:inline-block!important}
+  .slide.rev .hide2{display:none!important}
+  .slide.rev .sib{box-shadow:0 0 0 .55vmin rgba(255,207,92,.55)}
+  .slide.rev .sib2{opacity:.32}
+  .clickhint{position:absolute;bottom:2vmin;left:2.4vmin;font-size:1.8vmin;color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="deck" style="height:100%">
+
+<!-- ============ A1 титул ============ -->
+<section class="slide on" data-note="<b>ЧТО:</b> дети заходят в звонок, занятие ещё не началось. Это окно (слайды) ты шаришь детям; СВОИ заметки открой ЗАРАНЕЕ вторым окном: ws.meriler.cc/slides.html?notes=1 — и проверь до старта, что в шаринге дети видят слайды БЕЗ серой панели снизу.<br><b>СКАЗАТЬ</b> каждому входящему: «Привет, [имя]! Слышно меня? Напиши плюс в чат, если да».<br><b>ДЕЛАТЬ:</b> здороваться по именам (имена — на дашборде у Насти), Настя отмечает кто зашёл.<br><b>ПЕРЕХОД:</b> назначенное время + Настя подтвердила, что основная группа в звонке.">
+  <h1>Обучи свой первый <span class="f">ИИ</span></h1>
+  <img class="gen" src="assets/slides/gen-hero.png" alt="">
+  <p class="sub">Скоро начнём. Проверь, что тебя слышно.</p>
+</section>
+
+<!-- ============ A2 техпроверка ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> техпроверка, до 10 минут. Дети сравнивают свой экран с картинкой: два ОКНА (звонок + тренажёр), звук есть, наушники надеты, камера в звонке выключена, тренажёру разрешена камера, виден номер места.<br><b>СКАЗАТЬ:</b> «Сравни свой экран с этой картинкой. Звонок и тренажёр — два РАЗНЫХ окна, не вкладки одного, иначе звонок заглохнет. Наушники обязательно. Камеру в звонке выключи — она нужна тренажёру. Когда у тебя всё как на картинке — напиши плюс в чат».<br><b>ДЕЛАТЬ:</b> ждать плюсы (это заодно проверка чата). Настя по дашборду видит, кто открыл тренажёр, и зовёт отстающих ГОЛОСОМ по имени: «Миша, посмотри на пункт 2».<br><b>ЕСЛИ</b> у ребёнка браузер не даёт камеру: «нажми на значок камеры у адресной строки — Разрешить». Если тренажёр говорит «камера занята» — выключить камеру в звонке и нажать «Повторить».<br><b>ПЕРЕХОД:</b> плюсы от ~⅔ группы. Остальных Настя доводит параллельно — группу не держим.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">техпроверка · первые 10 минут</div>
+  <h1>Готово, когда экран выглядит так</h1>
+  <div class="row">
+    <div class="winbox">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="wt">📞 Звонок</div>
+      <div class="st">звук <span class="ok-ic">✔</span> · 🎧 наушники <span class="ok-ic">✔</span> · камера <span class="no-ic">ВЫКЛ</span></div>
+    </div>
+    <div class="arrow">+</div>
+    <div class="winbox">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="wt">🤖 Тренажёр</div>
+      <div class="st">камера <span class="ok-ic">✔ Разрешить</span> · место № <span class="ok-ic">виден</span></div>
+    </div>
+  </div>
+  <p class="sub">Два <b>разных окна</b> браузера — не вкладки одного.</p>
+  <div class="chat">«+» когда у тебя так же</div>
+</section>
+
+<!-- ============ A3 роль ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> задаём роль. 1 минута.<br><b>СКАЗАТЬ:</b> «Сегодня ты не ученик и не зритель. Ты — тренер ИИ: у тебя будет свой подопечный, ты его обучишь, устроишь ему экзамен и поймаешь на ошибке. То есть тренер, которому придётся стать детективом. Правило дня: если ИИ ошибётся — это не авария, это улика. Кто готов быть тренером — плюс в чат».<br><b>ПЕРЕХОД:</b> пара плюсов в чате — дальше, не ждать всех.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="big">🕵️</div>
+  <h1>Ты — <span class="p">тренер ИИ</span></h1>
+  <p class="sub" style="font-size:3.2vmin"><b>Ошибка ИИ — улика, а не авария</b> 🔍</p>
+  <div class="chat">«+» если готов быть тренером</div>
+</section>
+
+<!-- ============ A4 карта ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> карта занятия, 30 секунд, не дольше. Пять шагов на экране: собрать → обучить → экзамен → поймать → починить.<br><b>СКАЗАТЬ:</b> «Вот весь наш план на полтора часа, пять шагов. В конце ты честно скажешь: я сам обучил, поймал на ошибке и починил свой ИИ. Эта полоска будет мелькать в углу слайдов — по ней видно, где мы».<br><b>ПЕРЕХОД:</b> сразу дальше, ничего не ждать.">
+  <div class="tag">план миссии</div>
+  <h1>Пять шагов детектива</h1>
+  <div class="flow">
+    <div class="fstep"><div class="fi">📸</div>собрать примеры</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🧠</div>обучить</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🔍</div>экзамен</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🕵️</div>поймать на ошибке</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🔧</div>починить</div>
+  </div>
+</section>
+
+<!-- ============ B1 данные и классы ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> первые два термина: данные и класс. 1–2 минуты. На слайде альбом с подписанными карточками — это метафора того, что ребёнок сейчас будет делать в тренажёре.<br><b>СКАЗАТЬ:</b> «Данные — это примеры, на которых ИИ учится. Каждый кадр с твоей рукой — один пример. И подпись к примеру ставишь ТЫ: вот это — ладонь, вот это — кулак. Класс — это вариант ответа: у нас их два, ладонь и кулак».<br>Шутка для проверки: «Я вот в пятом классе учился — это тот же класс или нет?» — дети посмеются и сами разведут понятия. Ответ: «Нет: здесь класс — это вариант ответа ИИ».<br><b>⛔ НЕ говорить</b> слово «признак» — введём его после разгадки, раньше оно подсказка к ловушке.<br><b>ПЕРЕХОД:</b> сразу после шутки.">
+  <div class="mmap"><span class="ms cur">📸</span><span class="ms">🧠</span><span class="ms">🔍</span><span class="ms">🕵️</span><span class="ms">🔧</span></div>
+  <div class="tag">два слова дня</div>
+  <h1>Ты подписываешь каждый пример</h1>
+  <img class="gen" src="assets/slides/gen-album.png" alt="" style="max-height:44vh">
+  <div class="row" style="gap:1.6vmin">
+    <div class="fact"><span style="color:var(--warn)">ДАННЫЕ</span> — примеры для ИИ</div>
+    <div class="fact"><span style="color:var(--warn)">КЛАСС</span> — вариант ответа: <span style="color:var(--palm)">✋</span> или <span style="color:var(--fist)">✊</span></div>
+  </div>
+</section>
+
+<!-- ============ B2 ЭКРАН старт ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> дети запускают тренажёр. 1–3 минуты на загрузку у всех.<br><b>СКАЗАТЬ:</b> «Переходи в окно тренажёра и жми Поехали. Браузер спросит про камеру — жми Разрешить. Всё, что видит камера, обрабатывается прямо на твоём компьютере — никуда не отправляется». Пока грузится: «У кого полоска загрузки доползла и появился экран с номером места — плюс в чат».<br><b>ДЕЛАТЬ:</b> Настя по дашборду видит, кто загрузился (место зелёное) и у кого камера не встала (красное) — таких зовёт голосом и ведёт.<br><b>ЕСЛИ</b> у ребёнка «Не загрузилось»: пусть нажмёт «Повторить». Совсем никак — Настя даёт ему смотреть на экран соседа/ведущего, разберётся в перерыве.<br><b>ПЕРЕХОД:</b> ⅔ группы загрузились.">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА — у тебя сейчас так</div>
+  <h1>Жми «▶️ Поехали»</h1>
+  <img class="scr" src="assets/slides/scr-01-intro.png" alt="">
+</section>
+
+<!-- ============ B3a ЭКРАН сбор ладоней ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> сбор ладоней — 6 кадров. Тренажёр сам ведёт: показывает контур, ребёнок совмещает руку, кадры щёлкают примерно раз в секунду (вспышка + звук на каждый). Займёт 1–2 минуты + отстающие.<br><b>СКАЗАТЬ</b> на старте: «Зажми кнопку и совмести ладонь с контуром на экране. Услышишь щелчки — это ИИ фотографирует. Между щелчками чуть поворачивай кисть — так примеры получатся разнообразнее».<br><b>ГОВОРИТЬ ВО ВРЕМЯ сбора</b> (команды темпа, по одной каждые ~15 сек): «поверни ладонь чуть влево… теперь чуть вправо… наклони… растопырь пальцы шире…». Плюс подбадривание: «модель кормят примерами — голодная модель глупая» и «ты сейчас пишешь учебник для своего ИИ, каждый кадр — страница».<br><b>ЕСЛИ</b> ребёнок застрял (кадры не щёлкают): «прочитай, что тренажёр просит — совпади РАЗМЕРОМ с контуром» — стоп, это скажет сам тренажёр, ты просто: «делай, что просит рамка». Настя ведёт застрявших лично.<br><b>⛔ НЕ говорить:</b> «размер», «расстояние», «крупно/мелко» — только «как просит контур». Не раскрывать, что контур — ловушка.<br><b>ПЕРЕХОД:</b> у ⅔ группы собрано 6/6 (видно на дашборде у Насти).">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА</div>
+  <h1>Ладонь в контур. Медленно поворачивай кисть</h1>
+  <img class="scr" src="assets/slides/scr-04-collect-palm.png" alt="" style="max-height:46vh">
+</section>
+
+<!-- ============ B3b ЭКРАН сбор кулаков ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> сбор кулаков — ещё 6 кадров, тренажёр сам сменил задание. 1–2 минуты.<br><b>СКАЗАТЬ:</b> «Теперь второй класс — кулак. Делай, как просит контур. И снова: между щелчками чуть поворачивай руку».<br><b>ГОВОРИТЬ ВО ВРЕМЯ:</b> те же команды темпа («поверни… наклони…»). История-заполнитель, если пауза длинная: «Представь, что тебе надо объяснить инопланетянину, что такое кот. Покажешь ОДНУ фотографию спящего кота — он решит, что кот это подушка. Придётся показать много разных котов. С ИИ так же — поэтому мы собираем много примеров».<br><b>⛔</b> те же слова под запретом. Вопросов в чат сейчас не задавать — руки детей заняты.<br><b>ПЕРЕХОД:</b> у ⅔ группы 6/6 кулаков; на экране у них появилась кнопка обучения.">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА</div>
+  <h1>Теперь кулак — как просит контур</h1>
+  <img class="scr" src="assets/slides/scr-05-collect-fist.png" alt="" style="max-height:46vh">
+</section>
+
+<!-- ============ B5 ставка 1 ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> СТАВКА №1 — главная интрига занятия. 1–2 минуты. Дети пишут в чат одно из двух слов.<br><b>СКАЗАТЬ</b> (дословно, это важно): «Прежде чем нажать кнопку обучения — ставка. Сейчас твой ИИ будет искать в примерах закономерность. Вопрос: он заметит ТОЛЬКО ФОРМУ руки — или зацепится за что-то ещё? Напиши в чат: «форму» или «ещё что-то». Через полчаса проверим, кто угадал».<br><b>ДЕЛАТЬ:</b> Настя делает скриншот чата со ставками (вернёмся к ним на слайде 18).<br><b>ЕСЛИ</b> дети спрашивают «а что ещё он может заметить?» — «Вот это и есть вопрос ставки! Не подскажу». <b>⛔ НЕ приводить ни одного примера «ещё чего-то»</b> (ни фон, ни свет, ни размер — любой пример убьёт расследование).<br><b>ПЕРЕХОД:</b> собрал 3–5 ответов в чате (больше половины не ответит — это нормально, не жди).">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">ставка №1</div>
+  <h1>Что твой ИИ заметит в примерах? 🎲</h1>
+  <div class="row">
+    <div class="zone">🖐 только форму</div>
+    <div class="zone z2">🌀 форму и ещё что-то</div>
+  </div>
+  <div class="chat">«форму» или «ещё что-то»</div>
+</section>
+
+<!-- ============ B6 кнопка = альбом ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> дети нажимают «Обучить» и слушают честное объяснение, что произошло. До 60 секунд.<br><b>СКАЗАТЬ:</b> «Жми Обучить. Что сейчас произошло? Кнопка не включила волшебный мозг. Каждый твой кадр стал карточкой и лёг в альбом — вместе с ТВОЕЙ подписью: это ладонь, это кулак. Смотри на слайд: кадр → карточка → альбом. Этот альбом — весь учебник твоего ИИ. Больше он не знает НИЧЕГО».<br>Вопрос детям (риторический, сам отвечать не спеши): «Откуда тогда ИИ узнает, что такое ладонь?» — дай 5 секунд, кто-то скажет «из альбома/из примеров» — «Именно!».<br><b>⛔ НЕ говорить:</b> «нейросеть», «он учится и исправляется», «он думает». Наш тренажёр правда работает как альбом с поиском похожих.<br><b>ПЕРЕХОД:</b> сразу к игре на следующем слайде.">
+  <div class="tag">под капотом · что сделала кнопка «обучить»</div>
+  <h1>Кадр стал карточкой в альбоме</h1>
+  <div class="row">
+    <div class="col"><div class="ex"><span class="b2">✋</span></div><span class="sub">твой кадр</span></div>
+    <div class="arrow">→</div>
+    <div class="col"><div class="ex palm"><span class="b2">✋</span><span class="lbl">ладонь</span></div><span class="sub">карточка с твоей подписью</span></div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="album" style="padding:1.6vmin">
+        <div class="ttl">🗂 альбом</div>
+        <div class="sec">
+          <div class="ex palm" style="width:8vmin;height:8vmin"><span class="b3">✋</span></div>
+          <div class="ex palm" style="width:8vmin;height:8vmin"><span class="b3">✋</span></div>
+          <div class="ex fist" style="width:8vmin;height:8vmin"><span class="b3">✊</span></div>
+          <div class="ex fist" style="width:8vmin;height:8vmin"><span class="b3">✊</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="sub">Альбом — это <b>учебник твоего ИИ</b>. Больше он не знает ничего.</p>
+</section>
+
+<!-- ============ B7 игра «ты — модель» (2 такта) ============ -->
+<section class="slide" data-steps="2" data-note="<b>ЧТО:</b> игра «побудь моделью» — 2–3 минуты. На слайде: новый кадр и 5 карточек альбома. Дети голосуют в чат. Слайд ДВУХТАКТНЫЙ: сейчас виден вопрос, после твоего клика появится ответ.<br><b>СКАЗАТЬ:</b> «Теперь ты сам побудешь моделью. Вот НОВЫЙ кадр — его в альбоме нет. Как твой ИИ ответит: ладонь или кулак? Внимание: я не спрашиваю, что на картинке — я спрашиваю, что ОТВЕТИТ ИИ, у которого есть только этот альбом. Пиши в чат: ладонь или кулак».<br><b>ДЕЛАТЬ:</b> подожди 20–30 секунд, зачитай пару ответов. Потом КЛИКНИ по слайду — откроется вскрытие.<br><b>СКАЗАТЬ после клика:</b> «ИИ находит в альбоме САМЫЕ ПОХОЖИЕ карточки — смотри, они подсветились — и считает голоса: каких подписей среди похожих больше, так и отвечает. Ладоней больше — ответ «ладонь». Ты сейчас сделал ровно то же самое. Это голосование похожих, а не понимание».<br>Бытовая аналогия, если нужна: «Как узнать незнакомый фрукт? Вспоминаешь, на что он похож из знакомых. Похож на три яблока и одну грушу — скажешь «яблоко»».<br><b>ПЕРЕХОД:</b> после вскрытия и одной фразы-аналогии.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">игра: побудь моделью · упрощённая версия (в тренажёре похожих больше)</div>
+  <h1 class="hide2">Не что правильно — как ответит твой ИИ?</h1>
+  <h1 class="t2">Ответ дают самые похожие примеры</h1>
+  <div class="row">
+    <div class="col"><div class="ex q"><span class="b2">✋</span><span class="lbl">новый кадр</span></div></div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <span class="sub">альбом:</span>
+      <div class="row" style="gap:1.3vmin">
+        <div class="ex palm sib" style="width:9vmin;height:9vmin"><span class="b3">✋</span><span class="lbl">ладонь</span></div>
+        <div class="ex palm sib" style="width:9vmin;height:9vmin"><span class="b3">✋</span><span class="lbl">ладонь</span></div>
+        <div class="ex palm sib" style="width:9vmin;height:9vmin"><span class="b3">✋</span><span class="lbl">ладонь</span></div>
+        <div class="ex fist sib2" style="width:9vmin;height:9vmin"><span class="b3">✊</span><span class="lbl">кулак</span></div>
+        <div class="ex fist sib2" style="width:9vmin;height:9vmin"><span class="b3">✊</span><span class="lbl">кулак</span></div>
+      </div>
+    </div>
+    <div class="t2"><div class="arrow">→</div></div>
+    <div class="verdict t2" style="text-align:center">похожих больше у&nbsp;✋<br>→ ответ: <span style="color:var(--palm)">ЛАДОНЬ</span></div>
+  </div>
+  <div class="chat hide2">как ответит ИИ: «✋» или «✊»?</div>
+  <span class="clickhint">клик → вскрытие</span>
+</section>
+
+<!-- ============ B8 ставка 2 ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> СТАВКА №2 перед экзаменом. 1 минута. На слайде три задания экзамена (два обычных + один сюрприз) и жетоны 0–3.<br><b>СКАЗАТЬ:</b> «Сейчас у твоего ИИ экзамен: три проверки — вот они на слайде, третья со звёздочкой, это сюрприз. Ставка: сколько из трёх он сдаст? Напиши число от 0 до 3 в чат. Плохих прогнозов не бывает — исследователь сначала предсказывает, потом проверяет».<br><b>ПЕРЕХОД:</b> несколько чисел в чате — дальше.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">ставка №2 · перед экзаменом</div>
+  <h1>Экзамен: 3 проверки. Сколько сдаст?</h1>
+  <div class="row" style="gap:1.6vmin">
+    <div class="ex palm"><span class="b2">✋</span><span class="lbl">как учил</span></div>
+    <div class="ex fist"><span class="b2">✊</span><span class="lbl">как учил</span></div>
+    <div class="ex q"><span class="b2">✋</span><span class="lbl">сюрприз ⭐</span></div>
+  </div>
+  <div class="pillrow"><div class="pill">0</div><div class="pill">1</div><div class="pill">2</div><div class="pill">3</div></div>
+  <div class="chat">своё число</div>
+</section>
+
+<!-- ============ C1 ЭКРАН экзамен ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> экзамен в тренажёре — 3 замера, тренажёр ведёт сам (показывает, что показать, ребёнок жмёт «Сделать замер»). 3–5 минут. У БОЛЬШИНСТВА на третьем замере модель уверенно ошибётся — это задумано.<br><b>СКАЗАТЬ</b> на старте: «Переходи в тренажёр — он сам поведёт: показывай, что просит, и жми Сделать замер. Три замера. Своё итоговое число — сколько сдал из трёх — ЗАПОМНИ, оно понадобится после починки».<br><b>ГОВОРИТЬ ВО ВРЕМЯ:</b> после первых замеров: «У кого первые два — верно, плюс в чат». Ближе к концу: «Заканчиваем третий замер». Когда прокатилась волна удивления: «Сверь с своей ставкой — кто угадал число?».<br><b>ЕСЛИ</b> у кого-то ИИ НЕ ошибся: «Отличный альбом получился! Ничего не потерял — сейчас разберём случай на моём примере, посмотришь, как оно бывает».<br><b>ДЕЛАТЬ:</b> Настя мониторит дашборд («буксует» — ведёт голосом).<br><b>ПЕРЕХОД:</b> ⅔ группы закончили 3 замера.">
+  <div class="mmap"><span class="ms done">📸</span><span class="ms done">🧠</span><span class="ms cur">🔍</span><span class="ms">🕵️</span><span class="ms">🔧</span></div>
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА</div>
+  <h1>Экзамен: покажи — проверь 🔍</h1>
+  <div class="row" style="gap:1.4vmin">
+    <div class="ex palm" style="width:8vmin;height:8vmin;box-shadow:0 0 0 .5vmin rgba(255,207,92,.6)"><span class="b3">✋</span><span class="lbl">ты здесь</span></div>
+    <div class="ex fist" style="width:8vmin;height:8vmin"><span class="b3">✊</span></div>
+    <div class="ex q" style="width:8vmin;height:8vmin"><span class="b3">✋</span><span class="lbl">сюрприз ⭐</span></div>
+  </div>
+  <img class="scr" src="assets/slides/scr-07-check.png" alt="" style="max-height:36vh">
+  <p class="sub"><b>Запомни своё число из 3</b> — сравним после починки.</p>
+</section>
+
+<!-- ============ C2 уверенная ошибка ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> момент истины — обсуждаем уверенную ошибку. 2 минуты. На слайде скрин ошибки: показал ладонь — ИИ сказал «кулак», шкала на максимуме.<br><b>ТОН — АЗАРТ, не утешение:</b> «Ага! Попался! Смотри, что произошло: ты показал ладонь, а он сказал — кулак. И посмотри на шкалу: он был АБСОЛЮТНО уверен. Запомни это сочетание: очень уверен — и неправ».<br><b>СКАЗАТЬ дальше:</b> «Шкала уверенности — это не «я знаю истину». Это «насколько кадр похож на МОЙ альбом». Все похожие карточки проголосовали за кулак — почему? Вот это и есть наша улика. Помнишь ставку про «ещё что-то»? Мы почти у разгадки».<br><b>⛔ НЕ называть причину</b> (размер) и не намекать. Если ребёнок выкрикнул догадку — «Не выкрикивай! Сейчас каждый запишет свою версию».<br><b>ПЕРЕХОД:</b> сразу к гипотезе.">
+  <div class="tag">улика найдена</div>
+  <h1><span class="b">Очень уверен</span> — и неправ</h1>
+  <img class="scr" src="assets/slides/scr-08-probe-crop.png" alt="" style="max-height:40vh">
+  <div class="row" style="gap:1.4vmin">
+    <div class="fact">показал <span style="color:var(--palm)">✋</span></div>
+    <div class="fact">ответил <span style="color:var(--fist)">✊</span></div>
+    <div class="fact">похожие голосовали единогласно 🤔</div>
+  </div>
+</section>
+
+<!-- ============ C3 ЭКРАН гипотеза ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> дети пишут свою гипотезу в тренажёре (поле с точками вместо букв — чтобы не подсматривали). 2–3 минуты. Потом тренажёр предложит варианты и приведёт к экрану-замку.<br><b>СКАЗАТЬ:</b> «В тренажёре появилось поле. Напиши СВОЮ догадку: почему ИИ перепутал? Буквы скрыты точками — никто не подсмотрит. Пиши любую версию, это расследование, а не контрольная. Потом тренажёр покажет варианты — выбери ближний к твоей догадке. И остановись на экране с замком».<br><b>ГОВОРИТЬ ВО ВРЕМЯ:</b> «Пишем догадку… у кого замок на экране — ты на месте, жди»..<br><b>ЕСЛИ</b> ребёнок пишет «не знаю» — Настя лично: «вспомни, ЧТО общего было у всех твоих ладоней, когда ты их снимал». Больше не подсказывать.<br><b>⛔ НЕ предлагать варианты причин вслух</b> (ни фон, ни свет, ни пальцы) — это глушит собственную гипотезу.<br><b>ПЕРЕХОД:</b> ⅔ группы на экране замка (Настя видит по дашборду стадию «замок»).">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА</div>
+  <h1>Запиши догадку. Идёт следствие 🤫</h1>
+  <img class="scr" src="assets/slides/scr-09-hypo.png" alt="" style="max-height:46vh">
+</section>
+
+<!-- ============ C4 улики ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> обсуждение улик перед разгадкой — САМЫЙ ВАЖНЫЙ разговор занятия. 2–3 минуты. У детей на экране замка — галерея их собственных примеров (все ладони рядом, все кулаки рядом). На слайде — такая же галерея МОЕГО альбома (запасная, для тех, у кого свой не сломался или странный).<br><b>СКАЗАТЬ:</b> «Пока замок закрыт — рассмотри улики. На твоём экране — всё, что видел твой ИИ. Смотри не на одну картинку, а на ВЕСЬ ряд. Вопрос: что общего у всех твоих ладоней? А у всех кулаков? Скажи голосом или в чат».<br><b>ДЕЛАТЬ: МОЛЧАТЬ и ждать.</b> Досчитай про себя до десяти. Разгадку должны назвать ДЕТИ. Когда 2–3 голоса прозвучали («ладони большие, кулаки маленькие») — подтверди: «Вот она, улика!»<br><b>ЕСЛИ тишина 20+ секунд</b> — веди по галерее на слайде: «Смотрите на мой альбом на слайде. Какими получились все мои ладони — большими или маленькими? А кулаки?» — это уже почти прямая наводка, дальше дети скажут сами.<br><b>ПЕРЕХОД:</b> дети произнесли разгадку (про размер) — И ТОЛЬКО ТОГДА код на следующем слайде.">
+  <div class="tag">улики · твой альбом в тренажёре</div>
+  <h1>Что общего внутри каждого ряда?</h1>
+  <img class="scr" src="assets/slides/scr-11-lock.png" alt="" style="max-height:40vh">
+  <p class="sub">Нет своего под рукой — расследуй <b>мой альбом</b> на этом экране 👆</p>
+</section>
+
+<!-- ============ C5 код разгадки ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> выдаём код от замка. 1 минута. После ввода тренажёр покажет каждому его разгадку (там написано и краткое признание, что ловушка была подстроена — не дублируй его сейчас, полное признание на следующем слайде).<br><b>СКАЗАТЬ:</b> «Код разгадки: четыре семь один два. Вводи в поле на экране замка». Продублируй код в чат.<br><b>ДЕЛАТЬ:</b> Настя пишет 4712 в чат. Подожди, пока дети прочитают свою разгадку (30–60 сек).<br><b>ПЕРЕХОД:</b> «Прочитал разгадку — вернись взглядом на экран со слайдами».">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="tag">разгадка</div>
+  <h1>Введи код — сверь догадку</h1>
+  <div class="row">
+    <div class="codebig">4712</div>
+    <div class="arrow">→</div>
+    <div class="fieldmock">код: <b>4 7 1 2</b></div>
+  </div>
+</section>
+
+<!-- ============ C6 альбом решает (размер-код ВКЛЮЧАЕТСЯ) ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> объяснение ПОЧЕМУ так вышло + признание ловушки + возврат ставки №1. 2–3 минуты. Слайд: 4 случая из проверки, альбом ребёнка с двумя дырами-«?», схема «маленькая ладонь ≈ маленькие кулаки».<br><b>СКАЗАТЬ</b> (по слайду, сверху вниз): «Всего существует четыре случая: ладонь крупно, ладонь мелко, кулак крупно, кулак мелко — в экзамене ты видел три из них. А в твоём альбоме были только два: БОЛЬШИЕ ладони и МАЛЕНЬКИЕ кулаки. Про два других — вот эти клетки с вопросами — ИИ не знал ничего. И когда пришла маленькая ладонь, он поискал похожие… а похожими по картинке оказались маленькие КУЛАКИ. Голосование — и уверенный неверный ответ».<br><b>ПРИЗНАНИЕ</b> (обязательно): «И теперь признание: эту ловушку подстроили МЫ. Помнишь контуры? Они нарочно просили ладони крупно, а кулаки мелко. Ты всё сделал правильно — так и было задумано, чтобы поймать ИИ на ошибке».<br><b>ВОЗВРАТ СТАВКИ №1:</b> «Кто в ставке писал «ещё что-то» — вы угадали: ИИ заметил размер, а не только форму».<br><b>ДЛЯ ТЕХ, У КОГО НЕ СЛОМАЛОСЬ:</b> «Если твой ИИ не ошибся — твой альбом случайно получился разнообразнее, ты уже сделал то, что мы все сейчас сделаем нарочно».<br><b>ПЕРЕХОД:</b> после возврата ставки." — угадал». Несломавшимся: «твой альбом случайно вышел разнообразнее — ты уже сделал то, что мы сейчас сделаем все».">
+  <div class="tag">почему так вышло</div>
+  <h1>Этих случаев не было в альбоме</h1>
+  <div class="row">
+    <div class="col">
+      <span class="sub">проверяем 4 случая:</span>
+      <div class="row" style="gap:1.2vmin">
+        <div class="ex palm"><span class="b1">✋</span></div>
+        <div class="ex palm"><span class="b3">✋</span></div>
+        <div class="ex fist"><span class="b1">✊</span></div>
+        <div class="ex fist"><span class="b3">✊</span></div>
+      </div>
+    </div>
+    <div class="arrow">|</div>
+    <div class="col">
+      <span class="sub">в твоём альбоме было два:</span>
+      <div class="album" style="padding:1.6vmin"><div class="sec">
+        <div class="ex palm"><span class="b1">✋</span><span class="lbl">ладонь</span></div>
+        <div class="ex fist"><span class="b3">✊</span><span class="lbl">кулак</span></div>
+        <div class="ex qq"><span style="font-size:4vmin;color:var(--warn);font-weight:900">?</span></div>
+        <div class="ex qq"><span style="font-size:4vmin;color:var(--warn);font-weight:900">?</span></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="row" style="gap:1.3vmin">
+    <span class="sub">поэтому:</span>
+    <div class="ex q" style="width:8.6vmin;height:8.6vmin"><span class="b3">✋</span><span class="lbl">новый кадр</span></div>
+    <div class="arrow">≈</div>
+    <div class="ex fist hot" style="width:8.6vmin;height:8.6vmin"><span class="b3">✊</span></div>
+    <div class="ex fist hot" style="width:8.6vmin;height:8.6vmin"><span class="b3">✊</span></div>
+    <span class="sub">маленькая ладонь похожа на <b>маленькие кулаки</b></span>
+  </div>
+  <p class="sub">😏 Признаёмся: <b>ловушку подстроили мы</b>. Ты всё сделал правильно.</p>
+</section>
+
+<!-- ============ C7 признак и класс ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> вводим слово дня — ПРИЗНАК. 1–2 минуты. Матрица на слайде: столбцы — классы (цвет), строки — крупно/мелко.<br><b>СКАЗАТЬ:</b> «Теперь у этого есть название. КЛАСС — это ответ: ладонь или кулак. А ПРИЗНАК — это подсказка, по которой ИИ выбирает ответ: форма, размер, что угодно в картинке. Мы хотели, чтобы подсказкой была форма. Но в твоём альбоме размер слишком хорошо совпадал с ответом — и ИИ пользовался размером. Смотри на матрицу: класс от размера не зависит — маленькая ладонь всё ещё ладонь».<br><b>КЛИФФХЭНГЕР перед перерывом:</b> «Вопрос на перерыв: как ОТУЧИТЬ ИИ верить одной подсказке? Подумай. После перерыва — чиним».<br><b>ПЕРЕХОД:</b> сразу на таймер.">
+  <div class="tag">слово дня: признак</div>
+  <h1><span class="p">Ладонь</span> — ответ. <span class="w">Размер</span> — подсказка</h1>
+  <table class="mx">
+    <tr><th></th><th style="color:var(--palm)">класс ✋</th><th style="color:var(--fist)">класс ✊</th></tr>
+    <tr><th>крупно</th>
+      <td><div class="ex palm" style="margin:auto"><span class="b1">✋</span></div></td>
+      <td><div class="ex fist" style="margin:auto"><span class="b1">✊</span></div></td></tr>
+    <tr><th>мелко</th>
+      <td><div class="ex palm" style="margin:auto"><span class="b3">✋</span></div></td>
+      <td><div class="ex fist" style="margin:auto"><span class="b3">✊</span></div></td></tr>
+  </table>
+  <div class="row" style="gap:1.4vmin">
+    <div class="fact"><span style="color:var(--warn)">КЛАСС</span> = ответ</div>
+    <div class="fact"><span style="color:var(--warn)">ПРИЗНАК</span> = подсказка для сравнения</div>
+  </div>
+</section>
+
+<!-- ============ П1 перерыв ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> перерыв 5 минут.<br><b>СКАЗАТЬ:</b> «Перерыв пять минут. Встань, потянись, попей воды, отойди от экрана. Возвращаемся в [назови точное время]. Вернулся — плюс в чат».<br><b>ДЕЛАТЬ:</b> кликни по цифрам 5:00 — таймер пойдёт. Сам отойди от камеры (дети копируют). После возврата первые 30 секунд — не сюжет: «С возвращением! Проверь, что тренажёр жив — пошевели рукой перед камерой».<br><b>ПЕРЕХОД:</b> таймер дошёл + плюсы вернувшихся.">
+  <div class="big">🧘</div>
+  <h1 class="timer" id="breaktimer" title="клик — старт">5:00</h1>
+  <p class="sub">вернулся — «+» в чат 💬</p>
+</section>
+
+<!-- ============ D1 возврат + план ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> возврат контекста + план починки. 1–2 минуты. Цепочка на слайде: ошибка → подозрение «размер» → добавить противоположные размеры → снова экзамен.<br><b>ЭНЕРДЖАЙЗЕР</b> (20 сек, сразу после возврата): «Встань и покажи в камеру самую МАЛЕНЬКУЮ ладонь, какую сможешь — отодвинь руку далеко-далеко. Отлично, ты только что отрепетировал починку!»<br><b>СКАЗАТЬ:</b> «Вспомним: до перерыва мы поймали ИИ — он подсматривал в размер. Чиним как учёные: меняем ОДНУ вещь — состав примеров. Сам тренажёр, форму рук, свет — не трогаем. Потом повторим ТОТ ЖЕ экзамен, иначе не узнаем, помогло ли».<br><b>ПЕРЕХОД:</b> сразу дальше.">
+  <div class="mmap"><span class="ms done">📸</span><span class="ms done">🧠</span><span class="ms done">🔍</span><span class="ms done">🕵️</span><span class="ms cur">🔧</span></div>
+  <div class="tag">план починки</div>
+  <h1>Меняем одно — проверяем то же</h1>
+  <div class="flow">
+    <div class="fstep"><div class="fi">❌</div>ошибка:<br>маленькая ладонь</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🤔</div>подозрение:<br><b style="color:var(--warn)">размер</b></div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">➕</div>добавить<br>противоположные размеры</div><div class="arrow">→</div>
+    <div class="fstep"><div class="fi">🔁</div>снова<br>экзамен</div>
+  </div>
+</section>
+
+<!-- ============ D2 контрпримеры ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> дети сами называют, каких примеров не хватает. 2–3 минуты. Слайд: матрица «было» с двумя дырами → матрица «стало» полная.<br><b>СКАЗАТЬ</b> (сначала ВОПРОС, не ответ): «Смотри на левую таблицу. Каких примеров не хватает, чтобы подсказка «размер» перестала работать? Назови две пустые клетки — голосом или в чат». Подожди ответов (маленькие ладони, большие кулаки).<br><b>ПОСЛЕ ответов:</b> «Точно: маленькие ладони и большие кулаки. Пример, который спорит со старым правилом, называется КОНТРПРИМЕР — пример-спорщик. Мы не уговариваем ИИ и не переписываем его код. Мы кладём новые карточки в его альбом — вот как выглядит перевоспитание на самом деле».<br><b>ЕСЛИ</b> дети называют фон/свет: «Хорошая идея для будущих экспериментов! Но мы меняем одну вещь за раз — сегодня размер».<br><b>ПЕРЕХОД:</b> обе клетки названы.">
+  <div class="tag">слово дня: контрпример</div>
+  <h1>Примеры-спорщики ломают подсказку</h1>
+  <div class="row">
+    <div class="col">
+      <span class="sub">было: размер выдаёт ответ</span>
+      <table class="mx" style="border-spacing:.8vmin">
+        <tr><td><div class="ex palm" style="margin:auto"><span class="b1">✋</span></div></td><td class="miss"><div class="q">?</div></td></tr>
+        <tr><td class="miss"><div class="q">?</div></td><td><div class="ex fist" style="margin:auto"><span class="b3">✊</span></div></td></tr>
+      </table>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <span class="sub">стало: размер один не выдаёт ответ</span>
+      <table class="mx" style="border-spacing:.8vmin">
+        <tr><td><div class="ex palm" style="margin:auto"><span class="b1">✋</span></div></td><td><div class="ex palm" style="margin:auto"><span class="b3">✋</span></div></td></tr>
+        <tr><td><div class="ex fist" style="margin:auto"><span class="b1">✊</span></div></td><td><div class="ex fist" style="margin:auto"><span class="b3">✊</span></div></td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="row" style="gap:2vmin">
+    <div class="fact"><span class="strike" style="padding:0 .8vmin">большое = ладонь</span></div>
+    <div class="fact"><span style="color:var(--warn)">КОНТРПРИМЕР</span> (пример-спорщик) — спорит с простым правилом</div>
+  </div>
+</section>
+
+<!-- ============ D3 ЭКРАН починка ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> сбор контрпримеров в тренажёре: сначала 3 маленьких ладони, потом 3 больших кулака (тренажёр ведёт сам, два шага). 3–5 минут.<br><b>СКАЗАТЬ:</b> «Переходи в тренажёр, жми Починить ИИ и выбери способ. Дальше он сам поведёт: сначала маленькие ладони — издалека, потом большие кулаки — близко. Помни: форму не меняем, маленькая ладонь — всё ещё раскрытая ладонь. Старые примеры остаются в альбоме, ты ДОБАВЛЯЕШЬ новые».<br><b>ГОВОРИТЬ ВО ВРЕМЯ:</b> команды темпа как на сборе («чуть поворачивай…»), таймкипинг: «у большинства первый шаг готов… заканчиваем кулаки».<br><b>ЕСЛИ</b> застрял на выборе способа починки: тренажёр после двух неверных попыток сам подскажет — не спеши отвечать за него.<br><b>ДЛЯ БЫСТРЫХ:</b> «придумай ещё один контрпример, которого нет в задании, — но НЕ снимай его, расскажешь в конце».<br><b>ПЕРЕХОД:</b> ⅔ собрали оба шага (дашборд).">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="screenbadge">ЭКРАН ТРЕНАЖЁРА</div>
+  <h1>Добавь: <span class="p">маленькую ✋</span> и <span class="f">большой ✊</span></h1>
+  <div class="row" style="gap:3vmin;align-items:center">
+    <div class="col" style="gap:2.4vmin">
+      <div class="ex palm"><span class="b3">✋</span><span class="lbl">мелко!</span></div>
+      <div class="ex fist"><span class="b1">✊</span><span class="lbl">крупно!</span></div>
+    </div>
+    <img class="scr" src="assets/slides/scr-13-fixpick.png" alt="" style="max-width:56vw;max-height:44vh">
+  </div>
+</section>
+
+<!-- ============ D4 проверка после починки ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> повторный экзамен: те же три задания + одно новое (большой кулак). 3–5 минут. Потом дети пишут результат в чат.<br><b>СКАЗАТЬ:</b> «Финальная проверка. Она честная: те же три задания, что до починки, плюс одно новое — самое хитрое. Проходи в тренажёре, потом напиши в чат: на тех же трёх — было сколько, стало сколько, и сдал ли новый. Например: было 1 из 3 — стало 3 из 3, новый сдал».<br><b>ГОВОРИТЬ ВО ВРЕМЯ:</b> «Заканчиваем три прежних проверки…», «Теперь новый случай — большой кулак, самый хитрый».<br><b>ФРАЗЫ НА ТРИ ИСХОДА</b> (говори по ситуации из чата):<br>· стало лучше — «Мы добавили недостающие случаи, и на нашей мини-проверке это помогло»;<br>· так же — «Альбом изменился, но похожие пока голосуют по-старому. Дома в лаборатории добавь ещё более разных примеров»;<br>· стало хуже — «Три случая — маленькая проверка, бывает. Стало хуже — тоже открытие: так и в настоящих лабораториях».<br><b>⛔ НЕ говорить «доказали»</b> — говорим «увидели улучшение на нашей мини-проверке».<br><b>ПЕРЕХОД:</b> несколько результатов в чате разобраны.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">финальный замер</div>
+  <h1>Те же три задания + одно новое</h1>
+  <table class="mx" style="border-spacing:.8vmin">
+    <tr><th></th>
+      <th><div class="ex palm" style="margin:auto;width:8.6vmin;height:8.6vmin"><span class="b1">✋</span></div></th>
+      <th><div class="ex fist" style="margin:auto;width:8.6vmin;height:8.6vmin"><span class="b3">✊</span></div></th>
+      <th><div class="ex palm hot" style="margin:auto;width:8.6vmin;height:8.6vmin"><span class="b3">✋</span></div></th>
+      <th><div class="ex fist hot" style="margin:auto;width:8.6vmin;height:8.6vmin"><span class="b1">✊</span><span class="lbl">новый!</span></div></th></tr>
+    <tr><th>до</th><td style="height:7vmin;font-size:2.6vmin;color:var(--muted)">твой ✔/✘</td><td style="font-size:2.6vmin;color:var(--muted)">твой ✔/✘</td><td style="font-size:2.6vmin;color:var(--muted)">твой ✔/✘</td><td style="font-size:2.4vmin;color:var(--muted)">—</td></tr>
+    <tr><th>после</th><td style="height:7vmin;font-size:3vmin;color:var(--warn)">?</td><td style="font-size:3vmin;color:var(--warn)">?</td><td style="font-size:3vmin;color:var(--warn)">?</td><td style="font-size:3vmin;color:var(--warn)">?</td></tr>
+  </table>
+  <div class="chat">«на тех же трёх: было 1 из 3 → стало 3 из 3. Новый: сдал»</div>
+</section>
+
+<!-- ============ D5 мини-ответ (2 такта) ============ -->
+<section class="slide" data-steps="2" data-note="<b>ЧТО:</b> письменный мини-ответ в тренажёре — главный итог занятия. Код 33 открывает три вопроса. 3–4 минуты. Слайд двухтактный: сейчас код, после клика — три вопроса.<br><b>СКАЗАТЬ:</b> «Закрываем дело детектива. Код: три три. Введи в тренажёре — он задаст три вопроса. Отвечай своими словами, пары фраз на каждый хватит. Это не оценка — это твой отчёт детектива». КЛИКНИ слайд — покажутся вопросы: «Вот они: мой ИИ ошибался, потому что… я починил тем, что… ещё я добавил бы…».<br><b>ТАЙМКИПИНГ:</b> «Две минуты на ответы… минута осталась».<br><b>ДЛЯ ТЕХ, У КОГО НЕ ЛОМАЛОСЬ:</b> «Пиши: моя модель не сломалась, и я проверил её на новых случаях».<br><b>ВАЖНО:</b> письменно и ДО общего обсуждения — не разбирайте ответы вслух, пока все не отправили.<br><b>ПЕРЕХОД:</b> Настя по дашборду видит, что ⅔ отправили опрос.">
+  <span class="chan c-app">🤖 В ТРЕНАЖЁР</span>
+  <div class="tag">закрой дело</div>
+  <h1>Три вопроса детектива: код 33</h1>
+  <div class="row hide2">
+    <div class="codebig">33</div>
+    <div class="arrow">→</div>
+    <div class="fieldmock">код: <b>3 3</b></div>
+  </div>
+  <div class="col t2" style="display:none;gap:1.6vmin">
+    <div class="fact">1 · «Мой ИИ ошибался, потому что…»</div>
+    <div class="fact">2 · «Я починил тем, что…»</div>
+    <div class="fact">3 · «Ещё я добавил бы…»</div>
+    <p class="sub">своими словами · пары фраз хватит · 2 минуты</p>
+  </div>
+  <span class="clickhint">клик → вопросы</span>
+</section>
+
+<!-- ============ D6 БОНУС чихуахуа (2 такта) ============ -->
+<section class="slide" data-steps="2" data-note="<b>ЧТО:</b> БОНУС на запас времени — чихуахуа или маффин. 2 минуты. Если занятие отстаёт — ПРОПУСТИ этот слайд целиком, ни на что не ссылается. Слайд двухтактный.<br><b>СКАЗАТЬ:</b> «Минутка отдыха для детектива. Где собака, а где кекс? А теперь вопрос посерьёзнее: по каким ПРИЗНАКАМ ты их отличаешь?» Собери пару ответов голосом. КЛИКНИ — появится разбор.<br><b>ПОСЛЕ клика:</b> «Смотри, какие признаки тут коварные: тёмные точки — это и глаза, и ягоды. Цвет — и шерсть, и тесто. Одна подсказка легко обманывает — твой ИИ тоже поверил одной. Поэтому настоящие ИИ проверяют много признаков сразу».<br><b>ПЕРЕХОД:</b> после разбора.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">бонус · минутка признаков</div>
+  <h1 class="hide2">Чихуахуа или маффин? 🐶🧁</h1>
+  <h1 class="t2">Похожая подсказка бывает случайной</h1>
+  <div class="memowrap">
+    <img class="photo" src="assets/slides/gen-muffin-grid.png" alt="" style="max-height:44vh">
+    <span class="memolbl t2" style="left:4%;top:10%">тёмные точки: глаза? ягоды?</span>
+    <span class="memolbl t2" style="right:3%;top:44%">цвет: шерсть? тесто?</span>
+    <span class="memolbl t2" style="left:12%;bottom:8%">круглое: морда? кекс?</span>
+  </div>
+  <div class="chat hide2">по каким признакам отличаешь?</div>
+  <span class="clickhint">клик → разбор</span>
+</section>
+
+<!-- ============ E1 Алиса ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> перенос на большой ИИ — история про голосового помощника. ЖЁСТКО 90 секунд, одна мысль. Две карточки на слайде.<br><b>СКАЗАТЬ:</b> «Думаешь, это только про ладони? Смотри. Признаки бывают не только в картинке — в голосе тоже. Голосовой помощник Алиса умеет узнавать ПО ГОЛОСУ, что говорит ребёнок, — и включает детский режим. А чтобы Алиса понимала шёпот, её пришлось учить отдельно: обычных примеров речи для этого мало. Для особых ситуаций — детский голос, шёпот — понадобились СВОИ примеры. Ровно как у нас с маленькими ладонями».<br><b>⛔ НЕ утверждать</b> «в данных Алисы не было детей» — мы этого не знаем; формула: «понадобились отдельные примеры».<br><b>ПЕРЕХОД:</b> сразу дальше, не разгоняться в истории.">
+  <div class="mmap"><span class="ms done">📸</span><span class="ms done">🧠</span><span class="ms done">🔍</span><span class="ms done">🕵️</span><span class="ms done">🔧</span></div>
+  <div class="tag">а в настоящем ИИ? · признаки бывают и в звуке</div>
+  <h1>Особым голосам — свои примеры</h1>
+  <div class="row">
+    <div class="fstep" style="max-width:34vmin"><div class="fi">🧒</div><b>детский голос</b><div class="fs">Алиса узнаёт по голосу, что говорит ребёнок → включает детский режим</div></div>
+    <div class="fstep" style="max-width:34vmin"><div class="fi">🤫</div><b>шёпот</b><div class="fs">шёпот пришлось учить отдельно — понадобились свои примеры</div></div>
+  </div>
+</section>
+
+<!-- ============ E2 кого нет в данных ============ -->
+<section class="slide" data-note="<b>ЧТО:</b> главный переносимый вывод — вопрос разработчика ИИ. 2–3 минуты. На слайде воображаемый набор данных и то, чего в нём нет.<br><b>СКАЗАТЬ:</b> «ПРЕДСТАВИМ голосовой помощник, у которого в примерах только взрослые голоса и тихая комната. Кто останется за бортом? — ребёнок, шёпот, шумная улица. Хороший разработчик ИИ всегда спрашивает: КОГО И ЧЕГО НЕТ в моих данных? Твой вопрос: кого ты добавил бы первым? Пиши в чат или говори».<br><b>ДЕЛАТЬ:</b> собери 3–4 ответа, любые разумные хвали через связь с данными («да — значит нужны примеры с шумом»).<br><b>ЕСЛИ</b> дети называют случайных персонажей — переводи в данные: «ок, а какие ПРИМЕРЫ для этого нужно добавить?»<br><b>ПЕРЕХОД:</b> 3–4 ответа разобраны.">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">главный вопрос разработчика ИИ</div>
+  <h1>Кого и чего нет в данных?</h1>
+  <div class="row">
+    <div class="album" style="padding:2vmin">
+      <div class="ttl">представим, в данных есть</div>
+      <div class="sec" style="gap:1.2vmin">
+        <div class="fstep" style="font-size:2vmin;max-width:16vmin"><div class="fi" style="font-size:3.4vmin">🧔</div>взрослый голос</div>
+        <div class="fstep" style="font-size:2vmin;max-width:16vmin"><div class="fi" style="font-size:3.4vmin">🏠</div>тихая комната</div>
+      </div>
+    </div>
+    <div class="arrow">|</div>
+    <div class="col">
+      <span class="sub">снаружи:</span>
+      <div class="row" style="gap:1.1vmin">
+        <div class="fstep" style="font-size:2vmin;max-width:14vmin;border-color:var(--warn)"><div class="fi" style="font-size:3.4vmin">🧒</div>ребёнок</div>
+        <div class="fstep" style="font-size:2vmin;max-width:14vmin;border-color:var(--warn)"><div class="fi" style="font-size:3.4vmin">🤫</div>шёпот</div>
+        <div class="fstep" style="font-size:2vmin;max-width:14vmin;border-color:var(--warn)"><div class="fi" style="font-size:3.4vmin">🚇</div>шумная улица</div>
+        <div class="fstep" style="font-size:2vmin;max-width:14vmin;border-color:var(--warn);border-style:dashed"><div class="fi" style="font-size:3.4vmin;color:var(--warn)">?</div>твой вариант</div>
+      </div>
+    </div>
+  </div>
+  <div class="chat">кого добавишь первым?</div>
+</section>
+
+<!-- ============ E3 финал (2 такта) ============ -->
+<section class="slide" data-steps="2" data-note="<b>ЧТО:</b> финал. 3–4 минуты. Слайд двухтактный: сначала карта с галочками и награды, после клика — последний вопрос.<br><b>СКАЗАТЬ:</b> «Смотри на карту: собрал — обучил — экзамен — поймал — починил. Ты прошёл ВСЕ пять шагов. В тренажёре тебя ждёт сертификат — скачай его. И шестой шаг — Лаборатория: там можно учить ИИ чему угодно. Домашнее задание: покажи родителям свой ИИ в лаборатории — как ты его сломал и починил. Там же три миссии детектива — попробуй». <br><b>КЛИКНИ слайд:</b> «И последний вопрос, самый важный для нас: пошёл бы ты на следующее такое занятие? Напиши в чат честно: да, нет или не знаю. Это не оценка».<br><b>ДЕЛАТЬ:</b> Настя ОБЯЗАТЕЛЬНО скриншотит чат с ответами (это наш главный замер).<br><b>ФИНАЛЬНАЯ ФРАЗА:</b> «Сегодня ты не смотрел на ИИ — ты его обучил, поймал и починил. Так работают настоящие исследователи. Спасибо, детективы!»">
+  <span class="chan c-chat">💬 В ЧАТ</span>
+  <div class="tag">финал</div>
+  <h1 class="hide2">Ты прошёл все пять шагов 🏆</h1>
+  <h1 class="t2">И последний вопрос…</h1>
+  <div class="flow hide2">
+    <div class="fstep"><div class="fi">📸✔</div>собрал</div>
+    <div class="fstep"><div class="fi">🧠✔</div>обучил</div>
+    <div class="fstep"><div class="fi">🔍✔</div>экзамен</div>
+    <div class="fstep"><div class="fi">🕵️✔</div>поймал</div>
+    <div class="fstep"><div class="fi">🔧✔</div>починил</div>
+    <div class="arrow">→</div>
+    <div class="fstep" style="border-color:var(--palm)"><div class="fi">🧪</div>шаг 6: лаборатория</div>
+  </div>
+  <div class="row hide2" style="gap:1.4vmin">
+    <div class="fact">📜 сертификат — в тренажёре</div>
+    <div class="fact">🏠 домашка: покажи родителям Лабораторию</div>
+    <div class="fact">⚡ 3 миссии детектива ждут там же</div>
+  </div>
+  <div class="chat t2">пошёл бы на следующее занятие? «да» / «нет» / «не знаю»</div>
+  <span class="clickhint">клик → последний вопрос</span>
+</section>
+
+</div>
+<div id="hud">1 / 27</div>
+<div id="notes"></div>
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let cur=Math.max(0,Math.min(slides.length-1,parseInt(location.hash.slice(1))||0));
+if(new URLSearchParams(location.search).has('notes'))document.body.classList.add('notes');
+function render(){
+  slides.forEach((s,j)=>s.classList.toggle('on',j===cur));
+  document.getElementById('hud').textContent=(cur+1)+' / '+slides.length;
+  document.getElementById('notes').innerHTML='<b>№'+(cur+1)+'</b> · '+(slides[cur].dataset.note||'—');
+  location.hash=cur;
+}
+function fwd(){
+  const s=slides[cur];
+  if(s.dataset.steps&&!s.classList.contains('rev')){s.classList.add('rev');return;}
+  if(cur<slides.length-1){slides[cur].classList.remove('rev');cur++;render();}
+}
+function back(){
+  const s=slides[cur];
+  if(s.classList.contains('rev')){s.classList.remove('rev');return;}
+  if(cur>0){cur--;slides[cur].classList.remove('rev');render();}
+}
+addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();fwd();}
+  if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();back();}
+  if(e.key==='Home'){cur=0;render();}
+});
+addEventListener('click',e=>{
+  if(e.target.id==='breaktimer'){startBreak();return;}
+  if(e.clientX>innerWidth*0.45)fwd();else back();
+});
+let breakIv=null;
+function startBreak(){
+  const el=document.getElementById('breaktimer');
+  if(breakIv){clearInterval(breakIv);breakIv=null;el.textContent='5:00';return;}
+  let s=300;
+  breakIv=setInterval(()=>{
+    s--;el.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+    if(s<=0){clearInterval(breakIv);breakIv=null;el.textContent='ПОЕХАЛИ! 🚀';}
+  },1000);
+}
+render();
+</script>
+</body>
+</html>
