@@ -671,7 +671,10 @@ async function initModel(){
   const hopt=d=>({baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:d},runningMode:"IMAGE",numHands:1});
   setLoad('Гружу ИИ… детектор руки',false,75);
   try{ hander=await HandLandmarker.createFromOptions(vision,hopt(window.__gpu)); }
-  catch(e){ try{ hander=await HandLandmarker.createFromOptions(vision,hopt("CPU")); }catch(e2){ hander=null; } }
+  catch(e){ try{ hander=await HandLandmarker.createFromOptions(vision,hopt("CPU")); }
+    // на занятии без детектора урок невозможен (гейты не пройдут никогда) — честная ошибка на загрузке
+    // вместо молчаливого тупика на сборе (Codex R4). Дома/лаборатория без ws живут: сбор кнопками
+    catch(e2){ hander=null; if(WS)throw new Error('HAND:детектор руки не запустился'); } }
 }
 function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
 
@@ -1685,7 +1688,9 @@ async function boot(){$('#intro').classList.add('hidden');$('#loading').classLis
        TELE.push('boot_ok'); TELE.cleanup(); TELE.resend();
        enterGuide();          // урок ведёт сам: калибровка → тренировка → проверка → починка → финал
   }catch(e){console.error(e);const m=String(e.message||e);TELE.push('boot_fail',{m:m.slice(0,80)});
-    setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».':'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
+    setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».'
+      :m.startsWith('HAND:')?'❌ Этот компьютер не смог запустить детектор руки. Попробуй браузер Chrome или позови ведущего 🙋'
+      :'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
 }
 let RESUME=false;
 $('#start').onclick=()=>{RESUME=false;SAVE_FRESH=true;SAVE_CYCLE=Math.random().toString(36).slice(2,10);boot();};$('#retry').onclick=boot;   // Поехали = новый цикл сейва
