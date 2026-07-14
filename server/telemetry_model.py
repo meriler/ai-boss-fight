@@ -75,11 +75,23 @@ def ev(events, t):
 
 
 def last_stage(events):
+    """Этап ребёнка. МОНОТОННЫЙ после финала: свободные зоны базы (съёмка/полигон v5-хаба)
+    шлют те же sample/check_done — они не должны откатывать «финал» назад в «сбор данных»
+    на живом дашборде (Codex R5 14.07). До финала — последнее событие, как раньше."""
+    last = '—'
     for e in reversed(events):
         h = STAGE_HUMAN.get(e.get('type'))
         if h:
-            return h
-    return '—'
+            last = h
+            break
+    hi = max((STAGE_ORDER.get(STAGE_HUMAN.get(e.get('type'), ''), 0) for e in events), default=0)
+    if hi >= STAGE_ORDER['финал'] and STAGE_ORDER.get(last, 0) < STAGE_ORDER['финал']:
+        # дошёл до финала, но последним событием была свободная активность — показываем максимум
+        for e in reversed(events):
+            h = STAGE_HUMAN.get(e.get('type'))
+            if h and STAGE_ORDER.get(h, 0) == hi:
+                return h
+    return last
 
 
 def cut(s, n=80):
@@ -275,11 +287,14 @@ def build_children(dumps, names=None):
         else:
             def _cd(rounds):
                 for e in reversed(events):
+                    # только guided-раунды: свободный полигон v5-хаба шлёт check_done round=0
+                    # без guided — он НЕ замер урока и не должен подменять r1 (Codex R5 14.07)
                     if e.get('type') == 'check_done' and e.get('round') in rounds \
+                            and e.get('guided') \
                             and isinstance(e.get('correct'), int) and isinstance(e.get('total'), int):
                         return {'correct': e['correct'], 'total': e['total']}
                 return None
-            r1, r2 = _cd((0, 1)), _cd((2,))
+            r1, r2 = _cd((1,)), _cd((2,))
         # агрегаты по ВСЕМ сессиям места: невалидные кадры (какой гейт душит), дропы камеры, артефакт
         inv = {}
         for d in sessions:

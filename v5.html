@@ -167,10 +167,18 @@
   #hublesson .mtxt{flex:1;min-width:0}
   #hublesson .mtxt b{display:block;font-size:15px}
   #hublesson .mtxt span{color:var(--muted);font-size:12px}
-  .crd-del{position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:99px;background:var(--bad);color:#fff;
-    font-size:12px;font-weight:900;border:0;padding:0;line-height:24px;cursor:pointer;min-height:0}
-  .galrow .cw{position:relative}
+  /* специфичность > «.screen button» — иначе ✕ растягивается на всю ширину ряда (прод-тест Алексея 14.07) */
+  .galrow .crd-del{position:absolute;top:-7px;right:-7px;width:24px!important;min-width:24px;height:24px;border-radius:99px;background:var(--bad);color:#fff;
+    font-size:12px;font-weight:900;border:0;padding:0;line-height:24px;cursor:pointer;min-height:0;flex:none}
+  .galrow .cw{position:relative;display:inline-block}
   .galrow .cw.arm canvas{outline:3px solid var(--bad);filter:brightness(1.25)}
+  /* явные клавиши-кейкапы в съёмке + живой лог снятых кадров (фидбек Алексея 14.07) */
+  .keycap{display:inline-block;min-width:18px;padding:0 6px;border:1.5px solid var(--accent);border-bottom-width:3px;border-radius:6px;background:#182234;color:var(--accent);font-weight:900;font-size:13px;text-align:center}
+  .teach .kk{font-size:11.5px;color:var(--text);margin-top:3px;font-weight:700}
+  #shotlog{position:absolute;left:10px;bottom:150px;z-index:12;display:flex;flex-direction:column-reverse;gap:4px;pointer-events:none}
+  #shotlog .sle{display:flex;align-items:center;gap:7px;background:rgba(10,14,20,.85);border:1px solid var(--line);border-radius:10px;padding:3px 8px;font-size:12px;font-weight:800;animation:slein .18s ease-out}
+  #shotlog canvas{width:38px;height:38px;border-radius:6px;image-rendering:pixelated;border:1px solid var(--line)}
+  @keyframes slein{from{opacity:0;transform:translateX(-8px)}to{opacity:1}}
   #lockcode:focus{outline:none;border-color:var(--accent)}
   /* ввод номера места */
   /* колонки сжимаемые: фиксированные 64px вылезали за узкое окно/зум — терялись целые столбцы (смок 09.07) */
@@ -202,6 +210,7 @@
   <div id="zone" class="hidden"><span class="zl"></span></div>
   <div id="toast"></div>
   <div id="shotfx">📸</div>
+  <div id="shotlog" class="hidden"></div>
   <!-- хаб-навигация (14.07): нижняя панель зон, строится JS (navRender) -->
   <div id="wsnav" class="hidden"></div>
   <div id="ckcount3"></div>
@@ -664,7 +673,7 @@ const CHIPS=['слева','справа','ближе','дальше','накло
 function buildTeach(){
   teachrow.innerHTML='';
   CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;
-    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name} <span style="opacity:.55;font-size:11px">(клавиша ${i+1})</span></div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h"></div>`;
+    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="kk">держи <span class="keycap">${i+1}</span> — снимаю</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h"></div>`;
     teachrow.appendChild(el)});
   $('#chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip" data-c="${i}">${c}</span>`).join('');
   $('#chips').querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>ch.classList.toggle('on'));
@@ -858,11 +867,27 @@ function trySaveOn(type,data){ if(!WS)return; try{
 }catch(e){} }
 /* вспышка-«щёлк» на каждый принятый кадр: рестарт CSS-анимации через reflow */
 function flashShot(){ const el=$('#shotfx'); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
+/* живой лог снятых кадров в съёмке (фидбек Алексея 14.07: «не хватает обратной связи —
+   что зафиксировалось и каким классом»). Мини-кадр + класс, живёт 4 сек, максимум 4 записи. */
+function shotLog(cls,img){
+  if(state!=='train'||!img)return;
+  const sl=$('#shotlog'); sl.classList.remove('hidden');
+  const e=document.createElement('div'); e.className='sle';
+  const c=document.createElement('canvas'); c.width=32; c.height=32;
+  c.getContext('2d').putImageData(img,0,0); e.appendChild(c);
+  const t=document.createElement('span'); t.textContent=(cls===0?'✋ ладонь':'✊ кулак')+' · в альбом'; e.appendChild(t);
+  sl.appendChild(e);
+  while(sl.children.length>4)sl.firstChild.remove();
+  setTimeout(()=>{ if(e.parentNode)e.remove(); if(!sl.children.length)sl.classList.add('hidden'); },4000);
+}
 function addExample(i,round){ const f=curFeat||grabFeature(); if(!f){showToast('Кадр не готов',700);return false}
   KNN.add(f,i); counts[i]++;
   if(i===0&&lastPix)certFrame=lastPix;   // в сертификат — последняя ЛАДОНЬ (пятерня фотогеничнее кулака, смок 10.07)
-  if(lastPix)THUMBS[i].push({img:new ImageData(new Uint8ClampedArray(lastPix.data),32,32),round:round||0});
+  if(lastPix){ const img=new ImageData(new Uint8ClampedArray(lastPix.data),32,32);
+    THUMBS[i].push({img,round:round||0}); shotLog(i,img); }
   TELE.push('sample',{cls:i,round:round||0,hand:lastHand.side!=null?+lastHand.side.toFixed(3):null,n:counts[i]});
+  // post-final съёмка меняет модель — снапшотим (иначе F5 отменяет добавления; Codex R5)
+  if(NAV.finalSeen){ clearTimeout(addExample._t); addExample._t=setTimeout(()=>{try{saveMilestone('final')}catch(e){}},1200); }
   refresh(); updateHint(); SFX.learn(counts[i]); flashShot(); return true;
 }
 
@@ -973,13 +998,14 @@ function navHideAll(){   // showScreen(null) — не общий сброс (р�
   $('#ckcount3').style.display='none';
 }
 function navToHub(){
-  if(state==='gcheck'&&CHK&&(CHK.phase==='count'||CHK.phase==='hold')){ showToast('Секунду — идёт замер 📸',1000); return; }
-  if(state==='game')return;                       // у игры своя навигация (gLab/gFinal)
+  if(state==='gcheck'&&CHK&&(CHK.phase==='count'||CHK.phase==='hold')){ showToast('Секунду — идёт замер 📸',1000); return false; }
+  if(state==='game')return false;                 // у игры своя навигация (gLab/gFinal)
   stopCollect();
   if(navInLesson()){ const c=navCapture(); if(c)NAV.lesson=c;
     if(state==='gteach'){GUIDE.gateMs=0;GUIDE.stuckMs=0;} }   // пауза не должна дощёлкать кадр на возврате
   openAlbumOverlay._prev=null;                    // оверлей не имеет права вернуть протухший маршрут
   navHideAll(); state='hub'; showScreen('hub'); navRender(true);
+  return true;
 }
 function navResumeLesson(){
   if(!NAV.lesson)return;
@@ -1008,10 +1034,12 @@ function navZones(){
 function navGo(id){
   const z=navZones().find(z=>z.id===id);
   if(!z||!z.open){ showToast('🔒 Откроется '+(z?z.when:'позже'),1300); return; }
-  if(NAV.lesson&&NAV.lesson.kind==='gcheck'&&(id==='shoot'||id==='range')){
-    showToast('Сначала закончи замер урока 🙂',1400); return; }   // CHK один на всех — свободная серия затёрла бы замер урока
+  // пост-финальное дообучение (шаг урока на паузе = gteach/gcheck): мутирующие зоны и «Награды»
+  // заперты — иначе съёмка/удаление меняют модель ПОСРЕДИ замера, а финал-экран затирает якорь (Codex R5)
+  if(NAV.lesson&&(NAV.lesson.kind==='gcheck'||NAV.lesson.kind==='gteach')&&(id==='shoot'||id==='range'||id==='prize')){
+    showToast('Сначала закончи шаг урока 🙂\n(кнопка «Урок»)',1500); return; }
   if(id==='hub'){ navToHub(); return; }
-  if(state!=='hub')navToHub();       // зоны стартуют с базы — якорь урока снимается единообразно
+  if(state!=='hub'&&!navToHub())return;   // отказ базы (идёт замер) = зона не открывается (Codex R5)
   if(id==='album'){ openAlbumOverlay(); }
   else if(id==='shoot'){ enterLab(); }
   else if(id==='range'){ NAV.rangeFromHub=true; topEl.classList.remove('hidden'); showScreen(null); startCheck(); }
@@ -1132,6 +1160,7 @@ function ckButtons(mode){ // 'shot' | 'retry' | 'next' | 'why' | none
 function navRandCard(){ const pool=[{cls:0,gate:'small'},{cls:1,gate:'big'},{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:null},{cls:1,gate:null}];
   return pool[(Math.random()*pool.length)|0]; }
 function startCheck(){
+  if(!counts[0]||!counts[1]){ showToast('Нужен хотя бы 1 пример каждого:\n✋ и ✊ — иначе ИИ не с чем сравнивать',1800); return; }
   state='check';
   CHK={cards:[{cls:0,gate:'big'},{cls:1,gate:'small'}],idx:0,phase:'ready',t0:performance.now(),
        samples:[],lastSample:0,results:[],guided:false,endless:true};
@@ -1510,10 +1539,13 @@ function delExample(cls,n){
   // сертификату нужен живой кадр: удалили ладонь → последняя оставшаяся ладонь, иначе любой пример
   certFrame=THUMBS[0].length?THUMBS[0][THUMBS[0].length-1].img:(THUMBS[1].length?THUMBS[1][THUMBS[1].length-1].img:null);
   TELE.push('sample_del',{cls});
-  clearTimeout(delExample._t); delExample._t=setTimeout(()=>{try{saveMilestone('final')}catch(e){}},1200);
+  clearTimeout(delExample._t);
+  if(!KNN.ex.length){ clearSave(); }   // альбом опустел: сейв не умеет «пусто» → честный чистый старт после F5 (Codex R5)
+  else delExample._t=setTimeout(()=>{try{saveMilestone('final')}catch(e){}},1200);
   refresh(); updateHint(); return true;
 }
-function albumEditable(){ return NAV.finalSeen&&(GUIDE.unlocked||!WS); }
+function albumEditable(){ return NAV.finalSeen&&(GUIDE.unlocked||!WS)
+  &&!(NAV.lesson&&(NAV.lesson.kind==='gteach'||NAV.lesson.kind==='gcheck')); }   // на паузе шага урока — только смотреть
 function buildGallery(gal,allRounds,editable){ // «улики»: R1-примеры (замок/разгадка, read-only); альбом — editable post-final
   editable=editable&&allRounds;   // фильтрованный список рассинхронил бы индексы удаления
   gal.innerHTML='';
@@ -1808,6 +1840,9 @@ function loop(now){
   // рамка-цель гейта: где должна оказаться рука (урок)
   if(state==='gteach'&&GUIDE.task) drawGateFrame(GUIDE.task.gate,GUIDE.task.cls);
   if(state==='gcheck'&&CHK&&CHK.phase!=='reveal'){ const c=CHK.cards[CHK.idx]; if(c&&c.gate)drawGateFrame(c.gate,c.cls); }
+  // полигон: контур — ПОДСКАЗКА разнообразия («покажи ЭТАК»), не блокер: judgeCard в свободном
+  // режиме размер/форму не проверяет, замер валиден любой рукой (фидбек Алексея 14.07)
+  if(state==='check'&&CHK&&!CHK.guided){ const c=CHK.cards[CHK.idx]; if(c&&c.gate)drawGateFrame(c.gate,c.cls); }
   updateZone();
   let statTxt=null;
   if(state==='train'||state==='check'||state==='train-pause'){updateBars(predCache);
@@ -2056,7 +2091,9 @@ function stopPtrHold(){ if(_ptrHold.t)clearInterval(_ptrHold.t);
 function stopCollect(){ stopKeyHold(); stopPtrHold(); }
 function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;
   const del=el.querySelector('.del');
-  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;if(KNN.delLast(i)){counts[i]=Math.max(0,counts[i]-1);THUMBS[i].pop();TELE.push('sample_del',{cls:i});refresh();updateHint();SFX.buzz();}});
+  // ⌫ = удаление ПОСЛЕДНЕЙ карточки класса — через общий delExample (кэши, certFrame, персист; Codex R5)
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;
+    if(THUMBS[i].length&&delExample(i,THUMBS[i].length-1)){SFX.buzz();showToast((i===0?'✋':'✊')+' последняя карточка убрана',800);}});
   const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;stopCollect();el.classList.add('rec');recCls=i;addExample(i);
     _ptrHold={el,t:setInterval(()=>{ if(state!=='train'){stopPtrHold();return;} addExample(i); },450)}};
   const up=()=>stopPtrHold();
