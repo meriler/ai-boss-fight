@@ -998,8 +998,9 @@ function navHideAll(){   // showScreen(null) — не общий сброс (р�
   $('#ckcount3').style.display='none';
 }
 function navToHub(){
-  if(state==='gcheck'&&CHK&&(CHK.phase==='count'||CHK.phase==='hold')){ showToast('Секунду — идёт замер 📸',1000); return false; }
+  if((state==='gcheck'||state==='check')&&CHK&&(CHK.phase==='count'||CHK.phase==='hold')){ showToast('Секунду — идёт замер 📸',1000); return false; }
   if(state==='game')return false;                 // у игры своя навигация (gLab/gFinal)
+  if(state==='check'){ CHK=null; NAV.rangeFromHub=false; }   // уход с полигона панелью = бросить серию (итог — через «Хватит»)
   stopCollect();
   if(navInLesson()){ const c=navCapture(); if(c)NAV.lesson=c;
     if(state==='gteach'){GUIDE.gateMs=0;GUIDE.stuckMs=0;} }   // пауза не должна дощёлкать кадр на возврате
@@ -1008,7 +1009,12 @@ function navToHub(){
   return true;
 }
 function navResumeLesson(){
-  if(!NAV.lesson)return;
+  if(!NAV.lesson){
+    // якоря нет: на базу пришли не с урока (лаборатория/полигон/итог). Урок пройден → финал,
+    // не начат → подсказка. Мёртвая кнопка = застрявший ребёнок (баг Алексея 14.07, seat 98)
+    if(NAV.finalSeen){ navHideAll(); goFinal(); navRender(true); return; }
+    showToast('Урок ещё не начинался — жми «Поехали» 🙂',1400); return;
+  }
   navHideAll(); const L=NAV.lesson;
   if(L.kind==='gteach'){ state='gteach'; guideEl.classList.remove('hidden'); GUIDE.gateMs=0; GUIDE.stuckMs=0; }
   else if(L.kind==='gcheck'){ state='gcheck'; topEl.classList.remove('hidden'); checkui.classList.remove('hidden');
@@ -1048,9 +1054,12 @@ function navGo(id){
 }
 function navRender(force){
   const nav=$('#wsnav');
-  const hideNav=!GUIDE.on||state==='game'||state==='gameover'||state==='train'||state==='train-pause'
-    ||state==='check'||state==='labgal'||!$('#survey').classList.contains('hidden')
-    ||(state==='gcheck'&&CHK&&(CHK.phase==='count'||CHK.phase==='hold'));
+  // панель видна и на полигоне/итоге (фидбек Алексея 14.07: «на полигоне нет навигации»);
+  // прячется только на живом замере (count/hold), в игре (своя нав.), съёмке (своя bottom) и опросе
+  const measuring=CHK&&(CHK.phase==='count'||CHK.phase==='hold');
+  const hideNav=!GUIDE.on||state==='game'||state==='gameover'||state==='train'
+    ||state==='labgal'||!$('#survey').classList.contains('hidden')
+    ||((state==='gcheck'||state==='check')&&measuring);
   const zs=navZones();
   const sig=state+'|'+(hideNav?1:0)+'|'+zs.map(z=>z.open?1:0).join('');
   if(!force&&sig===navRender._sig)return;   // перерисовка только при смене состояния: innerHTML под курсором убивает клик
@@ -1065,6 +1074,7 @@ function navRender(force){
       if(id==='lesson')navResumeLesson(); else navGo(id); }; });
   }
   if(state==='hub'){
+    if(!NAV.lesson&&NAV.finalSeen)NAV.stageLabel='финал (урок пройден)';   // база из свободных зон: честный лейбл вместо «начало урока»
     $('#hubstep').textContent='Сейчас по уроку: '+NAV.stageLabel;
     $('#hubtiles').innerHTML=zs.filter(z=>z.id!=='hub').map(z=>
       `<div class="tile${z.open?'':' locked'}" data-nav="${z.id}"><div class="ti">${z.ico}</div><b>${z.name}</b>`+

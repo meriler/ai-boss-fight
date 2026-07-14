@@ -116,6 +116,19 @@ async (page) => {
     await waitVis('#hub');
     ok('из итога вернулись на базу', true);
 
+    // ---- пустой якорь (баг Алексея 14.07): финал → Съёмка → База → «Продолжить урок» = финал, не тупик ----
+    await nav('shoot');
+    await page.waitForTimeout(600);
+    const onb = await page.evaluate(() => { const c = document.querySelector('#stepcard'); return c && !c.classList.contains('hidden'); });
+    if (onb) await page.click('#scGo'); // онбординг лаборатории (один раз)
+    await page.waitForTimeout(400);
+    await page.click('#toHub'); // «База» из съёмки — якоря урока нет
+    await waitVis('#hub');
+    await page.click('#hubGo'); // «Продолжить урок» НЕ должен быть мёртвым
+    await waitVis('#final');
+    ok('база из съёмки: «Продолжить урок» ведёт на финал (не тупик)', true);
+    await nav('hub'); await waitVis('#hub');
+
     // ---- альбом editable: два тапа ✕ удаляют карточку; персист после F5 ----
     await nav('album'); await waitVis('#labgal');
     const before = await page.evaluate(() => document.querySelectorAll('#labgalrows canvas').length);
