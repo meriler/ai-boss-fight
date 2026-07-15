@@ -21,6 +21,10 @@ DIR = os.environ.get('WS_TELE_DIR', '/var/lib/ws-tele')   # env — для ло�
 MAX = 262144
 MSK = timezone(timedelta(hours=3))
 _lock = threading.Lock()  # append из потоков — сериализуем, чтобы строки JSONL не перемешивались
+# Персональная ссылка на актуальную демку. ДУБЛЬ константы из бота (itmo/ai-school-bot/workshop.py
+# WS_DEMO_URL) — сервисы разные (/opt/ws-tele на Aeza vs бот), импортировать неоткуда. При смене
+# демки (v5→v6) править В ОБОИХ местах. Параметры ?ws=1&seat=N обязательны (телеметрия по seat).
+WS_DEMO_URL = 'https://ws.meriler.cc/v5.html?ws=1&seat={seat}'
 
 
 def valid(d):
@@ -72,6 +76,7 @@ class H(BaseHTTPRequestHandler):
         if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
             date = time.strftime('%Y-%m-%d')
         fn = os.path.join(DIR, date + '.jsonl')
+        extra = ''   # хвост к Location: &added=N (выдали место) / &taken=N (место занято)
         with _lock:
             if act == 'reset_day' and os.path.exists(fn):
                 # не удаляем — уводим в архив рядом (вернуть = переименовать обратно)
@@ -129,8 +134,36 @@ class H(BaseHTTPRequestHandler):
                         cur.pop(seat, None)   # пустое имя = убрать место из ростера
                     with open(sf, 'w', encoding='utf-8') as f:
                         json.dump(cur, f, ensure_ascii=False)
+            elif act == 'add_seat':
+                # ручное добавление участника: имя + свободное место → готовая ссылка на демку.
+                # Кейс — ребёнок подтвердил после рассылки (прецедент Гульнара 15.07): раньше
+                # приходилось руками гонять ws_broadcast.py на Aeza, теперь — прямо с дашборда.
+                name = (q.get('name') or [''])[0].strip()[:60]
+                req = (q.get('seat') or [''])[0].strip()
+                used = used_seats(date)
+                seat = None
+                if not req:                                # авто — минимальный свободный
+                    seat = next_free_seat(used)
+                elif re.fullmatch(r'\d{1,2}', req):        # ручной номер (только цифры → безопасно в Location)
+                    if req in used:
+                        extra = '&taken=' + req            # занято — покажем ошибку
+                    else:
+                        seat = int(req)
+                # нечисловой ввод места молча игнорим (поле подписано «пусто = авто»)
+                if seat is not None:
+                    sf = os.path.join(DIR, 'seats.json')
+                    cur = {}
+                    try:
+                        with open(sf, encoding='utf-8') as f:
+                            cur = {str(k): v for k, v in json.load(f).items()}
+                    except Exception:
+                        pass
+                    cur[str(seat)] = name or ('место ' + str(seat))   # имя в ростер (как бот)
+                    with open(sf, 'w', encoding='utf-8') as f:
+                        json.dump(cur, f, ensure_ascii=False)
+                    extra = '&added=' + str(seat)
         self.send_response(303)
-        self.send_header('Location', '/dash?date=' + date)
+        self.send_header('Location', '/dash?date=' + date + extra)
         self.end_headers()
 
     def do_GET(self):
@@ -141,7 +174,12 @@ class H(BaseHTTPRequestHandler):
         date = (q.get('date') or [''])[0]
         if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):   # строгий формат — не путь к файлу
             date = time.strftime('%Y-%m-%d')
-        body = render_dash(date, demo='demo' in q, review='review' in (q.get('view') or [])).encode()
+        added = (q.get('added') or [''])[0]
+        added = added if re.fullmatch(r'\d{1,2}', added) else ''
+        taken = (q.get('taken') or [''])[0]
+        taken = taken if re.fullmatch(r'\d{1,2}', taken) else ''
+        body = render_dash(date, demo='demo' in q, review='review' in (q.get('view') or []),
+                           added=added, taken=taken).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
@@ -173,6 +211,36 @@ def load_session(date):
         return start, stop, auto
     except Exception:
         return None, None, False
+
+
+def used_seats(date):
+    """Занятые цифровые места на дату: ключи seats.json ∪ места из живых дампов дня.
+    Нужно, чтобы ручная выдача места не столкнулась ни с ростером, ни с уже сидящим ребёнком
+    (иначе на месте окажутся две сессии — mixed). Возвращает set строк-номеров."""
+    used = set()
+    try:
+        with open(os.path.join(DIR, 'seats.json'), encoding='utf-8') as f:
+            used |= {str(k) for k in json.load(f)}
+    except Exception:
+        pass
+    try:
+        fn = os.path.join(DIR, date + '.jsonl')
+        if os.path.exists(fn):
+            raws, _ = parse_lines(open(fn, encoding='utf-8').readlines())
+            for k in build_children(dedupe(raws, include_demo=True), {}):
+                if str(k.get('seat', '')).isdigit():
+                    used.add(str(k['seat']))
+    except Exception:
+        pass
+    return used
+
+
+def next_free_seat(used):
+    """Минимальный свободный номер места ≥1 (мест мало — линейный перебор дешёв)."""
+    i = 1
+    while str(i) in used:
+        i += 1
+    return i
 
 
 def render_session(date):
@@ -213,9 +281,18 @@ def render_admin(date, kids_s):
         else:
             row += '<span class="note">дампов нет</span>'
         rows.append(row + '</form>')
-    return ('<details><summary>⚙️ Управление (сброс · скрытие · имена)</summary>'
-            '<p class="note">Скрытие убирает сессии только с дашборда (файл цел); сброс дня уводит файл '
-            'в архив рядом (вернуть может Алексей). Имя пустым = убрать место из ростера.</p>'
+    add = ('<form method="post" style="margin:4px 0 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+           '<input type="hidden" name="date" value="' + esc(date) + '">'
+           '<b style="min-width:120px">➕ новое место</b>'
+           '<input name="name" placeholder="имя ребёнка" style="width:150px">'
+           '<input name="seat" placeholder="место (пусто = авто)" style="width:150px" '
+           'title="Пусто — система возьмёт минимальный свободный номер">'
+           '<button name="act" value="add_seat">🔗 выдать ссылку</button></form>')
+    return ('<details><summary>⚙️ Управление (добавить · сброс · скрытие · имена)</summary>'
+            '<p class="note">«Новое место» — добавить участника вручную и получить готовую ссылку на демку '
+            'со свободным местом (ссылка появится вверху дашборда). Скрытие убирает сессии только с '
+            'дашборда (файл цел); сброс дня уводит файл в архив рядом. Имя пустым = убрать место из ростера.</p>'
+            + add + '<hr style="border:none;border-top:1px solid #e2e7ee;margin:8px 0">'
             + ''.join(rows) +
             '<form method="post" style="margin:10px 0 4px"><input type="hidden" name="date" value="' + esc(date) + '">'
             '<button name="act" value="reset_day" onclick="return confirm(\'Убрать ВСЕ данные за ' + esc(date) +
@@ -223,7 +300,36 @@ def render_admin(date, kids_s):
             '</details>')
 
 
-def render_dash(date, demo=False, review=False):
+def render_link_block(date, added, taken):
+    """Плашка под баннером после ручной выдачи места: готовая ссылка на демку + кнопка «копировать»
+    (added), либо ошибка «место занято» (taken). Пусто — если ни того, ни другого."""
+    if taken:
+        return ('<div class="linkbox err">⚠️ Место <b>' + esc(taken) + '</b> занято или задано неверно — '
+                'выбери другой номер или оставь поле пустым (тогда система возьмёт свободное).'
+                ' <a href="?date=' + esc(date) + '">убрать</a></div>')
+    if not added:
+        return ''
+    link = WS_DEMO_URL.format(seat=added)
+    name = ''
+    try:
+        with open(os.path.join(DIR, 'seats.json'), encoding='utf-8') as f:
+            name = str(json.load(f).get(str(added), ''))
+    except Exception:
+        pass
+    who = (esc(name) + ', место ' + esc(added)) if name else ('место ' + esc(added))
+    # navigator.clipboard требует https — дашборд за TLS (ws.meriler.cc), работает. Фолбэк — ручное
+    # выделение: поле readonly, по клику выделяется целиком.
+    return ('<div class="linkbox ok2">✅ Место выдано: <b>' + who + '</b>. Ссылка на демку — скопируй и '
+            'отправь ребёнку:<br>'
+            '<input id="lnk" readonly value="' + esc(link) + '" onclick="this.select()" '
+            'style="width:100%;max-width:640px;margin:6px 0;padding:7px 9px;font-size:14px;'
+            'border:1px solid #35b46a;border-radius:8px">'
+            '<button onclick="navigator.clipboard.writeText(document.getElementById(\'lnk\').value);'
+            'this.textContent=\'скопировано ✓\'">📋 копировать</button> '
+            '<a href="?date=' + esc(date) + '" style="margin-left:8px">убрать</a></div>')
+
+
+def render_dash(date, demo=False, review=False, added='', taken=''):
     """Дашборд наблюдателя: сначала «кому помочь», потом всё остальное (ревью Codex 10.07)."""
     fn = os.path.join(DIR, date + '.jsonl')
     lines = open(fn, encoding='utf-8').readlines() if os.path.exists(fn) else []
@@ -370,6 +476,7 @@ def render_dash(date, demo=False, review=False):
     texts_block = f'<h2>Полные тексты</h2>{texts}' if texts else ''
     admin = render_admin(date, kids_s)
     sess = render_session(date)
+    linkblk = render_link_block(date, added, taken)
 
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="15">
@@ -389,8 +496,11 @@ h2{{margin:20px 0 4px}}h4{{margin:14px 0 2px;color:#2557d6}}
 p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary{{cursor:pointer;font-weight:800;font-size:16px}}
 .note{{color:#66738a;font-size:13px}}
 .sess{{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:9px 14px;margin:0 0 12px;font-size:15px}}
-.sess button{{font-size:14px;padding:4px 12px;border-radius:8px;border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer;font-weight:700}}</style></head><body>
+.sess button,.linkbox button{{font-size:14px;padding:5px 12px;border-radius:8px;border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer;font-weight:700}}
+.linkbox{{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:11px 14px;margin:0 0 12px;font-size:15px}}
+.linkbox.ok2{{border:2px solid #35b46a;background:#eefaf1}}.linkbox.err{{border:2px solid #d64545;background:#fdeaea}}</style></head><body>
 {banner}
+{linkblk}
 {sess}
 {helpb}
 <h2>Все дети <span class="note">(красные сверху · страница сама обновляется каждые 15 сек)</span></h2>
