@@ -243,12 +243,14 @@ def render_dash(date, demo=False, review=False):
         pass
     kids = build_children(dumps, names)
     now = datetime.now(MSK)
-    # ростер: места из seats.json, от которых нет НИ ОДНОГО дампа — раньше «не открыл ссылку»
-    # был мёртвой веткой (ребёнок просто отсутствовал в таблице; аудит 10.07). Показываем только
-    # пока занятие ЖИВОЕ (чья-то активность моложе 30 мин) — протухшие тесты в файле дня не должны
-    # красить ростер красным (смок Алексея 10.07: «Тест WebKit — не открыл» через 2 часа после теста).
-    fresh = any(k['last_seen'] and (now - k['last_seen']).total_seconds() < 1800 for k in kids)
-    if fresh:
+    # маркер занятия: тревоги «нужна помощь» и ростер «кто не открыл ссылку» имеют смысл ТОЛЬКО
+    # когда занятие идёт (нажат «▶ Старт»). До старта дети штатно ещё не подключены, живой пинг
+    # может быть от соседней сессии/теста — не поднимаем панику крупным красным (просьба Алексея 15.07).
+    s_start, s_stop, _ = load_session(date)
+    session_live = bool(s_start) and not s_stop
+    # ростер: места из seats.json, от которых нет НИ ОДНОГО дампа — «не открыл ссылку».
+    # Показываем только пока занятие ЖИВОЕ: до старта пустые места не красим красным.
+    if session_live:
         have = {str(k['seat']) for k in kids}
         kids += [roster_child(s, n) for s, n in names.items() if str(s) not in have]
     seen_all = [k['last_seen'] for k in kids if k['last_seen']]
@@ -296,14 +298,21 @@ def render_dash(date, demo=False, review=False):
         return ('🟡', 'ПОДОЖДАТЬ', 2, 'притих — думает или перерыв')
 
     kids_s = sorted(kids, key=lambda k: (status(k)[2], str(k['seat'])))
-    reds = [k for k in kids_s if status(k)[2] == 0]
-    oranges = [k for k in kids_s if status(k)[2] == 1]
+    # до старта занятия тревоги гасим — красный/оранжевый не всплывают крупно (просьба Алексея 15.07)
+    reds = [k for k in kids_s if status(k)[2] == 0] if session_live else []
+    oranges = [k for k in kids_s if status(k)[2] == 1] if session_live else []
 
     # баннер: действие важнее зелёного успеха
     if not dumps:
         banner = ('<div class="big warn">📭 За ' + esc(date) + ' данных пока нет</div>'
                   '<p>Сервер жив (страница отвечает). До старта занятия пусто — это нормально. '
                   'Если занятие уже идёт — проверь, что дети открыли свои ссылки (план Б — в пакете ведущего).</p>')
+    elif not session_live:
+        # занятие не начато: спокойный баннер, без «нужна помощь» крупным красным
+        n_present = sum(1 for k in kids_s if k['last_seen'] and (now - k['last_seen']).total_seconds() < 1800)
+        act_txt = f' · сейчас активны: {n_present}' if n_present else ''
+        banner = (f'<div class="big ok">🎬 Занятие не начато — тревоги «нужна помощь» включатся после «▶ Старт занятия». '
+                  f'В ростере детей: {len(names)}{act_txt} · последняя запись {rel(last)}</div>')
     else:
         n_idle = sum(1 for k in kids_s if status(k)[2] == 5)
         n_act = len(kids) - n_idle
@@ -324,7 +333,8 @@ def render_dash(date, demo=False, review=False):
         f'<span class="act2">→ активен, но не продвигается — предложи помощь голосом</span></div>'
         for k in oranges)
     if dumps and not helpb:
-        helpb = '<p class="note">🟢 Сейчас помощь никому не нужна.</p>'
+        helpb = ('<p class="note">🎬 Занятие не начато — блок «нужна помощь» появится после старта.</p>'
+                 if not session_live else '<p class="note">🟢 Сейчас помощь никому не нужна.</p>')
 
     live = ''.join(
         f"<tr class='p{status(k)[2]}'><td><b>{esc(who(k))}</b></td>"
