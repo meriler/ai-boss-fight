@@ -920,7 +920,7 @@ function showScreen(id){
 const guideEl=$('#guide'),gstepEl=$('#gstep'),gtaskEl=$('#gtask'),gdotsEl=$('#gdots'),ggateEl=$('#ggate');
 
 const GUIDE={
-  on:false, task:null, gateMs:0, lastAdd:0,
+  on:false, task:null, gateMs:0, lastAdd:0, unlocked:false,   // unlocked ДОЛЖЕН быть boolean: undefined в classList.toggle(_,force) переключает вместо установки (баг «Дальше — по коду» пропадала на 2-м финале)
   guess:null, res1:null, res2:null, probeRetried:false, fixTries:0, outcome:null,
   // честный замер (v4): probe хранится между экранами гипотеза→варианты; выбор варианта живёт
   // в guessKey/guessCat до разгадки (guess-событие пушится один раз, при клике); fixChosen:
@@ -1692,7 +1692,7 @@ function showFinal(){
   $('#fAlbum').classList.toggle('hidden',locked);   // no_break-финал до кода: альбом мог бы спойлерить общий разбор
   $('#fLab').classList.toggle('hidden',locked);
   $('#fGame').classList.toggle('hidden',locked);
-  $('#fSurvey').classList.toggle('hidden',!WS||GUIDE.unlocked);
+  $('#fSurvey').classList.toggle('hidden',!locked);   // !locked === !WS||!!unlocked (boolean): без явного boolean toggle с undefined-force ФЛИПАЕТ класс — кнопка мигала между показами финала
   $('#fSurvey').textContent=locked?'🔒 Дальше — по коду ведущего':'📝 Три вопроса от ведущего';
   TELE.push('final',{outcome:o,r1,r2});
   showScreen('final');
