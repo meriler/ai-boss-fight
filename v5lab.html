@@ -1,0 +1,2140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Натренируй ИИ по картинке</title>
+<!-- v4 = v3 + честный замер ws-режима (ТЗ .docs/specs/TZ-2026-07-09-ws-честный-замер-демки.md):
+     своя гипотеза ДО вариантов угадайки · варианты-кандидаты с категориями · замок разгадки
+     вторым кодом ведущего · починка через выбор «чем чиним». v3.html не трогаем — рабочий fallback. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%93%B7</text></svg>">
+<style>
+  @font-face{font-family:"ALS Gorizont";font-weight:400;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-RegularExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:500;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-MediumExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:700;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-BoldExpanded.otf") format("opentype")}
+  @font-face{font-family:"ALS Gorizont";font-weight:800;font-display:swap;src:url("assets/cert/fonts/ALSGorizont-ExtraBoldExpanded.otf") format("opentype")}
+  :root{--bg:#0b0e14;--panel:rgba(14,19,28,.86);--line:#2a3445;--accent:#7aa2ff;--ok:#46e08a;--warn:#ffcf5c;--bad:#ff6b8b;--text:#eef3fb;--muted:#9aa6b8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  button,.teach,.chip,.choice{touch-action:manipulation}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--text);font-family:-apple-system,"Segoe UI",system-ui,sans-serif;user-select:none}
+  #app{position:fixed;inset:0;height:100dvh;width:100vw;overflow:hidden}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #cv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .hidden{display:none!important}
+
+  #top{position:absolute;left:0;right:0;top:0;padding:10px 14px;background:linear-gradient(#000b,transparent);pointer-events:none;display:flex;gap:10px;align-items:flex-start}
+  #ai{flex:1}
+  #aihead{font-size:12px;color:var(--muted);font-weight:700;text-shadow:0 1px 3px #000;margin-bottom:4px}
+  .bar{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .bar .l{flex:0 0 150px;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
+  .bar .t{flex:1;height:12px;background:#0009;border:1px solid #fff2;border-radius:7px;overflow:hidden}
+  .bar .t>i{display:block;height:100%;width:0;background:var(--muted);transition:width .1s}
+  .bar.top .t>i{background:var(--accent)} .bar.top .l{color:var(--accent)}
+  .bar .p{flex:0 0 38px;text-align:right;font-size:13px;font-weight:800;color:var(--muted);text-shadow:0 1px 3px #000}
+  .bar.top .p{color:var(--accent)}
+  #stat{font-size:14px;font-weight:800;text-shadow:0 2px 6px #000;text-align:right;min-width:96px}
+  /* glass-box: что «видит» ИИ (пикселизированный кадр) */
+  #peek{position:absolute;right:10px;top:84px;width:84px;height:84px;border:2px solid var(--line);border-radius:10px;image-rendering:pixelated;background:#000;box-shadow:0 2px 8px #000a;z-index:6}
+  #peeklbl{position:absolute;right:10px;top:170px;width:84px;text-align:center;font-size:10px;color:var(--muted);text-shadow:0 1px 2px #000;z-index:6;pointer-events:none}
+
+  /* z-index:30 — тост ОБЯЗАН быть выше .screen (20): фидбеки замка и пустой гипотезы живут на экранах */
+  #toast{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(24px,7vw,42px);font-weight:900;text-align:center;text-shadow:0 4px 16px #000;pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line;width:min(92vw,640px);z-index:30}
+  /* «щёлк» принятого кадра: мягкая вспышка + 📸 (прогон 13.07 — при темпе 900мс не видно, что кадр записался) */
+  /* z-index:8 — над камерой/рамкой (4-6), но ПОД guide(14)/карточками(16)/экранами(20): вспышка не смеет закрывать текст */
+  #shotfx{position:absolute;inset:0;pointer-events:none;z-index:8;background:rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;font-size:54px;opacity:0}
+  #shotfx.go{animation:shotpop .26s ease-out}
+  @keyframes shotpop{0%{opacity:1;transform:scale(.88)}60%{opacity:.55;transform:scale(1)}100%{opacity:0;transform:scale(1.06)}}
+  #bigmsg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);width:min(90vw,640px);text-align:center;font-size:clamp(22px,5.5vw,34px);font-weight:800;color:#fff;text-shadow:0 3px 16px #000;background:rgba(8,11,18,.5);border-radius:18px;padding:16px 20px;backdrop-filter:blur(3px);pointer-events:none;line-height:1.3}
+  #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  /* целевая зона сбора (режиссура bias) */
+  #zone{position:absolute;border:3px dashed var(--ok);border-radius:18px;pointer-events:none;z-index:4;display:flex;align-items:flex-start;justify-content:center;transition:all .25s}
+  #zone .zl{margin-top:-26px;background:var(--ok);color:#06160c;font-size:13px;font-weight:800;padding:3px 10px;border-radius:999px;white-space:nowrap}
+
+  #checkui{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,560px);text-align:center;pointer-events:none;z-index:15}
+  #ckbtns{display:flex;flex-direction:column;gap:10px;margin-top:14px;pointer-events:auto;align-items:center;min-height:60px}
+  #ckbtns button{width:min(340px,74vw);flex:0 0 auto;font-size:18px;min-height:58px}
+  #ckShot{box-shadow:0 4px 24px rgba(70,224,138,.45)}
+  #ckcount3{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);font-size:clamp(90px,22vw,160px);font-weight:900;color:#fff;text-shadow:0 6px 30px #000;pointer-events:none;z-index:17;display:none}
+  #ckround{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--warn);text-shadow:0 2px 6px #000;text-transform:uppercase}
+  #ckcount{font-size:13px;color:var(--muted);text-shadow:0 1px 3px #000;margin-top:2px}
+  #cktarget{font-size:clamp(24px,6vw,38px);font-weight:900;margin:8px 0 4px;text-shadow:0 4px 18px #000;line-height:1.2}
+  #cktarget .em{font-size:clamp(58px,18vw,118px);display:block;line-height:1}
+  #ckbarwrap{height:14px;background:#0009;border:1px solid #fff3;border-radius:9px;overflow:hidden;margin:14px auto 0;width:min(72vw,360px)}
+  #ckbar{height:100%;width:0;background:var(--accent);transition:width .08s linear}
+  #ckverdict{font-size:clamp(22px,6vw,34px);font-weight:900;margin-top:12px;min-height:1.2em;text-shadow:0 3px 14px #000}
+  #ckhint{font-size:14px;color:var(--text);text-shadow:0 1px 3px #000;margin-top:8px;font-weight:600;min-height:2.6em}
+
+  #bottom{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,#000d 22%);display:flex;flex-direction:column;gap:8px}
+  #hint{font-size:14px;font-weight:600;text-align:center;text-shadow:0 1px 3px #000;min-height:19px}
+  #datapanel{display:flex;flex-direction:column;gap:6px}
+  #counts{display:flex;gap:8px;justify-content:center;align-items:center;font-size:13px;font-weight:700;text-shadow:0 1px 3px #000}
+  #counts .cw{color:var(--warn)}
+  #chips{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
+  .chip{font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:rgba(16,21,30,.8);color:var(--muted);cursor:pointer;backdrop-filter:blur(4px)}
+  .chip.on{border-color:var(--ok);color:var(--ok);background:rgba(70,224,138,.16)}
+  .row{display:flex;gap:10px}
+  .teach{position:relative;flex:1;background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:11px 8px 12px;text-align:center;backdrop-filter:blur(6px);cursor:pointer;transition:border-color .12s,transform .05s}
+  .teach:active{transform:scale(.97)} .teach.rec{border-color:var(--ok);background:rgba(70,224,138,.18)}
+  .teach .e{font-size:30px;line-height:1.1}.teach .n{font-size:13px;color:var(--muted)}.teach .c{font-size:14px;font-weight:800;margin-top:3px}.teach .c b{color:var(--ok)}.teach .h{font-size:11px;color:var(--warn);margin-top:2px;font-weight:700}
+  .teach .del{position:absolute;top:5px;right:6px;width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:rgba(10,13,20,.85);color:var(--muted);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:0;padding:0;flex:none}
+  .teach .del:disabled{opacity:.3}
+  button{flex:1;border:none;border-radius:16px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#fff;background:var(--accent);min-height:54px}
+  button:active{transform:scale(.98)} button:disabled{opacity:.35}
+  button.ok{background:var(--ok);color:#06160c} button.ghost{background:rgba(40,50,64,.85);backdrop-filter:blur(6px)}
+  #reset{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:13px;text-decoration:underline;align-self:center;min-height:0;padding:2px}
+
+  /* safe center: при переполнении (низкий вьюпорт/клавиатура) контент прижимается к верху и доступен
+     скроллом; голый center уводит верх за scroll-origin безвозвратно. Не понял браузер safe — flex-start, тоже ок */
+  .screen{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:safe center;text-align:center;padding:26px;gap:16px;background:radial-gradient(120% 90% at 50% 12%,#1a2030,#0b0e14);overflow-y:auto}
+  .screen .big{font-size:64px} .screen h1{font-size:clamp(24px,7vw,38px);margin:0} .screen p{color:var(--muted);max-width:380px;line-height:1.5;margin:0;font-size:15px}
+  .screen button{flex:0 0 auto;width:min(420px,82vw)}
+  .badge{background:#10151e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
+  .spin{width:34px;height:34px;border:3px solid #2a3445;border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+  #loadbarwrap{width:min(360px,76vw);height:10px;background:#10151e;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  #loadbar{height:100%;width:0;background:var(--accent);border-radius:7px;transition:width 1.6s ease-out}
+  #rstitle{font-size:clamp(22px,6vw,32px);font-weight:900;margin:0}
+  #rsscore{font-size:15px;color:var(--muted)}
+  #rsmap{display:flex;flex-direction:column;gap:8px;width:min(440px,86vw)}
+  .rscard{background:#10151e;border:1px solid var(--line);border-radius:14px;padding:11px 14px;text-align:left;font-size:15px;font-weight:600}
+  .rscard.bad{border-color:var(--bad)} .rscard.good{border-color:var(--ok)}
+  #rsdiag{display:flex;flex-direction:column;gap:7px;width:min(440px,86vw)}
+  .rsrec{background:rgba(255,207,92,.1);border:1px solid var(--warn);border-radius:12px;padding:9px 13px;font-size:14px;color:var(--text);text-align:left;line-height:1.4}
+  #rsbtns{flex-direction:column;gap:10px;width:min(420px,82vw)}
+  #rsbtns button{width:100%}
+
+  /* ===== guided-режим (урок) ===== */
+  #guide{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(94vw,620px);text-align:center;z-index:14;pointer-events:none}
+  #gstep{font-size:12px;font-weight:800;letter-spacing:.6px;color:var(--muted);text-shadow:0 1px 3px #000;text-transform:uppercase}
+  #gtask{font-size:clamp(19px,5vw,28px);font-weight:900;text-shadow:0 3px 12px #000;margin-top:4px;line-height:1.25;background:rgba(8,11,18,.55);border-radius:16px;padding:10px 16px;backdrop-filter:blur(4px)}
+  #gtask .em{font-size:clamp(30px,8vw,44px);vertical-align:middle;margin-right:6px}
+  #gdots{display:flex;gap:7px;justify-content:center;margin-top:10px}
+  #gdots i{width:18px;height:18px;border-radius:50%;background:#0009;border:2px solid #6b7a90;transition:all .15s}
+  #gdots i.on{background:var(--ok);border-color:var(--ok);box-shadow:0 0 8px rgba(70,224,138,.8)}
+  #ggate{margin-top:8px;font-size:15px;font-weight:800;text-shadow:0 2px 6px #000;min-height:1.3em}
+  #ggate.ok{color:var(--ok)} #ggate.no{color:var(--warn)}
+  /* калибровка и потеря камеры — оверлеи по центру */
+  .midcard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(90vw,520px);text-align:center;background:rgba(8,11,18,.82);border:1px solid var(--line);border-radius:20px;padding:22px 20px;backdrop-filter:blur(6px);z-index:16;display:flex;flex-direction:column;gap:12px;align-items:center}
+  .midcard .big{font-size:44px}
+  .midcard h2{margin:0;font-size:clamp(19px,5vw,26px);line-height:1.3}
+  .midcard p{margin:0;color:var(--muted);font-size:14px;line-height:1.45;max-width:420px}
+  .midcard button{width:min(360px,78vw);flex:0 0 auto}
+  /* экран-угадайка и разгадка */
+  /* варианты одинаковой высоты, крупный кегль — тексты короткие, взгляд не цепляется за длину (прогон 13.07, Настя) */
+  .choice{width:min(460px,86vw);text-align:left;background:#10151e;border:2px solid var(--line);border-radius:16px;padding:12px 16px;font-size:18px;font-weight:700;color:var(--text);min-height:58px;display:flex;align-items:center}
+  .choice:active{transform:scale(.98)}
+  #gal,#lockgal{display:flex;flex-direction:column;gap:10px;width:min(600px,94vw)}
+  .galrow{background:#10151e;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+  .galrow .gl{font-size:15px;font-weight:800;flex:0 0 100%;text-align:left}
+  .galrow canvas{width:84px;height:84px;border-radius:10px;image-rendering:pixelated;border:1px solid var(--line)}
+  .keyline{background:rgba(255,207,92,.12);border:1px solid var(--warn);border-radius:14px;padding:12px 16px;font-size:16px;font-weight:700;line-height:1.4;max-width:460px}
+  .oneliner{background:rgba(70,224,138,.1);border:1px solid var(--ok);border-radius:14px;padding:12px 16px;font-size:15px;font-weight:700;line-height:1.4;max-width:460px;color:var(--text)}
+  /* опрос */
+  #survey textarea{width:min(460px,88vw);min-height:96px;border-radius:14px;border:2px solid var(--line);background:#10151e;color:var(--text);font-size:16px;padding:12px;font-family:inherit;resize:none}
+  #survey textarea:focus{outline:none;border-color:var(--accent)}
+  #svq{font-size:clamp(18px,5vw,24px);font-weight:800;max-width:460px;line-height:1.35}
+  #svstep{font-size:13px;color:var(--muted)}
+  /* приватная гипотеза (ws): ввод замаскирован — экран ребёнка бывает на общей демонстрации */
+  #hypo textarea{width:100%;min-height:84px;border-radius:14px;border:2px solid var(--line);background:#10151e;color:var(--text);font-size:16px;padding:12px 56px 12px 12px;font-family:inherit;resize:none}
+  #hypo textarea:focus{outline:none;border-color:var(--accent)}
+  .masked{-webkit-text-security:disc}
+  #hypoEye{position:absolute;right:6px;top:6px;width:44px;height:44px;min-height:0;padding:0;border-radius:10px;background:rgba(40,50,64,.85);font-size:18px;flex:none}
+  /* замок разгадки (ws): код ведущего */
+  #lockcode{width:min(240px,60vw);border-radius:14px;border:2px solid var(--line);background:#10151e;color:var(--text);font-size:26px;font-weight:800;text-align:center;padding:12px;font-family:inherit;letter-spacing:6px}
+  #lockcode::placeholder{font-size:15px;letter-spacing:0;font-weight:600;color:var(--muted)}
+  #lockNext.dim{opacity:.45;filter:saturate(.4)}   /* до ввода кода кнопка не зазывает (дети тыкали пустую) */
+  /* ===== хаб-навигация (14.07, решение Алексея): база + зоны, урок = якорь возврата ===== */
+  #wsnav{position:absolute;bottom:0;left:0;right:0;z-index:24;display:flex;justify-content:center;gap:4px;
+    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:rgba(10,14,20,.92);border-top:1px solid var(--line);backdrop-filter:blur(8px)}
+  #wsnav button{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;border-radius:12px;
+    padding:5px 10px;font-size:10px;font-weight:700;color:var(--muted);min-width:64px;min-height:0}
+  #wsnav button .ni{font-size:20px;position:relative}
+  #wsnav button.act{background:#1b2a4a;color:var(--text)}
+  #wsnav button.lock{opacity:.45}
+  #wsnav button .lk{position:absolute;top:-3px;right:-10px;font-size:9px}
+  #wsnav button.lesson{color:var(--ok);border:1px solid var(--ok);border-radius:12px}
+  body.navon .screen{padding-bottom:92px}   /* панель видна → контент экранов не заезжает под неё (клики!) */
+  body.navon .midcard{transform:translate(-50%,calc(-50% - 34px))}   /* карточки шагов тоже выше панели */
+  .tile{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:12px 14px;min-height:96px;cursor:pointer;
+    display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;width:auto;font-weight:700}
+  .tile .ti{font-size:26px}
+  .tile b{font-size:14px}
+  .tile span{font-size:11px;color:var(--muted);font-weight:600}
+  .tile.locked{opacity:.5;cursor:default}
+  .tile.locked .tlock{font-size:10px;color:var(--warn)}
+  #hubtiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;width:min(620px,92vw)}
+  #hublesson{background:linear-gradient(135deg,#1b2a4a,#14203a);border:2px solid var(--accent);border-radius:16px;
+    padding:12px 14px;display:flex;gap:10px;align-items:center;width:min(620px,92vw);text-align:left}
+  #hublesson .mtxt{flex:1;min-width:0}
+  #hublesson .mtxt b{display:block;font-size:15px}
+  #hublesson .mtxt span{color:var(--muted);font-size:12px}
+  /* специфичность > «.screen button» — иначе ✕ растягивается на всю ширину ряда (прод-тест Алексея 14.07) */
+  .galrow .crd-del{position:absolute;top:-7px;right:-7px;width:24px!important;min-width:24px;height:24px;border-radius:99px;background:var(--bad);color:#fff;
+    font-size:12px;font-weight:900;border:0;padding:0;line-height:24px;cursor:pointer;min-height:0;flex:none}
+  .galrow .cw{position:relative;display:inline-block}
+  .galrow .cw.arm canvas{outline:3px solid var(--bad);filter:brightness(1.25)}
+  /* явные клавиши-кейкапы в съёмке + живой лог снятых кадров (фидбек Алексея 14.07) */
+  .keycap{display:inline-block;min-width:18px;padding:0 6px;border:1.5px solid var(--accent);border-bottom-width:3px;border-radius:6px;background:#182234;color:var(--accent);font-weight:900;font-size:13px;text-align:center}
+  .teach .kk{font-size:11.5px;color:var(--text);margin-top:3px;font-weight:700}
+  #shotlog{position:absolute;left:10px;bottom:150px;z-index:12;display:flex;flex-direction:column-reverse;gap:4px;pointer-events:none}
+  #shotlog .sle{display:flex;align-items:center;gap:7px;background:rgba(10,14,20,.85);border:1px solid var(--line);border-radius:10px;padding:3px 8px;font-size:12px;font-weight:800;animation:slein .18s ease-out}
+  #shotlog canvas{width:38px;height:38px;border-radius:6px;image-rendering:pixelated;border:1px solid var(--line)}
+  @keyframes slein{from{opacity:0;transform:translateX(-8px)}to{opacity:1}}
+  #lockcode:focus{outline:none;border-color:var(--accent)}
+  /* ввод номера места */
+  /* колонки сжимаемые: фиксированные 64px вылезали за узкое окно/зум — терялись целые столбцы (смок 09.07) */
+  #seatgrid{display:grid;grid-template-columns:repeat(5,minmax(44px,64px));gap:8px;justify-content:center;width:100%;max-width:400px}
+  #seatgrid button{min-height:56px;padding:0;font-size:20px;border-radius:14px}
+  /* debug-панель */
+  /* бейдж «место · этап» (ws): техпомощь голосом без демонстрации экрана — ребёнок читает вслух */
+  #stagebadge{position:absolute;left:10px;top:10px;z-index:22;background:rgba(10,14,20,.78);border:1px solid var(--line);border-radius:10px;padding:4px 10px;font-size:12px;font-weight:700;color:var(--text);pointer-events:none}
+  /* pointer-events:none — приборка не должна воровать клики у кнопок под ней (ловил e2e 10.07) */
+  #debug{position:absolute;left:10px;bottom:10px;z-index:40;background:rgba(5,8,13,.88);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#9fe8bb;max-width:330px;white-space:pre-wrap;pointer-events:none}
+  #debug .dbtns button{pointer-events:auto}
+  #debug b{color:#fff}
+  #debug .dbtns{display:flex;gap:6px;margin-top:6px}
+  #debug button{min-height:30px;padding:4px 10px;font-size:12px;border-radius:8px;flex:0 0 auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="cv"></canvas>
+  <canvas id="peek" width="32" height="32" class="hidden"></canvas>
+  <div id="peeklbl" class="hidden">что видит ИИ</div>
+
+  <div id="top" class="hidden">
+    <div id="ai"><div id="aihead">🤖 Шкалы уверенности — насколько кадр похож на примеры:</div><div id="bars"></div></div>
+    <div id="stat"></div>
+  </div>
+  <div id="flash"></div>
+  <div id="zone" class="hidden"><span class="zl"></span></div>
+  <div id="toast"></div>
+  <div id="shotfx">📸</div>
+  <div id="shotlog" class="hidden"></div>
+  <!-- хаб-навигация (14.07): нижняя панель зон, строится JS (navRender) -->
+  <div id="wsnav" class="hidden"></div>
+  <div id="ckcount3"></div>
+  <div id="bigmsg" class="hidden"></div>
+
+  <div id="checkui" class="hidden">
+    <div id="ckround"></div>
+    <div id="ckcount"></div>
+    <div id="cktarget"></div>
+    <div id="ckbarwrap"><div id="ckbar"></div></div>
+    <div id="ckverdict"></div>
+    <div id="ckhint"></div>
+    <div id="ckbtns">
+      <button id="ckShot" class="ok hidden">📸 ЗАМЕРИТЬ! (пробел)</button>
+      <button id="ckRetry" class="ghost hidden">↻ Ещё раз (пробел)</button>
+      <button id="ckNext" class="ok hidden">Дальше → (пробел)</button>
+      <!-- выход из СВОБОДНОЙ проверки (лаборатория): 8 карточек не должны быть тоннелем; в уроке скрыта -->
+      <button id="ckExit" class="ghost hidden" style="min-height:40px;font-size:14px;width:min(240px,60vw)">← В лабораторию</button>
+    </div>
+  </div>
+
+  <!-- guided-режим: панель задания -->
+  <div id="guide" class="hidden">
+    <div id="gstep"></div>
+    <div id="gtask"></div>
+    <div id="gdots"></div>
+    <div id="ggate"></div>
+  </div>
+
+  <!-- карточка-шаг: инструкция/итог этапа, продолжение ТОЛЬКО по кнопке ребёнка -->
+  <div id="stepcard" class="midcard hidden">
+    <div class="big" id="scBig">✋</div>
+    <h2 id="scTitle"></h2>
+    <p id="scText"></p>
+    <button id="scGo" class="ok">▶️ Начали!</button>
+    <button id="scAlbum" class="ghost hidden">📒 Мой альбом</button>
+    <button id="scExit" class="ghost hidden">✖ Вернуться к финалу</button>
+  </div>
+
+  <!-- потеря/занятость камеры -->
+  <div id="camfix" class="midcard hidden" style="z-index:27"><!-- выше .screen(20)/панели(24)/альбома(26): «камера отпала» видна и на хабе (ревью 14.07) -->
+    <div class="big">📷</div>
+    <h2>Камера не отвечает</h2>
+    <p>Если камера включена в видеозвонке — она занята. Выключи её в звонке (демонстрация экрана пусть остаётся) и нажми кнопку.</p>
+    <button id="camRetry" class="ok">📷 Подключить камеру</button>
+  </div>
+
+  <!-- бейдж места и этапа (ws): всегда поверх, включая экраны-оверлеи -->
+  <div id="stagebadge" class="hidden"></div>
+
+  <!-- debug-панель -->
+  <div id="debug" class="hidden"></div>
+
+  <div id="bottom" class="hidden">
+    <div id="hint"></div>
+    <div id="datapanel">
+      <div id="counts"></div>
+      <div id="chips"></div>
+    </div>
+    <div class="row" id="teachrow"></div>
+    <div class="row" id="trainBtns">
+      <button id="toCheck" class="ok" disabled>🔍 Проверить ИИ (пробел)</button>
+      <button id="toGallery" class="ghost" disabled>📒 Альбом</button>
+      <button id="toGame" class="ghost" disabled>🎮 Игра</button>
+      <button id="toHub" class="ghost" style="display:none">🧪 База</button>
+    </div>
+    <!-- игра: «Ещё раз» главная, остальное вторично (навигация по местам назначения — смок 10.07) -->
+    <div class="hidden" id="gameBtns" style="display:flex;flex-direction:column;gap:8px">
+      <button id="again" class="ok">↻ Ещё раз (пробел)</button>
+      <div class="row">
+        <button id="gCert" class="ghost">🏆 Сертификат</button>
+        <button id="gLab" class="ghost">🧪 Лаборатория</button>
+        <button id="gFinal" class="ghost">🏁 Финал</button>
+      </div>
+    </div>
+    <div class="row hidden" id="toFinalRow"><button id="toFinal" class="ghost">🏁 Финал урока</button></div>
+    <button id="reset" class="hidden">сбросить ИИ</button>
+  </div>
+
+  <div class="screen" id="intro">
+    <div class="big">🤖</div>
+    <h1>Сегодня ты — тренер ИИ</h1>
+    <p>Научишь настоящий ИИ узнавать твои жесты. Он будет учиться только на том, что ТЫ ему покажешь. Справишься?</p>
+    <button id="start" class="ok">▶️ Поехали</button>
+    <button id="resume" class="ghost hidden">⏩ Продолжить с места (после перезагрузки)</button>
+    <div class="badge">📷 нужен ноут с камерой · видео не уходит с устройства</div>
+    <div class="badge hidden" id="winhint">🪟 Звонок и тренажёр держи в РАЗНЫХ ОКНАХ браузера (не вкладках) — иначе звонок может заглохнуть</div>
+    <div class="badge" id="preload">⏳ подгружаю ИИ фоном… можешь сразу жать «Поехали»</div>
+    <!-- сверка режима на техчеке: битая/обрезанная ссылка видна за 5 секунд («у всех есть этот бейдж?») -->
+    <div class="badge hidden" id="modebadge"></div>
+  </div>
+
+  <div class="screen hidden" id="loading">
+    <div class="spin"></div><p id="loadmsg">Запускаю…</p>
+    <div id="loadbarwrap"><div id="loadbar"></div></div>
+    <button id="retry" class="ghost hidden">↻ Повторить</button>
+  </div>
+
+  <!-- номер места (только в режиме воркшопа ?ws=1) -->
+  <div class="screen hidden" id="seat">
+    <div class="big">🪑</div>
+    <h1>Твой номер места</h1>
+    <p>Ведущий скажет, какой у тебя номер. Нажми его.</p>
+    <div id="seatgrid"></div>
+  </div>
+
+  <!-- хаб «База» (14.07): лаборатория как дом с зонами; урок = якорь возврата -->
+  <div class="screen hidden" id="hub">
+    <div class="big">🧪</div>
+    <h1>Твоя лаборатория</h1>
+    <p style="color:var(--muted);margin:0">Зоны открываются по ходу занятия. Когда идти дальше — скажет ведущий.</p>
+    <div id="hublesson">
+      <div style="font-size:24px">🎧</div>
+      <div class="mtxt"><b id="hubstep">Сейчас по уроку: …</b><span>слушай ведущего — он скажет, когда дальше</span></div>
+      <button class="ok" id="hubGo" style="flex:0 0 auto">▶ Продолжить урок (пробел)</button>
+    </div>
+    <div id="hubtiles"></div>
+  </div>
+
+  <!-- угадайка: почему ИИ ошибся -->
+  <!-- галерея датасета в лаборатории (прогон 13.07: «датасет нигде не виден») -->
+  <div class="screen hidden" id="labgal" style="z-index:26"><!-- выше панели зон (24): пока ватчер не спрятал её, клики не проходят сквозь альбом -->
+    <h1>📒 Альбом твоего ИИ</h1>
+    <p style="color:var(--muted)">Все примеры, на которых он учится. Что в альбоме — то он и знает. Видишь закономерности?</p>
+    <div id="labgalrows" style="max-height:56vh;overflow:auto"></div>
+    <button id="labgalClose" class="ok">← Назад в лабораторию</button>
+  </div>
+
+  <div class="screen hidden" id="guess">
+    <div class="big">🧠</div>
+    <h1 id="guesstitle">ИИ перепутал!</h1>
+    <p id="guesssub"></p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+      <canvas id="probeshot" width="32" height="32" style="width:112px;height:112px;image-rendering:pixelated;border:2px solid var(--line);border-radius:12px"></canvas>
+      <span style="font-size:14px;color:var(--muted)">что видел ИИ в этот момент</span>
+    </div>
+    <div id="guessbtns" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+
+  <!-- приватная гипотеза (только ?ws=1): свободный ответ ДО вариантов — честный замер ОР-1 -->
+  <div class="screen hidden" id="hypo">
+    <div class="big">🕵️</div>
+    <h1>Твоя догадка</h1>
+    <p id="hyposub" style="color:var(--text)"></p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+      <canvas id="hyposhot" width="32" height="32" style="width:112px;height:112px;image-rendering:pixelated;border:2px solid var(--line);border-radius:12px"></canvas>
+      <span style="font-size:14px;color:var(--muted)">что видел ИИ в этот момент</span>
+    </div>
+    <div style="position:relative;width:min(460px,88vw)">
+      <textarea id="hypotext" class="masked" placeholder="напиши пару слов — буквы скрыты точками (👁 покажет)"></textarea>
+      <button id="hypoEye" class="ghost" title="показать/скрыть текст">👁</button>
+    </div>
+    <button id="hypoNext" class="ok" style="width:min(340px,74vw);flex:0 0 auto">Дальше →</button>
+    <button id="hypoDunno" class="ghost" style="width:min(340px,74vw);flex:0 0 auto">🤷 Не знаю</button>
+  </div>
+
+  <!-- замок разгадки (только ?ws=1): группа синхронизируется на галерее догадок.
+       Пока ждёт код — ребёнок разглядывает УЛИКИ (свои примеры без вывода): питает обсуждение, не спойлерит -->
+  <div class="screen hidden" id="lock">
+    <div class="big">🔒</div>
+    <h1>Стоп — обсудим догадки вместе!</h1>
+    <p>Ведущий разберёт догадки с группой и назовёт код разгадки. Пропустил код? Переспроси в чате занятия.</p>
+    <p style="color:var(--text);font-weight:700">А пока ждёшь — рассмотри улики 🕵️ Вот всё, что видел твой ИИ:</p>
+    <div id="lockgal"></div>
+    <input id="lockcode" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="код от ведущего">
+    <button id="lockNext" class="ok" style="width:min(340px,74vw);flex:0 0 auto">Открыть разгадку →</button>
+  </div>
+
+  <!-- разгадка: галерея собранных примеров -->
+  <div class="screen hidden" id="reveal">
+    <h1 id="revtitle">Смотри на подсказку 🔍</h1>
+    <div id="gal"></div>
+    <div class="keyline" id="revkey"></div>
+    <button id="fixBtn" class="ok">🔧 Починить ИИ (пробел)</button>
+  </div>
+
+  <!-- выбор починки: решение ребёнка, не инструкция (замер fix_choice) -->
+  <div class="screen hidden" id="fixpick">
+    <div class="big">🔧</div>
+    <h1>Чем починим?</h1>
+    <p style="color:var(--text)">Что добавить в примеры, чтобы ИИ перестал путаться?</p>
+    <div id="fixbtns" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="keyline hidden" id="fixhint"></div>
+  </div>
+
+  <!-- финал -->
+  <div class="screen hidden" id="final">
+    <div class="big" id="fbig">🎉</div>
+    <h1 id="ftitle"></h1>
+    <div id="fscore" style="color:var(--muted);font-size:15px"></div>
+    <div class="oneliner" id="freveal"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;width:min(420px,82vw)">
+      <button id="fRetryProbe" class="ok hidden">↻ Попробовать проверку ещё раз</button>
+      <button id="fMore" class="ghost hidden">➕ Потренировать ещё (по желанию)</button>
+      <button id="fCert" class="ok">🏆 Сделать сертификат</button>
+      <button id="fSurvey" class="hidden">📝 Три вопроса от ведущего</button>
+      <button id="fAlbum" class="ghost">📒 Мой альбом</button>
+      <button id="fLab" class="ghost">🧪 Лаборатория: играй с ИИ дальше</button>
+      <button id="fGame" class="ghost">🎮 Игра-бонус</button>
+    </div>
+    <p style="font-size:13px">🔗 Демка останется по этой ссылке — заходи, пробуй запутать ИИ по-новому и покажи родителям, чему ты его научил.</p>
+  </div>
+
+  <!-- опрос (3 вопроса, включается кодом ведущего) -->
+  <div class="screen hidden" id="survey">
+    <div id="svstep"></div>
+    <div id="svq"></div>
+    <textarea id="svtext" placeholder="напиши пару слов…"></textarea>
+    <button id="svNext" class="ok">Дальше →</button>
+    <button id="svBack" class="ghost">← Назад</button>
+  </div>
+
+  <div class="screen hidden" id="result">
+    <div id="rstitle"></div>
+    <div id="rsscore"></div>
+    <div id="rsmap"></div>
+    <div id="rsdiag"></div>
+    <div class="row" id="rsbtns"></div>
+  </div>
+</div>
+
+<script type="module">
+import { ImageEmbedder, HandLandmarker, FilesetResolver } from "./vendor/mediapipe/vision_bundle.mjs";
+
+const $=s=>document.querySelector(s);
+const DEMO=new URLSearchParams(location.search).has('demo');
+const cam=$('#cam'),cv=$('#cv'),ctx=cv.getContext('2d');
+const bigmsg=$('#bigmsg');
+const topEl=$('#top'),barsEl=$('#bars'),statEl=$('#stat'),toast=$('#toast'),flash=$('#flash');
+const bottom=$('#bottom'),hintEl=$('#hint'),teachrow=$('#teachrow'),toCheckBtn=$('#toCheck');
+const checkui=$('#checkui'),zoneEl=$('#zone'),peek=$('#peek'),peekCtx=peek.getContext('2d');
+
+// 2 КРУПНЫХ класса (image-KNN). zone — куда вести руку в раунде 1 (режиссируем dataset bias).
+const CLASSES=[
+  {emoji:'✋',name:'ладонь',color:'#7aa2ff', zone:{x:0.10,y:0.18,w:0.42,h:0.6}, zoneText:'СЛЕВА, ближе'},
+  {emoji:'✊',name:'кулак', color:'#ffcf5c', zone:{x:0.48,y:0.30,w:0.40,h:0.52}, zoneText:'СПРАВА, дальше'}
+];
+let counts=[0,0]; const MINEX=5;          // лаборатория: минимум примеров на класс
+const EMB_W=0.65, PIX_W=0.35;             // вес image-эмбеддинга vs сырых пикселей
+const K_BIG=5, K_SMALL=3, NN_FAR=0.55;    // k и порог «непохоже/нет руки» (cos-расстояние)
+let embedder=null, hander=null, state='intro', audio=null, camWasDown=false;
+let provenTier=0, lastNN=1;
+
+/* ==================== КОНФИГ УРОКА (переопределяется в URL) ==================== */
+const QP=new URLSearchParams(location.search);
+const CFG={
+  // гейт размера: РАЗМЕР САМОЙ РУКИ (сторона bbox от hand-детектора, доля кадра 0..1).
+  // ЛАДОНЬ учим только КРУПНО (side≥big), КУЛАК — только МЕЛКО (side≤small).
+  // Детектор меряет именно кисть — тело/лицо/фон не мешают (фон-дифф на живых людях провалился: корпус качается).
+  // Это единственная режиссура урока: она гарантирует, что ИИ выучит РАЗМЕР, а не жест
+  // (предсказуемая поломка → ребёнок чинит данными). Гейт НЕ трогает признаки: KNN видит сырой квадрат
+  // без scale-нормализации — НЕ вводить её, убьёт механику.
+  // диапазоны: детектор ТЕРЯЕТ руку вплотную к камере (обрезанная рука не находится),
+  // поэтому «крупно» имеет потолок — иначе ребёнка толкает в мёртвую зону (живой прогон 02.07)
+  bigLo:+(QP.get('biglo')||0.40), bigHi:+(QP.get('bighi')||0.75),
+  smLo:+(QP.get('smlo')||0.12),  smHi:+(QP.get('smhi')||0.28),   // 0.08→0.12 (смок 10.07): при 8% кадра
+                                       // рука в 32×32 почти неразличима — мелкий кулак путался с мелкой ладонью
+  fistLo:+(QP.get('fistlo')||0.28),    // «большой» порог ДЛЯ КУЛАКА мягче: кулак компактнее раскрытой
+                                       // ладони, общий bigLo гнал руку вплотную — в слепую зону детектора (смок 09.07)
+  needR1:6, needR2:3,                  // примеров на класс: раунд 1 (поломка) / раунд 2 (починка)
+  gateHoldMs:600, sampleCdMs:900,      // гейт держится N мс → кадр пишется; кулдаун между кадрами
+  wsCode:QP.get('code')||'33',         // код опроса — ведущий называет голосом в нужный момент
+  revealCode:QP.get('rcode')||'4712',  // код разгадки — ДРУГОЙ и 4-значный: двузначный скучающий
+                                       // ребёнок у экрана-замка подберёт перебором (плюс троттлинг ниже)
+};
+const WS=QP.has('ws');                 // режим воркшопа: номер места + кнопка опроса
+const DBG=QP.has('debug');
+const NOGATE=QP.has('nogate');         // страховка на занятии: гейты выключены, ведём голосом
+
+/* ==================== ТЕЛЕМЕТРИЯ (только числа и текст опроса — НИКОГДА кадры/эмбеддинги) ==================== */
+const TELE_URL='/tele';                // same-origin ручка на ws.meriler.cc (Aeza, ws-tele.service);
+                                       // локально/оффлайн fetch тихо падает — данные остаются в localStorage
+const TELE={
+  sid:(Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
+  seat:null, t0:Date.now(), events:[], _saveT:0,
+  push(type,data){ this.events.push({t:Date.now()-this.t0,type,...(data||{})});
+    try{ if(typeof trySaveOn==='function')trySaveOn(type,data); }catch(e){}   // автосейв прогресса на вехах (F5, прогон 13.07)
+    // 'seat'/'task_done' — ранняя регистрация (ребёнок виден серверу с первых минут); 'perf' пушится
+    // раз в 30с в живых состояниях = heartbeat для дашборда (иначе на долгом сборе активный ребёнок
+    // «краснеет» — аудит Codex 10.07); 'gate_stuck' — застрявший виден сразу;
+    // 'boot_fail'/'cam_drop' — аварии видны немедленно (аудит 10.07: ребёнок с упавшей камерой был
+    // невидимкой до pagehide); 'embed_fail' — немедленно только ПЕРВЫЙ (дальше и так в дампе вех)
+    const imm=type==='seat'||type==='task_done'||type==='check_done'||type==='break_shown'||type==='final'||type==='survey_done'||type==='hypothesis'||type==='reveal_unlock'||type==='perf'||type==='gate_stuck'||type==='boot_fail'||type==='cam_drop'||(type==='embed_fail'&&!this._efImm&&(this._efImm=true));
+    if(imm)this._saveT=0;                 // аварийное/веховое — мимо троттла _save: дамп не должен потеряться
+    this._save(); if(imm)this.send(); },
+  _save(){ const now=Date.now(); if(now-this._saveT<1500)return; this._saveT=now;
+    try{ localStorage.setItem('tele_'+this.sid, JSON.stringify(this.dump())); }catch(e){} },
+  dump(){ const ua=navigator.userAgent;
+    // now: возраст последней активности считается сервером по ЭТИМ же часам (now − started − max(t)) —
+    // дослойка старых дампов (resend) не выглядит на дашборде живой сессией (призраки 10.07)
+    return {sid:this.sid,seat:this.seat,started:new Date(this.t0).toISOString(),now:Date.now(),
+    os:/Windows/.test(ua)?'win':/Mac/.test(ua)?'mac':/Android/.test(ua)?'android':/iPhone|iPad/.test(ua)?'ios':/CrOS/.test(ua)?'chromeos':'other',
+    mobile:/Mobi|Android|iPhone|iPad/.test(ua), gpu:window.__gpu||null,
+    nogate:NOGATE, cfg:{bigLo:CFG.bigLo,bigHi:CFG.bigHi,smLo:CFG.smLo,smHi:CFG.smHi},
+    demo:DEMO,ws:WS,events:this.events}; },
+  send(beacon){ if(!TELE_URL)return; const body=JSON.stringify(this.dump());
+    // fetch с keepalive на вехах (видим ответ), beacon — только на pagehide (переживает закрытие вкладки)
+    try{ if(beacon){ navigator.sendBeacon(TELE_URL, body); }
+      else fetch(TELE_URL,{method:'POST',body,keepalive:true}).catch(()=>{}); }catch(e){} },
+  cleanup(){ // приватность: тексты детей не живут на устройстве вечно — TTL 7 дней (ревью terra 09.07)
+    try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('tele_')||k==='tele_'+this.sid)continue;
+      const d=JSON.parse(localStorage.getItem(k)); if(Date.now()-new Date(d.started)>7*864e5)localStorage.removeItem(k); } }catch(e){} },
+  resend(){ // досылка недоставленного (ревью Codex 10.07): F5/обрыв сети не должны терять ребёнка целиком.
+    // Все накопленные дампы шлём заново; чужой ключ удаляем ТОЛЬКО после подтверждённого 204 (сервер дедупит по sid)
+    if(!TELE_URL)return;
+    try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('tele_'))continue;
+      const body=localStorage.getItem(k); if(!body)continue;
+      fetch(TELE_URL,{method:'POST',body,keepalive:true})
+        .then(r=>{ if(r.ok&&k!=='tele_'+this.sid)localStorage.removeItem(k); }).catch(()=>{});
+    } }catch(e){} },
+  download(){ // выгружаем ВСЕ сессии устройства (включая прерванные F5) — архив по ключам tele_*
+    const all={current:this.dump(),sessions:{}};
+    try{ for(const k of Object.keys(localStorage))if(k.startsWith('tele_'))all.sessions[k]=JSON.parse(localStorage.getItem(k)); }catch(e){}
+    const b=new Blob([JSON.stringify(all,null,1)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+    a.download='tele-'+(this.seat??'x')+'-'+this.sid+'.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000); }
+};
+// место из персональной ссылки известно ДО загрузки: boot_fail обязан прилетать с местом,
+// иначе упавший ребёнок виден на дашборде как «без места» (аудит 10.07). Регистрация
+// события seat{via:'link'} остаётся в enterGuide («дошёл до урока») — тут только идентификация.
+{ const q=parseInt(QP.get('seat'),10); if(WS&&q>=1&&q<=99)TELE.seat=q; }
+addEventListener('pagehide',()=>{ TELE._saveT=0; TELE._save(); TELE.send(true); });
+addEventListener('online',()=>{ TELE.resend(); });   // сеть вернулась — досылаем всё накопленное
+
+/* ==================== ГЕЙТ РАЗМЕРА (bbox руки от hand-детектора) ==================== */
+let lastHand={ok:false,side:null,box:null};   // side = max(ширина,высота) bbox кисти, доля кадра 0..1
+let lastBigTs=0;
+// визуальная стабилизация: цвет/статус меняем после ~3 согласных тиков, рамку руки сглаживаем (не дёргается)
+let _gvis={val:false,cand:false,n:0}, _sbox=null;
+function gateOkStable(gate,cls){
+  const raw=gateOk(gate,null,cls)&&(state!=='gteach'||!GUIDE.task||formOkFor(GUIDE.task.cls));
+  if(raw===_gvis.cand)_gvis.n++; else{_gvis.cand=raw;_gvis.n=1;}
+  if(_gvis.n>=3)_gvis.val=raw;
+  return _gvis.val;
+}
+function smoothBox(b){
+  if(!b){_sbox=null;return null;}
+  if(!_sbox){_sbox={...b};return _sbox;}
+  const k=0.35; for(const key of ['x0','y0','x1','y1'])_sbox[key]+=(b[key]-_sbox[key])*k;
+  return _sbox;
+}                               // когда в последний раз видели КРУПНУЮ руку (эвристика «слишком близко»)
+function gateLoHi(gate,cls){                        // пороги гейта с поправкой на жест (кулак компактнее)
+  if(gate==='big')return [cls===1?CFG.fistLo:CFG.bigLo, CFG.bigHi];
+  return [CFG.smLo,CFG.smHi];
+}
+function gateOk(gate,h,cls){
+  if(NOGATE)return true;
+  h=h||lastHand;
+  if(!h.ok||h.side==null)return false;
+  if(gate!=='big'&&gate!=='small')return true;
+  const [lo,hi]=gateLoHi(gate,cls);
+  return h.side>=lo && h.side<=hi;
+}
+function formState(h){ h=h||lastHand; if(!h.ok||h.open==null)return 'mid';
+  return h.open>1.35?'open':(h.open<1.15?'closed':'mid'); }
+function formOkFor(cls,h){ const f=formState(h); return cls===0?f==='open':f==='closed'; }
+function formHint(cls){ return cls===0?'✋ Раскрой ладонь, разожми пальцы!':'✊ Сожми кулак покрепче!'; }
+function gateHint(gate,h,cls){
+  h=h||lastHand;
+  if(!h.ok){
+    // руку только что видели крупной и потеряли → почти наверняка поднесли ВПЛОТНУЮ (детектор слепнет)
+    if(performance.now()-lastBigTs<1500)return '↩️ Чуть назад! Так близко камера теряет руку';
+    return '🖐 покажи руку в рамке';
+  }
+  if(gate==='big'){
+    const [lo,hi]=gateLoHi('big',cls);
+    if(h.side<lo)return '👋 БЛИЖЕ — совпади с контуром!';
+    if(h.side>hi)return '↩️ чуть-чуть назад';
+    return '✅ отлично, держи так!';
+  }
+  if(gate==='small'){
+    if(h.side>CFG.smHi)return '🚶 ДАЛЬШЕ — рука должна стать маленькой, как контур';
+    if(h.side<CFG.smLo)return '👋 чуть ближе, совсем не видно';
+    return '✅ отлично, держи так!';
+  }
+  return '';
+}
+
+/* ---- захват признаков из кадра: image-эмбеддинг + сырые пиксели 32×32 ---- */
+const fcv=document.createElement('canvas'); fcv.width=224; fcv.height=224; const fx=fcv.getContext('2d');
+const pcv=document.createElement('canvas'); pcv.width=32;  pcv.height=32;  const pxc=pcv.getContext('2d',{willReadFrequently:true});
+let lastPix=null, certFrame=null;          // lastPix — glass-box preview; certFrame — кадр руки для сертификата
+function srcRect(){ const vw=cam.videoWidth||640, vh=cam.videoHeight||480, s=Math.min(vw,vh); return [(vw-s)/2,(vh-s)/2,s,s]; }
+function grabFeature(){
+  if(DEMO){ drawDemoFrame(); }
+  const [sx,sy,sw,sh]=DEMO?[0,0,demoCv.width,demoCv.height]:srcRect();
+  const src=DEMO?demoCv:cam;
+  // image-эмбеддинг (центральный квадрат → 224)
+  fx.drawImage(src,sx,sy,sw,sh,0,0,224,224);
+  let e=null;
+  try{ const r=embedder.embed(fcv); e=r.embeddings[0].floatEmbedding; }
+  catch(err){ const now=Date.now(); if(!window.__ef||now-window.__ef>10000){window.__ef=now;TELE.push('embed_fail');} return null; }
+  let ne=0; for(let i=0;i<e.length;i++)ne+=e[i]*e[i]; ne=Math.sqrt(ne)||1;
+  const emb=new Float32Array(e.length); for(let i=0;i<e.length;i++)emb[i]=e[i]/ne;
+  // сырые пиксели 32×32 grayscale, нормализация (subtract mean / div std)
+  pxc.imageSmoothingEnabled=true; pxc.drawImage(src,sx,sy,sw,sh,0,0,32,32);
+  const d=pxc.getImageData(0,0,32,32).data, pix=new Float32Array(1024); let m=0;
+  for(let i=0;i<1024;i++){ const g=d[i*4]*0.299+d[i*4+1]*0.587+d[i*4+2]*0.114; pix[i]=g; m+=g; } m/=1024;
+  let v=0; for(let i=0;i<1024;i++){ pix[i]-=m; v+=pix[i]*pix[i]; } const nrm=Math.sqrt(v)||1;
+  for(let i=0;i<1024;i++)pix[i]/=nrm;   // единичная длина → dot = настоящий косинус [-1..1], веса 0.65/0.35 честные
+  // (раньше делили только на std: норма была 32, dot≈±1024 — пиксельная ветка молча давила эмбеддинг в ~500×)
+  lastPix=pxc.getImageData(0,0,32,32);
+  detectHand();                            // гейт размера: bbox кисти (не каждый тик — дорого)
+  return {emb,pix};
+}
+let _handTick=0;
+function detectHand(){
+  if(DEMO){ const D=window.__demo;
+    lastHand=D.present?{ok:true,side:D.size*0.55,open:D.cls===0?1.8:0.95,
+      box:{x0:0.5-D.size*0.27,y0:0.5-D.size*0.27,x1:0.5+D.size*0.27,y1:0.5+D.size*0.27}}:{ok:false,side:null,box:null};
+    if(lastHand.ok&&lastHand.side>=CFG.bigLo)lastBigTs=performance.now();
+    return; }
+  if(!hander)return;
+  if((_handTick++&1))return;               // каждый 2-й тик: детектор+эмбеддер вместе тяжелы для слабых машин
+  try{
+    const r=hander.detect(fcv);            // тот же 224×224 центральный квадрат, что видит ИИ
+    const lm=r.landmarks&&r.landmarks[0];
+    if(!lm||!lm.length){ lastHand={ok:false,side:null,box:null}; return; }
+    let x0=1,x1=0,y0=1,y1=0;
+    for(const p of lm){ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
+    // раскрытость: кончики пальцев далеко от запястья = ладонь, близко = кулак (защита данных от «не того жеста»)
+    const W0=lm[0], d2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+    const tips=(8+0, [8,12,16,20].reduce((a,i)=>a+d2(lm[i],W0),0)/4);
+    const mcps=[5,9,13,17].reduce((a,i)=>a+d2(lm[i],W0),0)/4;
+    const open=tips/(mcps||1e-6);          // >1.35 раскрыта · <1.15 кулак · между — неясно
+    lastHand={ok:true, side:Math.max(x1-x0,y1-y0), box:{x0,y0,x1,y1}, open};
+    if(lastHand.side>=CFG.bigLo)lastBigTs=performance.now();
+  }catch(e){ lastHand={ok:false,side:null,box:null}; }
+}
+function dot(a,b){let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s}
+
+/* ---- KNN на комбинированном cos-расстоянии (эмбеддинг + пиксели) ---- */
+const KNN={ex:[], add(f,l){this.ex.push({emb:f.emb,pix:f.pix,l})}, clear(){this.ex=[]},
+  delLast(l){ for(let i=this.ex.length-1;i>=0;i--){ if(this.ex[i].l===l){this.ex.splice(i,1);return true} } return false; },
+  classify(f){ if(!this.ex.length||!f)return null;
+    const minC=Math.min(counts[0],counts[1]), k=Math.min(minC>=10?K_BIG:K_SMALL,this.ex.length);
+    const d=this.ex.map(e=>{ const ed=1-dot(f.emb,e.emb), pd=1-dot(f.pix,e.pix);
+      return {l:e.l, d:EMB_W*ed+PIX_W*pd, ed, pd}; }).sort((a,b)=>a.d-b.d);
+    lastNN=d[0].d;
+    const top=d.slice(0,k), v={}; for(const x of top)v[x.l]=(v[x.l]||0)+1;
+    let best=-1,bc=-1; for(const l in v){ if(v[l]>bc){bc=v[l];best=+l} }
+    const conf={}; for(let i=0;i<CLASSES.length;i++)conf[i]=(v[i]||0)/k;
+    // far убран: простой ИИ не умеет «нет руки» — всегда показывает ближайший класс + уверенность.
+    // «не уверен» = низкий vote (50/50), а не порог расстояния (он шумел → рандом).
+    return {label:best,confidences:conf,vote:bc/k,nn:d[0].d,far:false,
+      top:top.map(x=>({l:x.l,ed:+x.ed.toFixed(3),pd:+x.pd.toFixed(3)}))};   // приборы: вклад веток
+  }};
+
+/* ---- аудио / эффекты ---- */
+function initAudio(){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
+function beep(fr,du,ty='sine',vol=.2,to){if(!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=ty;o.frequency.setValueAtTime(fr,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+du);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+du);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+du)}
+const SFX={hit2(){beep(180,.3,'sawtooth',.25,900);beep(900,.2,'square',.12,1500)},miss(){beep(120,.25,'square',.25,40)},learn(n){beep(440+n*40,.1,'triangle',.18)},ding(){beep(660,.12,'triangle',.18,990)},buzz(){beep(160,.22,'square',.2,90)}};
+let particles=[],shake=0;const NEON=['#46e08a','#7aa2ff','#ff6b8b','#ffcf5c','#a98bff'];
+function burst(x,y,n,tier,col){const sz=cv.width*(0.012+(tier||0)*0.004);for(let i=0;i<n;i++){const a=Math.random()*7,s=2+Math.random()*7;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,c:col||NEON[(Math.random()*NEON.length)|0],sz})}}
+function doFlash(){flash.style.transition='none';flash.style.opacity='.55';requestAnimationFrame(()=>{flash.style.transition='opacity .4s';flash.style.opacity='0'})}
+function showToast(t,ms=750){toast.textContent=t;toast.style.opacity='1';clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.opacity='0',ms)}
+
+/* ---- UI обучения ---- */
+const CHIPS=['слева','справа','ближе','дальше','наклон'];
+function buildTeach(){
+  teachrow.innerHTML='';
+  CLASSES.forEach((c,i)=>{const el=document.createElement('div');el.className='teach';el.dataset.i=i;
+    el.innerHTML=`<button class="del" data-i="${i}" title="удалить последний">⌫</button><div class="e">${c.emoji}</div><div class="n">${c.name}</div><div class="kk">держи <span class="keycap">${i+1}</span> — снимаю</div><div class="c">примеров: <b>${counts[i]}</b></div><div class="h"></div>`;
+    teachrow.appendChild(el)});
+  $('#chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip" data-c="${i}">${c}</span>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>ch.classList.toggle('on'));
+  bindHold(); refresh();
+}
+function refresh(){
+  [...teachrow.children].forEach((el,i)=>{
+    el.querySelector('.c b').textContent=counts[i];
+    el.querySelector('.del').disabled=!counts[i];
+    el.querySelector('.h').textContent = 'держи в рамке';
+  });
+  const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
+  let warn=''; if(mx>=4 && mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;warn=` · <span class="cw">⚠️ перекос — добери ${CLASSES[less].emoji}</span>`;}
+  $('#counts').innerHTML=`данные ИИ: ${CLASSES[0].emoji} <b>${counts[0]}</b> · ${CLASSES[1].emoji} <b>${counts[1]}</b>${warn}`;
+  toCheckBtn.disabled=!(counts[0]>=MINEX&&counts[1]>=MINEX);
+  $('#toGame').disabled=toCheckBtn.disabled;   // игра — только с обученной моделью
+  try{$('#toGallery').disabled=!(counts[0]+counts[1]);}catch(e){}   // галерея — как только есть хоть один пример
+}
+function updateHint(){
+  if(state!=='train')return;
+  if(counts[0]<MINEX||counts[1]<MINEX)hintEl.innerHTML='⚡ Покажи ✋ и ✊ в рамке, по 5 примеров каждого.';
+  else hintEl.textContent='Готово. Жми «Проверить ИИ» — посмотрим, чему он научился.';
+}
+
+/* ---- камера + модель ---- */
+function setLoad(m,r,pct){$('#loadmsg').textContent=m;$('#retry').classList.toggle('hidden',!r);
+  if(pct!=null){const b=$('#loadbar');b.style.width=pct+'%';
+    // внутри этапа полоска медленно ползёт к следующей вехе — видно, что живём
+    clearTimeout(setLoad._t); if(pct<100)setLoad._t=setTimeout(()=>{b.style.transition='width 6s linear';b.style.width=Math.min(pct+12,97)+'%';},120);
+    else b.style.transition='width .4s';}}
+async function initCamera(){ if(DEMO)return;
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAM:нет https/камеры');
+  if(initCamera._busy)return; initCamera._busy=true;    // авто-reconnect + кнопка не должны драться за камеру
+  try{
+    try{ cam.srcObject?.getTracks().forEach(t=>t.stop()); }catch(e){}   // старый поток гасим до нового запроса
+    let s;
+    // frameRate ограничен: слабые ноуты и так тянут embedder каждые 60мс — 30fps-видео им ни к чему
+    try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640},frameRate:{ideal:24,max:30}},audio:false})}
+    catch(e){ try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}catch(e2){throw new Error('CAM:'+e2.name)} }
+    cam.srcObject=s;await new Promise(r=>cam.onloadedmetadata=r);await cam.play().catch(()=>{});
+    // latch camWasDown: обрыв считаем ОДИН раз на инцидент — иначе ватчдог (интервал 2с) задублирует
+    // cam_drop от этого же обрыва (аудит Codex 10.07); сбрасывает latch ватчдог/камера-ретрай
+    s.getVideoTracks()[0].addEventListener('ended',()=>{if(!camWasDown){camWasDown=true;TELE.push('cam_drop',{auto:true});}hintEl.textContent='📷 камера отпала, перезапускаю…';initCamera().catch(()=>{})});
+  } finally { initCamera._busy=false; }
+}
+async function initModel(){
+  const vision=await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
+  const opt=d=>({baseOptions:{modelAssetPath:"./models/mobilenet_v3_small_embedder.tflite",delegate:d},runningMode:"IMAGE"});
+  try{ embedder=await ImageEmbedder.createFromOptions(vision,opt("GPU")); window.__gpu='GPU'; }
+  catch(e){ embedder=await ImageEmbedder.createFromOptions(vision,opt("CPU")); window.__gpu='CPU'; }
+  setLoad('Гружу ИИ… распознавание картинки',false,55);
+  const hopt=d=>({baseOptions:{modelAssetPath:"./models/hand_landmarker.task",delegate:d},runningMode:"IMAGE",numHands:1});
+  setLoad('Гружу ИИ… детектор руки',false,75);
+  try{ hander=await HandLandmarker.createFromOptions(vision,hopt(window.__gpu)); }
+  catch(e){ try{ hander=await HandLandmarker.createFromOptions(vision,hopt("CPU")); }
+    // на занятии без детектора урок невозможен (гейты не пройдут никогда) — честная ошибка на загрузке
+    // вместо молчаливого тупика на сборе (Codex R4). Дома/лаборатория без ws живут: сбор кнопками
+    catch(e2){ hander=null; if(WS)throw new Error('HAND:детектор руки не запустился'); } }
+}
+function resize(){cv.width=cam.videoWidth||window.innerWidth;cv.height=cam.videoHeight||window.innerHeight}
+
+/* ---- демо: синтетический кадр (без камеры), управляется window.__demo — для e2e-прогона ---- */
+const demoCv=document.createElement('canvas'); demoCv.width=224; demoCv.height=224; const dcx=demoCv.getContext('2d');
+window.__demo={cls:0,size:1.0,present:true};   // cls: 0 ладонь/1 кулак; size: 1=вплотную, 0.2=далеко
+function drawDemoFrame(){
+  const D=window.__demo;
+  dcx.fillStyle='#101a22'; dcx.fillRect(0,0,224,224);
+  // лёгкий стабильный шум фона (не рандом — чтобы фон-дифф был честным)
+  dcx.fillStyle='#33465a'; for(let i=0;i<6;i++)dcx.fillRect(20+i*34,170,18,40);
+  dcx.fillStyle='#223140'; dcx.fillRect(0,0,224,26);
+  if(!D.present)return;
+  const cx=112, cy=112, s=D.size;
+  dcx.fillStyle=D.cls===0?'#c9b8a8':'#c9a890';
+  if(D.cls===0){ // «ладонь»: 4 широких пальца + основание; s=1 заполняет большую часть кадра
+    for(let f=0;f<4;f++)dcx.fillRect(cx-52*s+f*28*s, cy-90*s, 22*s, 130*s);
+    dcx.fillRect(cx-60*s, cy+42*s, 130*s, 80*s);
+  } else {       // «кулак»: плотный круг; s=1 почти во весь кадр (как рука вплотную)
+    dcx.beginPath(); dcx.arc(cx,cy,95*s,0,7); dcx.fill();
+  }
+}
+
+/* ---- классификация (отдельный цикл — embed дорог, не каждый rAF) ---- */
+let predCache=null, smooth=[];
+const LIVE_STATES=new Set(['train','check','game','train-pause','gteach','gcheck','gpause']);
+function classifyTick(){
+  if(LIVE_STATES.has(state) && (embedder) && (DEMO||cam.readyState>=2)){
+    const f=grabFeature(); curFeat=f;
+    const p=f?KNN.classify(f):null;
+    // temporal smoothing: majority за 5 замеров
+    if(p){ smooth.push(p.label); if(smooth.length>5)smooth.shift(); }
+    predCache=p;
+    drawPeek();
+    if(state==='gteach')tickGuidedTeach();
+    if(DBG)renderDebug(p);
+  }
+  setTimeout(classifyTick, 60);
+}
+let curFeat=null;
+function smoothLabel(){ if(!smooth.length)return -1; const c={};smooth.forEach(l=>c[l]=(c[l]||0)+1);let b=-1,bc=-1;for(const l in c)if(c[l]>bc){bc=c[l];b=+l}return b; }
+function drawPeek(){ if(!lastPix)return; const t=document.createElement('canvas');t.width=32;t.height=32;t.getContext('2d').putImageData(lastPix,0,0);
+  peekCtx.imageSmoothingEnabled=false; peekCtx.clearRect(0,0,32,32); peekCtx.drawImage(t,0,0); }
+
+const THUMBS=[[],[]];   // ImageData 32×32 каждого примера (по классам) — для разгадки «смотри, что ты собрал»
+
+/* ---- Автосейв прогресса (F5-устойчивость, прогон 13.07) --------------------
+   Перезагрузка страницы сбрасывала ребёнка на стартовый экран с пустой моделью
+   (Настя, прогон). Теперь: на каждой ВЕХЕ урока датасет+результаты снапшотятся в
+   localStorage (ключ по месту), а на интро появляется «Продолжить с места».
+   Восстановление — только в БЕЗОПАСНЫЕ точки входа (проверка/разгадка/финал),
+   state machine не трогаем. Всё лежит локально на устройстве ребёнка (как и
+   телеметрия), наружу не уходит; сейв живёт 6 часов. */
+/* ключ — ФУНКЦИЯ, не константа: у ребёнка без персональной ссылки seat появляется позже
+   (экран выбора места), замороженный ключ смешивал всех безссылочных в один слот ws_save_x (ревью 14.07) */
+function saveKey(){ return WS ? ('ws_save_'+(TELE.seat??'x')) : null; }
+function _b64(buf){ const u=buf.buffer?new Uint8Array(buf.buffer,buf.byteOffset||0,buf.byteLength):new Uint8Array(buf); let s=''; for(let i=0;i<u.length;i+=4096)s+=String.fromCharCode.apply(null,u.subarray(i,i+4096)); return btoa(s); }
+function _unb64(s){ const b=atob(s),u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
+const SAVE_RANK={r1:1,checked1:2,revealed:3,fixdata:4,final:5};
+/* Цикл сейва (Codex R2 14.07): «Поехали» рождает новый cycleId, «Продолжить» усыновляет id снимка.
+   Ранг-защита вех действует только ВНУТРИ цикла; слот с чужим cy (вторая вкладка того же места)
+   не перезаписывается — чужой final не приезжает поверх свежего r1. SAVE_FRESH гаснет только после
+   ПОДТВЕРЖДЁННОЙ записи: неудачная первая запись не возвращает старый ранг в силу. */
+let SAVE_FRESH=false, SAVE_CYCLE=null;
+function _tsOk(ts){ const age=Date.now()-ts; return Number.isFinite(ts)&&age>-60e3&&age<6*3600e3; }
+function saveMilestone(ms){ const key=saveKey(); if(!key||!KNN.ex.length)return; try{
+  if(!SAVE_CYCLE)SAVE_CYCLE=Math.random().toString(36).slice(2,10);
+  const prev=loadSave();
+  if(!SAVE_FRESH&&prev){
+    if(prev.cy&&prev.cy!==SAVE_CYCLE)return;               // слот занят другим циклом (другая вкладка) — не трогаем
+    if(SAVE_RANK[prev.ms]>SAVE_RANK[ms])ms=prev.ms;        // внутри цикла веха не откатывается (повторная проверка R1)
+  }
+  const body=JSON.stringify({v:1, cy:SAVE_CYCLE, ts:Date.now(), ms,
+    ex:KNN.ex.map(x=>({e:_b64(x.emb),p:_b64(x.pix),l:x.l})),
+    counts:[counts[0],counts[1]],
+    th:[THUMBS[0],THUMBS[1]].map(a=>a.map(x=>({d:_b64(x.img.data),r:x.round}))),
+    g:{res1:GUIDE.res1,res2:GUIDE.res2,guessKey:GUIDE.guessKey,guessCat:GUIDE.guessCat,
+       fixChosen:GUIDE.fixChosen,fixTries:GUIDE.fixTries,outcome:GUIDE.outcome}});
+  let wrote=false;
+  try{ localStorage.setItem(key,body); wrote=true; }
+  catch(err){ // ТОЛЬКО при квоте: выкинуть достоверно протухшие v1-сейвы и попробовать ровно ещё раз
+    const q=err&&(err.name==='QuotaExceededError'||err.code===22||/quota/i.test(String(err)));
+    if(q)try{ for(const k of Object.keys(localStorage)){ if(!k.startsWith('ws_save_')||k===key)continue;
+        const raw=localStorage.getItem(k); let dead=false;
+        try{ const d=JSON.parse(raw); dead=!!d&&d.v===1&&!_tsOk(d.ts); }catch(_){}
+        if(dead&&localStorage.getItem(k)===raw)localStorage.removeItem(k); }   // пере-сверка: слот могла обновить другая вкладка
+      localStorage.setItem(key,body); wrote=true; }catch(_){}
+  }
+  if(wrote)SAVE_FRESH=false;   // флаг «новый цикл» живёт до первой УСПЕШНОЙ записи (Codex R2)
+}catch(e){} }
+function loadSave(){ const key=saveKey(); if(!key)return null; try{
+  const s=JSON.parse(localStorage.getItem(key)||'null');
+  if(!s||s.v!==1||!Array.isArray(s.ex)||!s.ex.length||!s.g||!Array.isArray(s.counts))return null;
+  if(!_tsOk(s.ts))return null;   // NaN/строка/будущее — не проходят
+  return s; }catch(e){ return null; } }
+function clearSave(){ const key=saveKey(); if(key)try{localStorage.removeItem(key)}catch(e){} }
+function applySave(s){
+  // транзакционность (Codex R2): сначала декодируем и проверяем ВСЁ во временные массивы,
+  // мутируем runtime только целиком — битый хвост снимка не оставляет полу-применённую модель
+  const ex=[], th=[[],[]];
+  s.ex.forEach(x=>{ const eb=_unb64(x.e),pb=_unb64(x.p);
+    if(!eb.length||eb.length%4||!pb.length||pb.length%4)throw new Error('bad save ex');
+    if(!(x.l===0||x.l===1))throw new Error('bad save label');
+    ex.push({emb:new Float32Array(eb.buffer), pix:new Float32Array(pb.buffer), l:x.l}); });
+  const el0=ex[0].emb.length;
+  if(ex.some(x=>x.emb.length!==el0||x.pix.length!==1024))throw new Error('bad save dims');   // pix строго 32×32 (grabFeature)
+  for(const x of ex){ for(let i=0;i<x.pix.length;i++)if(!Number.isFinite(x.pix[i]))throw new Error('bad save nan');
+    for(let i=0;i<x.emb.length;i++)if(!Number.isFinite(x.emb[i]))throw new Error('bad save nan'); }
+  if(!Array.isArray(s.th)||s.th.length!==2)throw new Error('bad save th');
+  s.th.forEach((a,c)=>a.forEach(x=>{ const d=_unb64(x.d);
+    if(d.length!==4096)throw new Error('bad save thumb');   // строго 32×32×4
+    th[c].push({img:new ImageData(new Uint8ClampedArray(d.buffer),32,32),round:x.r}); }));
+  const c0=s.counts[0]|0, c1=s.counts[1]|0;
+  if(c0<0||c1<0)throw new Error('bad save counts');
+  // --- всё проверено, применяем атомарно ---
+  KNN.clear(); ex.forEach(x=>KNN.ex.push(x));
+  counts[0]=c0; counts[1]=c1;
+  THUMBS[0].length=0; THUMBS[1].length=0;
+  th.forEach((a,c)=>a.forEach(x=>THUMBS[c].push(x)));
+  Object.assign(GUIDE,{res1:s.g.res1,res2:s.g.res2,guessKey:s.g.guessKey,guessCat:s.g.guessCat,
+    fixChosen:s.g.fixChosen,fixTries:s.g.fixTries||0,outcome:s.g.outcome});
+  if(THUMBS[0].length&&!certFrame){ certFrame=THUMBS[0][0].img; }  // сертификату нужен кадр ладони
+}
+/* какую веху пишем по событию телеметрии (единая точка — вехи и так идут через TELE.push).
+   check_done — только GUIDED-раунды 1/2: свободная проверка лаборатории (round=0) не веха урока (Codex 14.07) */
+function trySaveOn(type,data){ if(!WS)return; try{
+  if(type==='task_done'&&data&&data.task==='t1b')saveMilestone('r1');
+  else if(type==='task_done'&&data&&data.task==='t2b')saveMilestone('fixdata');
+  else if(type==='check_done'&&data&&data.guided&&(data.round===1||data.round===2))saveMilestone(data.round===2?'fixdata':'checked1');
+  else if(type==='reveal_unlock')saveMilestone('revealed');
+  else if(type==='final')saveMilestone('final');
+  else if(type==='survey_done')saveMilestone('final');
+}catch(e){} }
+/* вспышка-«щёлк» на каждый принятый кадр: рестарт CSS-анимации через reflow */
+function flashShot(){ const el=$('#shotfx'); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
+/* живой лог снятых кадров в съёмке (фидбек Алексея 14.07: «не хватает обратной связи —
+   что зафиксировалось и каким классом»). Мини-кадр + класс, живёт 4 сек, максимум 4 записи. */
+function shotLog(cls,img){
+  if(state!=='train'||!img)return;
+  const sl=$('#shotlog'); sl.classList.remove('hidden');
+  const e=document.createElement('div'); e.className='sle';
+  const c=document.createElement('canvas'); c.width=32; c.height=32;
+  c.getContext('2d').putImageData(img,0,0); e.appendChild(c);
+  const t=document.createElement('span'); t.textContent=(cls===0?'✋ ладонь':'✊ кулак')+' · в альбом'; e.appendChild(t);
+  sl.appendChild(e);
+  while(sl.children.length>4)sl.firstChild.remove();
+  setTimeout(()=>{ if(e.parentNode)e.remove(); if(!sl.children.length)sl.classList.add('hidden'); },4000);
+}
+function addExample(i,round){ const f=curFeat||grabFeature(); if(!f){showToast('Кадр не готов',700);return false}
+  KNN.add(f,i); counts[i]++;
+  if(i===0&&lastPix)certFrame=lastPix;   // в сертификат — последняя ЛАДОНЬ (пятерня фотогеничнее кулака, смок 10.07)
+  if(lastPix){ const img=new ImageData(new Uint8ClampedArray(lastPix.data),32,32);
+    THUMBS[i].push({img,round:round||0}); shotLog(i,img); }
+  TELE.push('sample',{cls:i,round:round||0,hand:lastHand.side!=null?+lastHand.side.toFixed(3):null,n:counts[i]});
+  // post-final съёмка меняет модель — снапшотим (иначе F5 отменяет добавления; Codex R5)
+  if(NAV.finalSeen){ clearTimeout(addExample._t); addExample._t=setTimeout(()=>{try{saveMilestone('final')}catch(e){}},1200); }
+  refresh(); updateHint(); SFX.learn(counts[i]); flashShot(); return true;
+}
+
+/* ---- бары «на что похоже» ---- */
+function updateBars(p){
+  if(p===updateBars._p && state===updateBars._s && KNN.ex.length===updateBars._n)return;   // без изменений — не дёргаем DOM
+  updateBars._p=p; updateBars._s=state; updateBars._n=KNN.ex.length;
+  const ah=$('#aihead');
+  if(state==='game'||state==='gameover'){ ah.style.display='none';
+    if(!p){barsEl.innerHTML='';return}
+    if(p.far){barsEl.innerHTML='<div style="font-weight:800;font-size:15px;color:#ffcf5c;text-shadow:0 1px 3px #000">ИИ: непохоже на примеры</div>';return}
+    const tp=p.label,tvc=Math.round((p.vote||0)*100);
+    barsEl.innerHTML=`<div style="font-weight:800;font-size:15px;color:${tvc>=60?'#7aa2ff':'#ffcf5c'};text-shadow:0 1px 3px #000">ИИ: ${CLASSES[tp].emoji} ${tvc}%</div>`;return;}
+  ah.style.display='';
+  if(!KNN.ex.length){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤖 ИИ пока пустой — научи его (держи кнопку 👇)</span></div>';return}
+  if(p&&p.far){barsEl.innerHTML='<div class="bar"><span class="l" style="flex:1;color:var(--warn)">🤔 ИИ видит что-то непохожее на примеры</span></div>';return}
+  const conf=p?p.confidences:{},top=p?p.label:-1,tv=p?(p.vote||0):0;
+  barsEl.innerHTML=CLASSES.map((c,i)=>{const v=Math.round((conf[i]||0)*100);return `<div class="bar${i===top&&tv>=.6?' top':''}"><span class="l">${c.emoji} похоже на: ${c.name}</span><span class="t"><i style="width:${v}%"></i></span><span class="p">${v}%</span></div>`}).join('');
+}
+
+/* ====================== УРОК (guided-флоу): калибровка → сбор с гейтом → поломка → починка ====================== */
+const SCREENS=['intro','loading','seat','hypo','guess','lock','reveal','fixpick','final','survey','result','hub'];
+function showScreen(id){
+  SCREENS.forEach(s=>{const e=$('#'+s);e.classList.toggle('hidden',s!==id);e.style.pointerEvents='';});
+  // анти-click-through: 350мс глушим ввод на свежем экране — второй клик дабл-тапа ребёнка
+  // не должен нажать кнопку, оказавшуюся под пальцем (случайный guess/lockNext = грязный замер)
+  if(id){const el=$('#'+id);el.style.pointerEvents='none';setTimeout(()=>{el.style.pointerEvents='';},350);}
+  try{navRender();}catch(e){}   // панель зон реагирует на смену экрана сразу, не интервалом
+}
+const guideEl=$('#guide'),gstepEl=$('#gstep'),gtaskEl=$('#gtask'),gdotsEl=$('#gdots'),ggateEl=$('#ggate');
+
+const GUIDE={
+  on:false, task:null, gateMs:0, lastAdd:0, unlocked:false,   // unlocked ДОЛЖЕН быть boolean: undefined в classList.toggle(_,force) переключает вместо установки (баг «Дальше — по коду» пропадала на 2-м финале)
+  guess:null, res1:null, res2:null, probeRetried:false, fixTries:0, outcome:null,
+  // честный замер (v4): probe хранится между экранами гипотеза→варианты; выбор варианта живёт
+  // в guessKey/guessCat до разгадки (guess-событие пушится один раз, при клике); fixChosen:
+  // 'self' = сам выбрал починку / 'shown' = показали после 2 ошибок (ось «сам починил» рубрики)
+  probe:null, guessKey:null, guessCat:null, fixAttempts:0, fixChosen:null, lockFails:0,
+};
+const TASKS={
+  t1a:{cls:0,gate:'big',  need:CFG.needR1,round:1,step:'ТРЕНИРОВКА · 1 из 2',
+       txt:'<span class="em">✋</span>Покажи ладонь —<br>совпади размером с контуром!'},
+  t1b:{cls:1,gate:'small',need:CFG.needR1,round:1,step:'ТРЕНИРОВКА · 2 из 2',
+       txt:'<span class="em">✊</span>Теперь кулак — отодвинь руку,<br>чтобы стал маленьким, как контур'},
+  t2a:{cls:0,gate:'small',need:CFG.needR2,round:2,step:'ПОЧИНКА · 1 из 2',
+       txt:'<span class="em">✋</span>Добавь МАЛЕНЬКУЮ ладонь —<br>издалека, как контур'},
+  t2b:{cls:1,gate:'big',  need:CFG.needR2,round:2,step:'ПОЧИНКА · 2 из 2',
+       txt:'<span class="em">✊</span>И БОЛЬШОЙ кулак —<br>поближе, с контур размером!'},
+};
+function enterGuide(){ GUIDE.on=true; TELE.push('guide_start');
+  // номер места из персональной ссылки (?seat=N, бот рассылает каждому свою) — детей цифрами не грузим;
+  // экран выбора остаётся fallback'ом для ссылок без параметра (запасной ребёнок, опоздавший)
+  const qs=parseInt(QP.get('seat'),10);
+  if(WS&&TELE.seat==null&&qs>=1&&qs<=99)TELE.seat=qs;   // страховка (ранняя инициализация в блоке TELE)
+  // «seat известен» (ранняя идентификация) ≠ «seat зарегистрирован в уроке» — событие шлём один раз тут
+  if(WS&&TELE.seat!=null&&!TELE._seatReg){ TELE._seatReg=true; TELE.push('seat',{n:TELE.seat,via:'link'}); try{localStorage.setItem('ws_seat',TELE.seat)}catch(e){} }
+  if(WS && TELE.seat==null) showSeatScreen(); else if(RESUME) resumeFlow(); else startFirstTask(); }
+function startFirstTask(){ startTask('t1a'); }
+function showSeatScreen(){ state='gpause'; showScreen('seat');
+  const g=$('#seatgrid'); if(!g.children.length){
+    for(let n=1;n<=15;n++){ const b=document.createElement('button'); b.className='ghost'; b.textContent=n;
+      b.onclick=()=>{ TELE.seat=n; TELE.push('seat',{n}); try{localStorage.setItem('ws_seat',n)}catch(e){}
+        try{ if(localStorage.getItem('ws_unlocked_'+n))GUIDE.unlocked=true; }catch(e){}   // ключи по месту — перечитать ПОСЛЕ выбора (ревью 14.07)
+        showScreen(null); if(RESUME&&loadSave())resumeFlow(); else startFirstTask(); }; g.appendChild(b); } } }
+function stepCard({big,title,text,btn,onGo,album,exit,zone}){
+  state='gpause'; showScreen(null); guideEl.classList.add('hidden'); checkui.classList.add('hidden');
+  stepCard._zone=!!zone;   // зонные карточки (онбординг лаборатории) — не шаг урока, якорь их не хватает
+  $('#scBig').textContent=big; $('#scTitle').innerHTML=title; $('#scText').innerHTML=text||'';
+  $('#scGo').textContent=(btn||'▶️ Начали!')+' (пробел)';
+  $('#scGo').onclick=()=>{ $('#stepcard').classList.add('hidden'); onGo(); };
+  // «альбом виден там, где о нём говорим» (фидбек Алексея 14.07): карточки починки показывают сам альбом
+  $('#scAlbum').classList.toggle('hidden',!album);
+  $('#scExit').classList.toggle('hidden',!exit);
+  // две карточки подряд («собрано» → интро задачи): дабл-тап не должен проскочить вторую
+  $('#scGo').disabled=true; setTimeout(()=>{$('#scGo').disabled=false;},350);
+  $('#stepcard').classList.remove('hidden');
+}
+/* ====== ХАБ-НАВИГАЦИЯ «База» (14.07, решение Алексея: лаборатория = дом, знакомим сразу) ======
+   Слой ПОВЕРХ урока: state machine, гейты, телеметрия, автосейв — не тронуты (план прошёл Codex).
+   NAV.lesson — якорь возврата в урок: снимается на уходе в базу, зоны его НЕ перезаписывают.
+   Замки зон = методика: альбом до разгадки спойлерит гипотезу; свободные съёмка/полигон до финала
+   ломают ловушку и замер «до/после». */
+const NAV={revealSeen:false, finalSeen:false, lesson:null, stageLabel:'начало урока', rangeFromHub:false};
+const NAV_SCREENS=new Set(['seat','hypo','guess','lock','reveal','fixpick','final','survey']);
+const NAV_SCR={seat:'выбор места',hypo:'гипотеза',guess:'угадайка',lock:'замок разгадки',reveal:'разгадка',
+  fixpick:'выбор починки',final:'финал',survey:'опрос'};
+function navInLesson(){
+  if(state==='gteach'||state==='gcheck')return true;
+  if(!$('#stepcard').classList.contains('hidden')&&!stepCard._zone)return true;
+  return [...NAV_SCREENS].some(id=>!$('#'+id).classList.contains('hidden'));
+}
+function navCapture(){
+  if(state==='gteach'){ NAV.stageLabel='сбор данных'; return {kind:'gteach'}; }
+  if(state==='gcheck'){ NAV.stageLabel='проверка'; return {kind:'gcheck'}; }
+  if(!$('#stepcard').classList.contains('hidden')){
+    NAV.stageLabel=$('#scTitle').textContent;
+    return {kind:'stepcard', big:$('#scBig').textContent, title:$('#scTitle').innerHTML, text:$('#scText').innerHTML,
+      btn:$('#scGo').textContent, go:$('#scGo').onclick,
+      album:!$('#scAlbum').classList.contains('hidden'), exit:!$('#scExit').classList.contains('hidden')}; }
+  const id=[...NAV_SCREENS].find(id=>!$('#'+id).classList.contains('hidden'));
+  if(id){ NAV.stageLabel=NAV_SCR[id]||id; return {kind:'screen',id}; }
+  return null;
+}
+function navHideAll(){   // showScreen(null) — не общий сброс (ревью Codex): прячем ВСЁ вручную
+  showScreen(null); guideEl.classList.add('hidden'); checkui.classList.add('hidden');
+  $('#stepcard').classList.add('hidden'); $('#labgal').classList.add('hidden');
+  bottom.classList.add('hidden'); topEl.classList.add('hidden'); bigmsg.classList.add('hidden');
+  $('#ckcount3').style.display='none';
+}
+function navToHub(){
+  if((state==='gcheck'||state==='check')&&CHK&&(CHK.phase==='count'||CHK.phase==='hold')){ showToast('Секунду — идёт замер 📸',1000); return false; }
+  if(state==='game')return false;                 // у игры своя навигация (gLab/gFinal)
+  if(state==='check'){ CHK=null; NAV.rangeFromHub=false; }   // уход с полигона панелью = бросить серию (итог — через «Хватит»)
+  stopCollect();
+  if(navInLesson()){ const c=navCapture(); if(c)NAV.lesson=c;
+    if(state==='gteach'){GUIDE.gateMs=0;GUIDE.stuckMs=0;} }   // пауза не должна дощёлкать кадр на возврате
+  openAlbumOverlay._prev=null;                    // оверлей не имеет права вернуть протухший маршрут
+  navHideAll(); state='hub'; showScreen('hub'); navRender(true);
+  return true;
+}
+function navResumeLesson(){
+  if(!NAV.lesson){
+    // якоря нет: на базу пришли не с урока (лаборатория/полигон/итог). Урок пройден → финал,
+    // не начат → подсказка. Мёртвая кнопка = застрявший ребёнок (баг Алексея 14.07, seat 98)
+    if(NAV.finalSeen){ navHideAll(); goFinal(); navRender(true); return; }
+    showToast('Урок ещё не начинался — жми «Поехали» 🙂',1400); return;
+  }
+  navHideAll(); const L=NAV.lesson;
+  if(L.kind==='gteach'){ state='gteach'; guideEl.classList.remove('hidden'); GUIDE.gateMs=0; GUIDE.stuckMs=0; }
+  else if(L.kind==='gcheck'){ state='gcheck'; topEl.classList.remove('hidden'); checkui.classList.remove('hidden');
+    if(CHK&&(CHK.phase==='count'||CHK.phase==='hold')){CHK.phase='ready';ckButtons('shot');} }
+  else if(L.kind==='stepcard'){ state='gpause';
+    $('#scBig').textContent=L.big; $('#scTitle').innerHTML=L.title; $('#scText').innerHTML=L.text;
+    $('#scGo').textContent=L.btn; $('#scGo').onclick=L.go; $('#scGo').disabled=false;
+    $('#scAlbum').classList.toggle('hidden',!L.album); $('#scExit').classList.toggle('hidden',!L.exit);
+    stepCard._zone=false; $('#stepcard').classList.remove('hidden'); }
+  else { state='gpause'; showScreen(L.id); }   // DOM экрана жив — повторный вход в show*-функции запрещён (телеметрия)
+  navRender(true);
+}
+function navZones(){
+  const un=GUIDE.unlocked||!WS;
+  return [
+    {id:'hub',  ico:'🧪', name:'База',    open:true},
+    {id:'album',ico:'📒', name:'Альбом',  open:NAV.revealSeen||(NAV.finalSeen&&un), when:'после разгадки', sub:'карточки, на которых учится твой ИИ'},
+    {id:'shoot',ico:'📸', name:'Съёмка',  open:NAV.finalSeen&&un, when:'в конце занятия', sub:'снимать новые карточки'},
+    {id:'range',ico:'🔍', name:'Полигон', open:NAV.finalSeen&&un&&KNN.ex.length>0, when:'в конце занятия', sub:'проверки: как учили + сюрпризы'},
+    {id:'prize',ico:'🏆', name:'Награды', open:NAV.finalSeen&&un, when:'по коду ведущего', sub:'сертификат и игра'},
+  ];
+}
+function navGo(id){
+  const z=navZones().find(z=>z.id===id);
+  if(!z||!z.open){ showToast('🔒 Откроется '+(z?z.when:'позже'),1300); return; }
+  // пост-финальное дообучение (шаг урока на паузе = gteach/gcheck): мутирующие зоны и «Награды»
+  // заперты — иначе съёмка/удаление меняют модель ПОСРЕДИ замера, а финал-экран затирает якорь (Codex R5)
+  if(NAV.lesson&&(NAV.lesson.kind==='gcheck'||NAV.lesson.kind==='gteach')&&(id==='shoot'||id==='range'||id==='prize')){
+    showToast('Сначала закончи шаг урока 🙂\n(кнопка «Урок»)',1500); return; }
+  if(id==='hub'){ navToHub(); return; }
+  if(state!=='hub'&&!navToHub())return;   // отказ базы (идёт замер) = зона не открывается (Codex R5)
+  if(id==='album'){ openAlbumOverlay(); }
+  else if(id==='shoot'){ enterLab(); }
+  else if(id==='range'){ // guard ДО мутаций UI: иначе пустой экран + зависший rangeFromHub (ревью 14.07)
+    if(!counts[0]||!counts[1]){ showToast('Нужен хотя бы 1 пример каждого:\n✋ и ✊ — сначала в Съёмку',1800); return; }
+    NAV.rangeFromHub=true; topEl.classList.remove('hidden'); showScreen(null); startCheck(); }
+  else if(id==='prize'){ showScreen(null); goFinal(); }
+  navRender(true);
+}
+function navRender(force){
+  const nav=$('#wsnav');
+  // панель видна и на полигоне/итоге (фидбек Алексея 14.07: «на полигоне нет навигации»);
+  // прячется только на живом замере (count/hold), в игре (своя нав.), съёмке (своя bottom) и опросе
+  const measuring=CHK&&(CHK.phase==='count'||CHK.phase==='hold');
+  const hideNav=!GUIDE.on||state==='game'||state==='gameover'||state==='train'
+    ||state==='labgal'||!$('#survey').classList.contains('hidden')
+    ||((state==='gcheck'||state==='check')&&measuring);
+  const zs=navZones();
+  const sig=state+'|'+(hideNav?1:0)+'|'+zs.map(z=>z.open?1:0).join('');
+  if(!force&&sig===navRender._sig)return;   // перерисовка только при смене состояния: innerHTML под курсором убивает клик
+  navRender._sig=sig;
+  nav.classList.toggle('hidden',hideNav);
+  document.body.classList.toggle('navon',!hideNav);   // экраны получают отступ снизу — панель не перехватывает клики
+  if(!hideNav){
+    nav.innerHTML=zs.map(z=>`<button data-nav="${z.id}" class="${state==='hub'&&z.id==='hub'?'act':''}${z.open?'':' lock'}">`+
+      `<span class="ni">${z.ico}${z.open?'':'<span class="lk">🔒</span>'}</span>${z.name}</button>`).join('')+
+      `<button data-nav="lesson" class="lesson"><span class="ni">🎧</span>Урок</button>`;
+    nav.querySelectorAll('button').forEach(b=>{ b.onclick=()=>{ const id=b.dataset.nav;
+      if(id==='lesson')navResumeLesson(); else navGo(id); }; });
+  }
+  if(state==='hub'){
+    if(!NAV.lesson&&NAV.finalSeen)NAV.stageLabel='финал (урок пройден)';   // база из свободных зон: честный лейбл вместо «начало урока»
+    $('#hubstep').textContent='Сейчас по уроку: '+NAV.stageLabel;
+    $('#hubtiles').innerHTML=zs.filter(z=>z.id!=='hub').map(z=>
+      `<div class="tile${z.open?'':' locked'}" data-nav="${z.id}"><div class="ti">${z.ico}</div><b>${z.name}</b>`+
+      `<span>${z.sub}</span>${z.open?'':'<span class="tlock">🔒 откроется '+z.when+'</span>'}</div>`).join('');
+    $('#hubtiles').querySelectorAll('.tile').forEach(el=>{ el.onclick=()=>navGo(el.dataset.nav); });
+  }
+}
+setInterval(()=>{ try{navRender();}catch(e){} },700);   // дешёвый ватчер состояния (сигнатура режет холостые перерисовки)
+$('#hubGo').onclick=navResumeLesson;
+
+const TASK_INTRO={
+  t1a:{big:'✋',title:'Научим ИИ ладони!',text:'Показывай ладонь так, чтобы она совпала с контуром на экране. ИИ сам сфотографирует 6 штук.'},
+  t1b:{big:'✊',title:'Теперь кулаки!',text:'Сожми кулак и отодвинь руку, чтобы он стал маленьким, как контур. Ещё 6 фото.'},
+  // «шевели рукой» — только в починке: в R1 однообразие кадров НАМЕРЕННОЕ (усиливает ловушку)
+  // «старые примеры остаются» — Настя на прогоне 13.07 путалась, участвует ли прежний альбом в починке
+  t2a:{big:'✋',title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'},
+  t2b:{big:'✊',title:'И большие кулаки',text:'И наоборот: кулак БЛИЗКО, большой как контур. Тоже чуть по-разному. Ещё 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры тоже в альбоме — он только растёт.</span>'},
+};
+function startTask(key){
+  const intro=TASK_INTRO[key];
+  const fix=key==='t2a'||key==='t2b';
+  // починка: альбом открывается кнопкой (не словами); дообучение ПОСЛЕ финала — с выходом назад
+  stepCard({...intro,album:fix,exit:fix&&!!GUIDE.outcome,btn:'▶️ Начали!',onGo:()=>{
+    const t=TASKS[key]; GUIDE.task={...t,key,got:0}; GUIDE.gateMs=0; GUIDE.lastAdd=0;
+    state='gteach';
+    guideEl.classList.remove('hidden'); topEl.classList.add('hidden'); bottom.classList.add('hidden');
+    gstepEl.textContent=t.step; gtaskEl.innerHTML=t.txt;
+    gdotsEl.innerHTML=Array.from({length:t.need},()=>'<i></i>').join('');
+    ggateEl.textContent=''; TELE.push('task_start',{task:key});
+  }});
+}
+function tickGuidedTeach(){
+  const T=GUIDE.task; if(!T)return;
+  if(camWasDown){GUIDE.gateMs=0;return;}   // камера отпала — замираем
+  const sizeOk=gateOk(T.gate,null,T.cls), form=formOkFor(T.cls);
+  const ok=sizeOk&&form, now=performance.now();
+  const txt=sizeOk&&!form ? formHint(T.cls) : gateHint(T.gate,null,T.cls);
+  if(txt!==ggateEl.textContent && (now-(tickGuidedTeach._ts||0)>600)){   // троттл: на границе порога текст не стробит
+    ggateEl.textContent=txt; ggateEl.className=ok?'ok':'no'; tickGuidedTeach._ts=now; }
+  if(ok){GUIDE.gateMs+=60;GUIDE.stuckMs=0;} else {GUIDE.gateMs=0;GUIDE.stuckMs=(GUIDE.stuckMs||0)+60;}
+  // гейт не проходит очень долго → подсказка позвать ведущего (и след в телеметрии)
+  if(GUIDE.stuckMs>25000){GUIDE.stuckMs=0;TELE.push('gate_stuck',{task:T.key});showToast('Не выходит? Позови ведущего 🙋',2000);}
+  if(GUIDE.gateMs>=CFG.gateHoldMs && now-GUIDE.lastAdd>=CFG.sampleCdMs){
+    GUIDE.lastAdd=now;
+    if(addExample(T.cls,T.round)){
+      T.got++;                                   // «щёлк» кадра — в addExample (прогон 13.07: темп 900мс требует явной отсечки)
+      [...gdotsEl.children].forEach((d,i)=>d.classList.toggle('on',i<T.got));
+      if(T.got>=T.need){ GUIDE.task=null; TELE.push('task_done',{task:T.key});
+        state='gpause'; nextAfterTask(T.key); }
+    }
+  }
+}
+function nextAfterTask(key){
+  guideEl.classList.add('hidden');
+  if(key==='t1a') stepCard({big:'✅',title:'6 ладоней собрано!',text:'ИИ их запомнил.',btn:'Дальше →',onGo:()=>startTask('t1b')});
+  else if(key==='t1b') stepCard({big:'🎓',title:'ИИ обучен!',text:'6 ладоней и 6 кулаков. Теперь проверим, чему он на самом деле научился. Показывай жесты и жми «ЗАМЕРИТЬ».',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)});
+  else if(key==='t2a') startTask('t2b');
+  else if(key==='t2b') stepCard({big:'🔧',title:'Починка готова!',text:'Ты добавил ИИ маленькие ладони и большие кулаки. Загляни в альбом — старые и новые примеры вместе. Проверим ещё раз?',album:true,exit:!!GUIDE.outcome,btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)});
+}
+
+/* ====================== ПРОВЕРКА (общая для урока и лаборатории) ====================== */
+const CARDS_PER_CLASS=4;
+const HOLD=900,MEASURE_TAIL=780,COUNT_STEP=700;   // замер короткий: почти весь идёт в samples
+let CHK=null;
+function shuffledCards(){const a=[];for(let c=0;c<CLASSES.length;c++)for(let n=0;n<CARDS_PER_CLASS;n++)a.push({cls:c});
+  for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]]}
+  return a;}
+// карточки урока. R1: две «как учили» (доверие) + пробник — ✋ ИЗДАЛЕКА (надёжное направление поломки).
+// R2: те же + оба «наоборот» — теперь должны узнаваться.
+function guidedCards(round){
+  return round===1
+    ? [{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:'small',probe:true}]
+    : [{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:'small',probe:true},{cls:1,gate:'big',probe:true}];
+}
+function cardTitle(card){
+  const c=CLASSES[card.cls], fem=card.cls===0;   // род: ладонь БОЛЬШАЯ, кулак БОЛЬШОЙ (смок 09.07)
+  if(!card.gate)return `<span class="em">${c.emoji}</span>${c.name} — как хочешь!`;
+  return card.gate==='big'
+    ? `<span class="em">${c.emoji}</span>${c.name} — ${fem?'БОЛЬШАЯ':'БОЛЬШОЙ'}, как контур`
+    : `<span class="em">${c.emoji}</span>${c.name} — ${fem?'маленькая':'маленький'}, как контур`;
+}
+function ckButtons(mode){ // 'shot' | 'retry' | 'next' | 'why' | none
+  $('#ckShot').classList.toggle('hidden',mode!=='shot');
+  $('#ckRetry').classList.toggle('hidden',mode!=='retry');
+  $('#ckNext').classList.toggle('hidden',mode!=='next'&&mode!=='why');
+  // textContent — ТОЛЬКО при изменении: ckButtons зовётся каждый кадр из renderCheckUI, а замена
+  // текстового узла под курсором между mousedown/mouseup убивает click в WebKit — Safari-баг смока 10.07
+  const t=mode==='why'?'Почему?! 🤔 (пробел)':mode==='next'?'Дальше → (пробел)':null;
+  if(t&&$('#ckNext').textContent!==t)$('#ckNext').textContent=t;
+}
+/* полигон (свободный режим): первые два задания ВСЕГДА «как учили» (доверие), дальше сюрпризы
+   без лимита — «сколько хочешь» (фидбек Алексея 14.07). Выход в любой момент → итог. */
+function navRandCard(){ const pool=[{cls:0,gate:'small'},{cls:1,gate:'big'},{cls:0,gate:'big'},{cls:1,gate:'small'},{cls:0,gate:null},{cls:1,gate:null}];
+  return pool[(Math.random()*pool.length)|0]; }
+function startCheck(){
+  if(!counts[0]||!counts[1]){ showToast('Нужен хотя бы 1 пример каждого:\n✋ и ✊ — иначе ИИ не с чем сравнивать',1800); return; }
+  state='check';
+  CHK={cards:[{cls:0,gate:'big'},{cls:1,gate:'small'}],idx:0,phase:'ready',t0:performance.now(),
+       samples:[],lastSample:0,results:[],guided:false,endless:true};
+  $('#result').classList.add('hidden'); bottom.classList.add('hidden'); zoneEl.classList.add('hidden'); checkui.classList.remove('hidden');
+  $('#ckverdict').textContent=''; ckButtons('shot');
+  $('#ckExit').textContent='🏁 Хватит — к итогу';
+  $('#ckExit').classList.remove('hidden');   // свободная серия — не тоннель, выйти можно всегда
+}
+function startGuidedCheck(round){
+  state='gcheck'; showScreen(null); guideEl.classList.add('hidden');
+  CHK={cards:guidedCards(round),idx:0,phase:'ready',t0:performance.now(),samples:[],lastSample:0,results:[],guided:true,round,gateMs:0};
+  bottom.classList.add('hidden'); topEl.classList.remove('hidden'); checkui.classList.remove('hidden');
+  $('#ckverdict').textContent=''; ckButtons('shot');
+  // урок ведёт сам — выхода нет; НО опциональное дообучение после финала (outcome есть) — не тоннель (фидбек 14.07)
+  const optional=round===2&&!!GUIDE.outcome;
+  $('#ckExit').textContent=optional?'✖ Хватит — к финалу':'← В лабораторию';
+  $('#ckExit').classList.toggle('hidden',!optional);
+}
+/* кнопка ЗАМЕРИТЬ: короткий отсчёт 2-1 (Codex: 3-2-1 медленно при частых замерах) → замер.
+   Руки нет в кадре — отсчёт мягко ЖДЁТ (не сбрасывается): меньше обидных пустых замеров. */
+function ckShotClick(){
+  if(!CHK||CHK.phase!=='ready')return;
+  CHK.phase='count'; CHK.count=2; CHK.t0=performance.now(); ckButtons(null);
+  $('#ckcount3').style.display='block'; $('#ckcount3').textContent='2'; SFX.learn(1);
+}
+function ckRetryClick(){ if(!CHK)return; CHK.phase='ready'; $('#ckverdict').textContent=''; $('#ckhint').textContent=''; ckButtons('shot'); }
+function ckNextClick(){
+  if(!CHK||CHK.phase!=='verdict')return;   // двойной клик не должен пропустить карточку
+  CHK.idx++;
+  if(CHK.idx>=CHK.cards.length){
+    if(CHK.endless){ CHK.cards.push(navRandCard()); }   // полигон: заданий сколько хочешь
+    else { finishCheck(); return; }
+  }
+  CHK.phase='ready'; $('#ckverdict').textContent=''; $('#ckhint').textContent=''; ckButtons('shot');
+}
+function judgeCard(card){
+  const s=CHK.samples;
+  // замер невалиден (не считается попыткой): руки не было / не тот размер / не тот жест
+  const seen=s.filter(x=>x.hand).length, sized=s.filter(x=>x.hand&&x.size).length, formed=s.filter(x=>x.hand&&x.form).length;
+  CHK.invalidN=(CHK.invalidN||0);
+  const esc=CHK.invalidN>=2 ? ' Если не выходит — позови ведущего 🙋' : '';
+  if(!s.length||seen<s.length*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg='🚫 Не увидел руку — попробуем ещё раз.'+esc; TELE.push('shot_invalid',{why:'nohand'}); return; }
+  if(CHK.guided&&sized<seen*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg='📏 Рука не того размера — совпади с контуром и замерь снова.'+esc; TELE.push('shot_invalid',{why:'size'}); return; }
+  if(CHK.guided&&formed<seen*0.5){ CHK.phase='invalid'; CHK.invalidN++; CHK.invalidMsg=(card.cls===0?'Это точно ладонь? 🙂 Раскрой пальцы':'Это точно кулак? 🙂 Сожми покрепче')+' — и замерь снова.'+esc; TELE.push('shot_invalid',{why:'form'}); return; }
+  CHK.invalidN=0;
+  const valid=s.filter(x=>x.label!=null&&!x.far);
+  let verdict,got=null;
+  if(!valid.length) verdict='nohand';
+  else{ const cnt={}; valid.forEach(x=>cnt[x.label]=(cnt[x.label]||0)+1);
+    let mj=-1,mc=-1; for(const l in cnt){if(cnt[l]>mc){mc=cnt[l];mj=+l}}
+    const frac=mc/valid.length;
+    if(frac<0.6){verdict='wavered';got=mj;}
+    else if(mj===card.cls)verdict='correct';
+    else{verdict='confused';got=mj;}
+  }
+  CHK.results.push({cls:card.cls,verdict,got});
+  if(card.probe&&lastPix)GUIDE.probeShot=new ImageData(new Uint8ClampedArray(lastPix.data),32,32);   // стоп-кадр для «почему»
+  CHK.phase='verdict';
+  TELE.push('card',{round:CHK.round||0,cls:card.cls,gate:card.gate||null,probe:!!card.probe,verdict,got,
+    hand:lastHand.side!=null?+lastHand.side.toFixed(3):null,
+    top:predCache?.top||null});                       // разбивка веток соседей — для замера ставки
+  if(verdict==='correct')SFX.ding();else SFX.buzz();
+}
+function tickCheck(now){
+  if(!CHK)return; const card=CHK.cards[CHK.idx], el=now-CHK.t0;
+  if(camWasDown){if(CHK.phase==='count'||CHK.phase==='hold'){CHK.phase='ready';ckButtons('shot');$('#ckcount3').style.display='none';}return;}
+  if(CHK.phase==='count'){
+    if(!lastHand.ok){ CHK.t0=now-(2-CHK.count)*COUNT_STEP; $('#ckcount3').textContent='🖐'; }   // ждём руку, счёт на паузе
+    else{
+      const c=2-Math.floor(el/COUNT_STEP);
+      if(String(c)!==$('#ckcount3').textContent&&c>0){CHK.count=c;$('#ckcount3').textContent=c;SFX.learn(4-c);}
+      if(el>=2*COUNT_STEP){ $('#ckcount3').style.display='none';
+        CHK.phase='hold'; CHK.t0=now; CHK.samples=[]; CHK.lastSample=0; SFX.ding(); }
+    }
+  }
+  else if(CHK.phase==='hold'){
+    if(el>=HOLD-MEASURE_TAIL && now-CHK.lastSample>=80){ CHK.lastSample=now;
+      CHK.samples.push({label:predCache?predCache.label:null, far:predCache?predCache.far:true,
+        hand:lastHand.ok, size:card.gate?gateOk(card.gate,null,card.cls):true, form:formOkFor(card.cls)}); }
+    if(el>=HOLD){ judgeCard(card); CHK.t0=now; }
+  }
+  renderCheckUI(card,now);
+}
+function renderCheckUI(card,now){
+  const el=now-CHK.t0;
+  $('#ckround').textContent=CHK.guided?(CHK.round===1?'🔍 Проверка ИИ':'🔍 Проверка после починки'):'🔍 Полигон: как учили + сюрпризы';
+  if(CHK.endless){ const okN=CHK.results.filter(r=>r.verdict==='correct').length;
+    $('#ckcount').textContent=`задание ${CHK.idx+1} · ✅ ${okN} из ${CHK.results.length}`; }
+  else $('#ckcount').textContent=`замер ${Math.min(CHK.idx+1,CHK.cards.length)} из ${CHK.cards.length}`;
+  if(CHK.phase==='ready'){
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckbar').style.width='0%'; $('#ckverdict').textContent='';
+    // живая подсказка размера ЕЩЁ ДО нажатия: вплотную к камере детектор слепнет, а без подсказки
+    // ребёнок не понимает, чего от него ждут (смок 09.07: кулак во весь кадр)
+    const gh=CHK.guided&&card.gate&&lastHand.ok&&!gateOk(card.gate,null,card.cls)?gateHint(card.gate,null,card.cls):null;
+    $('#ckhint').textContent=gh||'жми кнопку или ПРОБЕЛ — счёт подождёт твою руку';
+  } else if(CHK.phase==='count'){
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckhint').textContent=CHK.guided&&card.gate?gateHint(card.gate,null,card.cls):'';
+  } else if(CHK.phase==='hold'){
+    $('#cktarget').innerHTML=cardTitle(card);
+    $('#ckbar').style.width=Math.min(100,el/HOLD*100)+'%'; $('#ckbar').style.background='var(--warn)';
+    $('#ckverdict').style.color='var(--warn)'; $('#ckverdict').textContent='📸 замеряю…'; $('#ckhint').textContent='держи так!';
+  } else if(CHK.phase==='invalid'){
+    $('#ckbar').style.width='0%';
+    $('#ckverdict').style.color='var(--warn)'; $('#ckverdict').textContent='🤳 Замер не получился';
+    $('#ckhint').textContent=CHK.invalidMsg||''; ckButtons('retry');
+  } else if(CHK.phase==='verdict'){
+    const r=CHK.results[CHK.idx]; $('#ckbar').style.width='100%';
+    const isProbeMiss=CHK.guided&&CHK.round===1&&card.probe&&r.verdict!=='correct';
+    if(r.verdict==='correct'){$('#ckverdict').style.color='var(--ok)';$('#ckverdict').textContent='✅ Верно!';$('#ckhint').textContent='';}
+    else if(r.verdict==='nohand'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='🚫 не разобрал кадр';$('#ckhint').textContent='';}
+    else if(r.verdict==='wavered'){$('#ckverdict').style.color='var(--warn)';$('#ckverdict').textContent='😵 ИИ заметался — не смог решить!';
+      $('#ckhint').textContent=isProbeMiss?`а ты показывал ${CLASSES[card.cls].emoji} ${CLASSES[card.cls].name}…`:'';}
+    else{$('#ckverdict').style.color='var(--bad)';$('#ckverdict').textContent=`❌ ИИ сказал: ${CLASSES[r.got].emoji} ${CLASSES[r.got].name}!`;
+      $('#ckhint').textContent=isProbeMiss?`а ты показывал ${CLASSES[card.cls].emoji} ${CLASSES[card.cls].name}…`:'';}
+    ckButtons(isProbeMiss?'why':'next');
+  }
+}
+function finishCheck(){
+  checkui.classList.add('hidden');
+  const pc=[{correct:0,confused:0,nohand:0,wavered:0,total:0},{correct:0,confused:0,nohand:0,wavered:0,total:0}];
+  for(const r of CHK.results){pc[r.cls].total++;pc[r.cls][r.verdict]++;}
+  const c0=pc[0].correct,c1=pc[1].correct,totalCorrect=c0+c1,totalCards=CHK.results.length;
+  TELE.push('check_done',{round:CHK.round||0,guided:CHK.guided,correct:totalCorrect,total:totalCards});
+  if(CHK.guided){ finishGuidedCheck(totalCorrect,totalCards); return; }
+  state='train-pause';
+  const outcome = totalCorrect>=Math.ceil(totalCards*0.8) ? 'strong' : totalCorrect>=Math.ceil(totalCards*0.6) ? 'ok' : 'raw';
+  provenTier = outcome==='strong'?2 : outcome==='ok'?1 : 0;
+  showResult({pc,totalCorrect,totalCards,outcome});
+}
+
+/* ---- развилки урока после проверки ---- */
+function finishGuidedCheck(correct,total){
+  state='gpause'; topEl.classList.add('hidden');
+  if(CHK.round===1){
+    GUIDE.res1={correct,total};
+    const probe=CHK.results[CHK.results.length-1];    // пробник ✋ ИЗДАЛЕКА — всегда последняя карточка R1
+    if(probe.verdict==='nohand'){                     // редкость: невалидные замеры ловятся раньше
+      TELE.push('inconclusive'); GUIDE.outcome='inconclusive'; showFinal(); return;
+    }
+    if(probe.verdict==='correct'){                    // ИИ не обманулся — редкий честный путь
+      TELE.push('no_break'); GUIDE.outcome='no_break'; showFinal(); return;
+    }
+    TELE.push('break_shown',{verdict:probe.verdict,got:probe.got});
+    if(WS)showHypoScreen(probe); else showGuessScreen(probe);   // ws: сперва СВОЯ гипотеза, до всех подсказок
+  } else {
+    GUIDE.res2={correct,total};
+    if(correct>=3||GUIDE.fixTries>=1){ GUIDE.outcome=correct>=3?'fixed':'partial'; showFinal(); }
+    else{ GUIDE.fixTries++; TELE.push('fix_retry');
+      saveMilestone('fixdata');   // пере-снимок с актуальными res2/fixTries: ранний check_done их не видел (Codex R2 п.6)
+      // повторная починка идёт МИМО выбора (уже выбирал) — вернуть t2a нейтральный интро-текст
+      stepCard({big:'🤔',title:'ИИ ещё путается!',text:'Так бывает. Добавим ему ещё немного разных примеров — и проверим снова.',album:true,btn:'🔧 Чинить дальше',onGo:()=>{Object.assign(TASK_INTRO.t2a,T2A_NEUTRAL);startTask('t2a');}}); }
+  }
+}
+function recommend(pc,outcome){
+  const recs=[];
+  if(outcome!=='strong'){
+    recs.push('ИИ знает только то, что ты ему показал. Если все примеры похожи — он цепляется за случайное (размер, место, фон).');
+    recs.push('Почини данными: покажи каждый жест ПО-РАЗНОМУ — близко, далеко, под углом.');
+    return recs;
+  }
+  const mn=Math.min(counts[0],counts[1]),mx=Math.max(counts[0],counts[1]);
+  if(mx>=mn*2+2){const less=counts[0]<counts[1]?0:1;recs.push(`Перекос: ${CLASSES[0].emoji} ${counts[0]} · ${CLASSES[1].emoji} ${counts[1]}. Добери ${CLASSES[less].emoji}.`);}
+  for(let c=0;c<2;c++){ if(pc[c].confused>=2)recs.push(`ИИ путал ${CLASSES[c].emoji} ${CLASSES[c].name} с ${CLASSES[1-c].emoji}. Добери ${CLASSES[c].emoji} в разных местах и с разным фоном.`); }
+  if(!recs.length && outcome!=='strong')recs.push('Добери по 6–8 РАЗНЫХ примеров каждого: меняй место, расстояние, наклон, фон.');
+  return recs.slice(0,2);
+}
+/* ---- сертификат под сторис (client-side, ничего не уходит с устройства) ---- */
+function wrapLinesCanvas(x,text,maxW){
+  const words=text.split(' '),lines=[];let cur='';
+  for(const w of words){ const t=cur?cur+' '+w:w; if(x.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;} else cur=t; }
+  if(cur)lines.push(cur); return lines;
+}
+/* ===== СЕРТИФИКАТ-АЧИВКА под сторис (1080×1920) =====
+   Генеративная рамка ФТИИ (3 стиля, выбор случайный) + чистый центр на canvas.
+   Окно внутри рамки детектится по профилю активности → контент центрируется,
+   каждый текст автоподбирает кегль под ширину окна (ничего не упирается в рамку). */
+const CERT_FRAMES=['neon','popart','pixel'];
+const CERT_F='"ALS Gorizont"';
+const C_WHITE='#fff',C_PALE='#B8D4FF',C_LIGHT='#739DFF',C_ELEC='#0F53FF';
+// шкала вертикального ритма (модульная, не магические числа):
+// caption=хугает подпись к элементу; group=между смысловыми кластерами; afterDisplay=воздух под крупным дисплейным текстом
+const CERT_GAP={caption:18,group:84,afterDisplay:34};
+let _certFrameImg={};                       // кэш загруженных PNG-рамок
+function loadCertFrame(name){
+  if(_certFrameImg[name])return Promise.resolve(_certFrameImg[name]);
+  return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{_certFrameImg[name]=im;res(im);};im.onerror=rej;im.src='assets/cert/frame-'+name+'.png';});
+}
+let _certLogo=null;                         // канон-лого ФТИИ (белый SVG из бренд-скилла) — подпись сертификата
+function loadCertLogo(){
+  if(_certLogo)return Promise.resolve(_certLogo);
+  return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{_certLogo=im;res(im);};im.onerror=rej;im.src='assets/cert/ftii-logo-white.svg';});
+}
+function certLerp(a,b,t){return Math.round(a+(b-a)*t);}
+// детект внутреннего пустого окна рамки (рамка — высокая «детальность» по периметру, центр гладкий)
+function detectInnerRect(data,W,H){
+  const lum=i=>0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];
+  const cx=W>>1,cy=H>>1;
+  const y0=(H*0.40)|0,y1=(H*0.60)|0,colAct=new Float32Array(W);
+  for(let x=0;x<W;x++){let s=0,n=0;for(let y=y0;y<y1;y++){const i=(y*W+x)*4,i2=((y+1)*W+x)*4;s+=Math.abs(lum(i)-lum(i2));n++;}colAct[x]=s/n;}
+  const x0=(W*0.40)|0,x1=(W*0.60)|0,rowAct=new Float32Array(H);
+  for(let y=0;y<H;y++){let s=0,n=0;for(let x=x0;x<x1;x++){const i=(y*W+x)*4,i2=(y*W+x+1)*4;s+=Math.abs(lum(i)-lum(i2));n++;}rowAct[y]=s/n;}
+  const thr=a=>{let m=0;for(const v of a)m=Math.max(m,v);return m*0.16;};
+  const tx=thr(colAct),ty=thr(rowAct);
+  const calm=(arr,idx,t)=>{let bad=0;for(let k=-3;k<=3;k++){const v=arr[idx+k];if(v!=null&&v>t)bad++;}return bad<=1;};
+  let L=cx;while(L>2&&calm(colAct,L,tx))L--;let R=cx;while(R<W-3&&calm(colAct,R,tx))R++;
+  let T=cy;while(T>2&&calm(rowAct,T,ty))T--;let B=cy;while(B<H-3&&calm(rowAct,B,ty))B++;
+  return {x:L,y:T,w:R-L,h:B-T};
+}
+// измеряемый стек блоков: y = ТЕКУЩИЙ ВЕРХ. Строки позиционируются по реальным метрикам шрифта
+// (actualBoundingBoxAscent/Descent), baseline = top+asc. report[] пишет боксы для геом. проверки.
+// doDraw=false → только меряем высоту (pass1 для центрирования).
+function certContent(x,y0,mid,iw,frame,nC,nT,doDraw,report){
+  let y=y0;
+  const INSET=16, uw=iw-INSET*2;   // safe-inset: текст не подходит к краю окна ближе INSET
+  const push=(tag,top,bottom,w)=>{if(report)report.push({tag,top:Math.round(top),bottom:Math.round(bottom),w:Math.round(w),margin:Math.round((iw-w)/2)});};
+  // autofit: ужать кегль под безопасную ширину
+  const fit=(s,wt,sz,ls,min)=>{const lp=ls||'0px';x.letterSpacing=lp;x.font=wt+' '+sz+'px '+CERT_F;
+    while(sz>(min||sz*0.55)&&x.measureText(s).width>uw){sz-=2;x.font=wt+' '+sz+'px '+CERT_F;}x.letterSpacing='0px';return sz;};
+  // строка: рисует по baseline=y+asc, продвигает y на asc+desc, пишет бокс
+  const LINE=(tag,s,wt,sz,col,ls)=>{const fs=fit(s,wt,sz,ls);const lp=ls||'0px';
+    x.letterSpacing=lp;x.font=wt+' '+fs+'px '+CERT_F;const m=x.measureText(s);
+    const asc=m.actualBoundingBoxAscent,desc=m.actualBoundingBoxDescent;
+    if(doDraw){x.fillStyle=col;x.fillText(s,mid,y+asc);}x.letterSpacing='0px';
+    push(tag,y,y+asc+desc,m.width);y+=asc+desc;};
+
+  // 1. мета — две строки: «воркшоп» + название
+  LINE('meta-1','ВОРКШОП','500',26,C_PALE,'8px');y+=CERT_GAP.caption;
+  LINE('meta-2','«НАТРЕНИРУЙ СВОЙ ИИ»','500',28,C_WHITE,'4px');y+=CERT_GAP.group;
+  // 2. герой — реальный кадр 32×32 руки В ЦВЕТЕ (монохром-синий убран по смоку 10.07: «должно быть оригинальное»)
+  const S=Math.max(240,Math.min(iw*0.52,400)),fx=mid-S/2;
+  if(doDraw){x.fillStyle=C_ELEC;x.fillRect(fx+12,y+12,S,S);
+    const t=document.createElement('canvas');t.width=32;t.height=32;t.getContext('2d').putImageData(frame,0,0);
+    x.imageSmoothingEnabled=false;x.drawImage(t,0,0,32,32,fx,y,S,S);x.imageSmoothingEnabled=true;
+    x.strokeStyle=C_PALE;x.lineWidth=5;x.strokeRect(fx,y,S,S);}
+  push('hero',y,y+S,S);y+=S+CERT_GAP.caption;
+  // 3. подпись герою
+  LINE('hero-cap','32×32 · ЧТО ВИДЕЛ ИИ','500',24,C_PALE,'6px');y+=CERT_GAP.group;
+  // 4. восклицание (крупный дисплей → воздух под ним)
+  LINE('kicker','готово','800',100,C_WHITE);y+=CERT_GAP.afterDisplay;
+  // 5. объяснение (перенос)
+  const expSz=34;x.font='400 '+expSz+'px '+CERT_F;x.letterSpacing='0px';
+  const lines=wrapLinesCanvas(x,'я обучил свой ИИ различать изображения на своих примерах',uw);
+  lines.forEach((l,i)=>{x.font='400 '+expSz+'px '+CERT_F;const m=x.measureText(l);
+    const asc=m.actualBoundingBoxAscent,desc=m.actualBoundingBoxDescent;
+    if(doDraw){x.fillStyle=C_PALE;x.fillText(l,mid,y+asc);}
+    push('exp-'+i,y,y+asc+desc,m.width);y+=asc+desc+(i<lines.length-1?8:0);});
+  y+=CERT_GAP.group;
+  // 6. метрика — кульминация
+  LINE('metric',nC+' из '+nT,'800',128,C_WHITE);y+=CERT_GAP.caption;
+  // 7. подпись метрике
+  LINE('metric-cap','тестовых карточек распознаны верно','500',30,C_PALE);y+=12;
+  const acc=Math.round(nC/Math.max(1,nT)*1000)/10;
+  LINE('acc','точность '+acc+'%','500',27,C_LIGHT);y+=CERT_GAP.group;
+  // 8. подпись — канон-лого ФТИИ (ИТМО · факультет технологий искусственного интеллекта), фирменное начертание
+  const lw=Math.min(uw*0.72,430), lh=lw*76/377;
+  if(doDraw&&_certLogo)x.drawImage(_certLogo,mid-lw/2,y,lw,lh);
+  push('logo',y,y+lh,lw);y+=lh;
+  return y-y0;
+}
+async function makeCert(nCorrect,nTotal,frame){
+  try{
+    await Promise.all(['400','500','700','800'].map(wt=>document.fonts.load(wt+' 100px '+CERT_F)));
+    await document.fonts.ready;
+    await loadCertLogo().catch(()=>{});   // нет лого (оффлайн) — сертификат просто без подписи, не падаем
+    const name=CERT_FRAMES[Math.floor(Math.random()*CERT_FRAMES.length)];
+    const img=await loadCertFrame(name);
+    const W=1080,H=1920,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+    x.drawImage(img,0,0,W,H);
+    const r=detectInnerRect(x.getImageData(0,0,W,H).data,W,H);
+    const pad=Math.min(r.w,r.h)*0.07, iw=r.w-pad*2, mid=r.x+r.w/2, iy=r.y+pad, ih=r.h-pad*2;
+    x.textAlign='center';
+    const Hc=certContent(x,0,mid,iw,frame,nCorrect,nTotal,false);   // pass1: высота
+    const top=iy+Math.max(0,(ih-Hc)/2);                             // вертикальное центрирование в окне
+    certContent(x,top,mid,iw,frame,nCorrect,nTotal,true);           // pass2: рисуем
+    c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='мой-ИИ-сертификат.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);});
+    SFX.ding();
+  }catch(e){ console.error('makeCert',e); alert('Не получилось собрать сертификат — попробуй ещё раз'); }
+}
+function showResult({pc,totalCorrect,totalCards,outcome}){
+  const titEl=$('#rstitle'),scEl=$('#rsscore'),mapEl=$('#rsmap'),diagEl=$('#rsdiag'),btns=$('#rsbtns');
+  const biasFail = false;   // лаборатория: без режиссуры, нейтральный результат
+  titEl.innerHTML = outcome==='strong'?'🎉 Сильный ИИ!' : outcome==='ok'?'🟡 Неплохо, но путает':'🔧 ИИ ещё учится — добавь примеров';
+  scEl.innerHTML=`Проверка: <b>${totalCorrect} из ${totalCards}</b>`;
+  mapEl.innerHTML=[0,1].map(c=>{
+    const p=pc[c],e=CLASSES[c].emoji,oe=CLASSES[1-c].emoji,parts=[`${p.correct} из ${p.total} верно`];
+    if(p.confused)parts.push(`${p.confused}× принял за ${oe}`);
+    if(p.nohand)parts.push(`${p.nohand}× не разобрал`);
+    if(p.wavered)parts.push(`${p.wavered}× колебался`);
+    return `<div class="rscard ${p.correct>=3?'good':'bad'}">${e} <b>${CLASSES[c].name}</b>: ${parts.join(' · ')}</div>`;
+  }).join('');
+  const recs=recommend(pc,outcome);
+  diagEl.innerHTML=recs.length?('<div style="font-size:13px;color:var(--muted);text-align:left;width:100%">💡 что дальше:</div>'+recs.map(r=>`<div class="rsrec">${r}</div>`).join('')):'';
+  btns.innerHTML='';
+  const mk=(txt,cls,fn)=>{const b=document.createElement('button');b.className=cls;b.textContent=txt;b.onclick=fn;btns.appendChild(b);};
+  if(NAV.rangeFromHub){ NAV.rangeFromHub=false; mk('🧪 На базу','ok',()=>{ $('#result').classList.add('hidden'); navToHub(); }); }
+  if(biasFail){
+    mk('🔧 Добрать РАЗНЫЕ данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+    mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+  } else if(outcome==='raw'){
+    mk('← Добрать данные','ok',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+    mk('▶️ Всё равно играть','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+  } else {
+    mk('← Добрать ещё','ghost',()=>{ $('#result').classList.add('hidden'); backToTrain(); });
+    mk('🎮 Поиграть с ИИ (бонус)','ghost',()=>{ $('#result').classList.add('hidden'); startGame(); });
+  }
+  // главный трофей — сертификат под сторис (всегда доступен, точность честная)
+  mk('🏆 Сделать сертификат','ok',()=>makeCert(totalCorrect,totalCards,certFrame));
+  $('#result').classList.remove('hidden');
+}
+
+/* ====================== ЭКРАНЫ УРОКА: гипотеза → угадайка → замок → разгадка → выбор починки ====================== */
+/* v4, честный замер: в ws сперва СВОЯ гипотеза (до подсказок — единственный чистый замер ОР-1),
+   потом варианты-кандидаты, разгадка заперта кодом ведущего (галерея догадок обсуждается вместе),
+   починка начинается с выбора ребёнка. Дома (без ?ws) — без гипотезы и замка: демка учит сама. */
+function probeIntro(probe){
+  const said=probe.got!=null?CLASSES[probe.got]:null;
+  return probe.verdict==='wavered'
+    ? 'Ты показал ✋ маленькую ладонь — а ИИ заметался и не смог решить.'
+    : `Ты показал ✋ маленькую ладонь — а ИИ сказал «${said?said.emoji+' '+said.name:'…'}».`;
+}
+function showHypoScreen(probe){
+  state='gpause'; GUIDE.probe=probe;
+  $('#hyposub').innerHTML=probeIntro(probe)+'<br><b>Как думаешь, что ИИ на самом деле выучил из твоих примеров?</b>';
+  if(GUIDE.probeShot)$('#hyposhot').getContext('2d').putImageData(GUIDE.probeShot,0,0);
+  const t=$('#hypotext'); t.value=''; t.classList.add('masked'); $('#hypoEye').textContent='👁';
+  showScreen('hypo'); t.focus();
+}
+$('#hypoEye').onclick=()=>{ const t=$('#hypotext'), m=t.classList.toggle('masked');
+  $('#hypoEye').textContent=m?'👁':'🙈'; t.focus(); };
+$('#hypoNext').onclick=()=>{
+  const v=$('#hypotext').value.trim();
+  if(!v){ showToast('Напиши догадку — любую.\nИли жми «Не знаю» 🙂',1500); return; }
+  TELE.push('hypothesis',{text:v.slice(0,500)}); showGuessScreen(GUIDE.probe);
+};
+$('#hypoDunno').onclick=()=>{ TELE.push('hypothesis',{text:'',dontknow:true}); showGuessScreen(GUIDE.probe); };
+$('#hypotext').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#hypoNext').click();} });
+
+function showGuessScreen(probe){
+  state='gpause'; GUIDE.probe=probe;
+  if(GUIDE.probeShot)$('#probeshot').getContext('2d').putImageData(GUIDE.probeShot,0,0);
+  $('#guesstitle').textContent=probe.verdict==='wavered'?'ИИ растерялся!':'ИИ перепутал!';
+  $('#guesssub').innerHTML=probeIntro(probe)+'<br><b>Как думаешь, ПОЧЕМУ?</b>';
+  // 5 кандидатов, параллельные по формату — правильный БЕЗ контраста-подсказки «а не жест».
+  // cat уходит в телеметрию: magic = маркер магического мышления для рубрики (рамка оценки §3)
+  const btns=$('#guessbtns'); btns.innerHTML='';
+  // тексты ≤4 слов, параллельные по форме и длине — ни один не выделяется как «правильный»
+  // (прогон 13.07, Настя: «много текста, правильный на глаза попадается в последнюю очередь»)
+  const opts=[
+    {key:'size',  cat:'data-right',     label:'📏 Запомнил размер руки'},
+    {key:'bg',    cat:'specific-wrong', label:'🖼 Смотрел на фон сзади'},
+    {key:'few',   cat:'data-generic',   label:'🔢 Видел мало примеров'},
+    {key:'camera',cat:'magic',          label:'📷 Камера плохо снимает'},
+    {key:'dumb',  cat:'magic',          label:'🤖 ИИ просто глупый'},
+  ];
+  for(let i=opts.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[opts[i],opts[j]]=[opts[j],opts[i]];}
+  opts.forEach(o=>{ const b=document.createElement('button'); b.className='choice'; b.textContent=o.label;
+    b.onclick=()=>{ TELE.push('guess',{choice:o.key,cat:o.cat,correct:o.key==='size'});   // пушится ОДИН раз
+      GUIDE.guessKey=o.key; GUIDE.guessCat=o.cat;
+      if(WS)showLockScreen(); else showRevealScreen(); };
+    btns.appendChild(b); });
+  showScreen('guess');
+}
+
+/* атомарное удаление n-й карточки класса: KNN.ex (общий список) и THUMBS[cls] идут синхронно
+   по порядку добавления; counts пересчитываем из факта, не декрементим (ревью Codex 14.07).
+   Доступно только post-final (иначе рвёт guided-замеры), с персистом — F5 не воскрешает удалённое. */
+function delExample(cls,n){
+  let idx=-1,seen=0;
+  for(let i=0;i<KNN.ex.length;i++){ if(KNN.ex[i].l===cls){ if(seen===n){idx=i;break;} seen++; } }
+  if(idx<0||!THUMBS[cls][n])return false;
+  KNN.ex.splice(idx,1); THUMBS[cls].splice(n,1);
+  counts[cls]=KNN.ex.filter(x=>x.l===cls).length;
+  predCache=null; smooth.length=0;
+  // сертификату нужен живой кадр: удалили ладонь → последняя оставшаяся ладонь, иначе любой пример
+  certFrame=THUMBS[0].length?THUMBS[0][THUMBS[0].length-1].img:(THUMBS[1].length?THUMBS[1][THUMBS[1].length-1].img:null);
+  TELE.push('sample_del',{cls});
+  clearTimeout(delExample._t);
+  if(!KNN.ex.length){ clearSave(); }   // альбом опустел: сейв не умеет «пусто» → честный чистый старт после F5 (Codex R5)
+  else delExample._t=setTimeout(()=>{try{saveMilestone('final')}catch(e){}},1200);
+  refresh(); updateHint(); return true;
+}
+function albumEditable(){ return true; }   // v5lab ПОЛИГОН: альбом всегда редактируемый (удаление кадров)
+function buildGallery(gal,allRounds,editable){ // «улики»: R1-примеры (замок/разгадка, read-only); альбом — editable post-final
+  editable=editable&&allRounds;   // фильтрованный список рассинхронил бы индексы удаления
+  gal.innerHTML='';
+  [[0,'✋ Все ладони, что ты показал:'],[1,'✊ Все кулаки:']].forEach(([cls,label])=>{
+    const row=document.createElement('div'); row.className='galrow';
+    const gl=document.createElement('div'); gl.className='gl'; gl.textContent=label; row.appendChild(gl);
+    THUMBS[cls].filter(t=>allRounds||t.round===1).forEach((t,n)=>{
+      const c=document.createElement('canvas'); c.width=32; c.height=32;
+      c.getContext('2d').putImageData(t.img,0,0);
+      if(!editable){ row.appendChild(c); return; }
+      const cw=document.createElement('span'); cw.className='cw'; cw.appendChild(c);
+      const x=document.createElement('button'); x.className='crd-del'; x.textContent='✕';
+      x.onclick=(e)=>{ e.stopPropagation();   // два тапа: первый «взводит» (красная рамка), второй удаляет
+        if(!cw.classList.contains('arm')){ cw.classList.add('arm'); x.textContent='❗';
+          setTimeout(()=>{cw.classList.remove('arm');x.textContent='✕';},2000); return; }
+        if(delExample(cls,n)){ showToast('Карточка убрана из альбома',900); buildGallery(gal,allRounds,true); } };
+      cw.appendChild(x); row.appendChild(cw); });
+    gal.appendChild(row);
+  });
+}
+function showLockScreen(){ state='gpause'; buildGallery($('#lockgal')); $('#lockcode').value='';
+  $('#lockNext').classList.add('dim'); showScreen('lock'); $('#lockcode').focus(); }
+$('#lockcode').addEventListener('input',()=>{ $('#lockNext').classList.toggle('dim',!$('#lockcode').value.trim()); });
+$('#lockNext').onclick=()=>{
+  const v=$('#lockcode').value.trim();
+  if(v!==CFG.revealCode){
+    GUIDE.lockFails++; TELE.push('reveal_attempt',{n:GUIDE.lockFails});   // след перебора/гейминга
+    if(GUIDE.lockFails%3===0){ $('#lockNext').disabled=true; setTimeout(()=>{$('#lockNext').disabled=false;},1500); }
+    showToast('Не тот код — послушай ведущего 👂',1300); return;
+  }
+  TELE.push('reveal_unlock'); showRevealScreen();
+};
+$('#lockcode').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();$('#lockNext').click();} });
+
+function showRevealScreen(){
+  state='gpause';   // resume приходит сюда напрямую — state не должен остаться 'intro' (Codex 14.07)
+  NAV.revealSeen=true;   // ловушка раскрыта — альбом больше не спойлер, зона открывается
+  GUIDE.guess=(GUIDE.guessKey==='size');
+  // реакция по КАТЕГОРИИ выбора и без «не угадал» — экран бывает на общей демонстрации;
+  // «мало примеров» валидируем: рамка оценки считает это причиной ПРО ДАННЫЕ, не ошибкой
+  const T={'data-right':'Ты угадал! 🎉','data-generic':'Почти! Дело в данных — смотри 🔍',
+    'specific-wrong':'Хорошая догадка — смотри, что было на самом деле 🔍','magic':'Смотри на разгадку 🔍'};
+  $('#revtitle').textContent=T[GUIDE.guessCat]||'Вот разгадка 🔍';
+  buildGallery($('#gal'));
+  const pre=GUIDE.guessCat==='data-generic'?'Примеров и правда немного — но главное, что они все ПОХОЖИЕ.<br>':'';
+  $('#revkey').innerHTML=pre+'Все ладони — <b>БОЛЬШИЕ</b>. Все кулаки — <b>МАЛЕНЬКИЕ</b>.<br>ИИ выучил <b>РАЗМЕР</b>, а не жест — он знает только твои примеры.<br><span style="color:var(--muted)">Это была наша ловушка 😏 — инструкции нарочно так просили.</span> <b>Ты всё сделал правильно!</b>';
+  TELE.push('reveal_shown');
+  showScreen('reveal');
+}
+
+/* ---- выбор починки: решение ребёнка = замер (гейты дальше ведут исполнение) ---- */
+const FIX_OPTS=[
+  {key:'more-same',correct:false,label:'➕ Ещё таких же: больших ладоней и маленьких кулаков'},
+  {key:'opposite', correct:true, label:'🔄 Наоборот: маленьких ладоней и больших кулаков'},
+  {key:'retake',   correct:false,label:'📷 Те же примеры, но переснять почётче'},
+];
+const T2A_NEUTRAL={title:'Чиним: маленькие ладони',text:'Покажи ИИ то, чего он не видел: ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>'};
+function showFixPick(){
+  state='gpause'; GUIDE.fixAttempts=0; GUIDE.fixChosen=null;
+  $('#fixhint').classList.add('hidden');
+  const btns=$('#fixbtns'); btns.innerHTML='';
+  const opts=[...FIX_OPTS];
+  for(let i=opts.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[opts[i],opts[j]]=[opts[j],opts[i]];}
+  opts.forEach(o=>{ const b=document.createElement('button'); b.className='choice'; b.textContent=o.label;
+    b.onclick=()=>fixPick(o); btns.appendChild(b); });
+  showScreen('fixpick');
+}
+function fixPick(o){
+  const now=performance.now();               // дабл-тап не должен съесть обе попытки (ось «сам починил»)
+  if(now-(fixPick._t||0)<400)return; fixPick._t=now;
+  GUIDE.fixAttempts++;
+  TELE.push('fix_choice',{attempt:GUIDE.fixAttempts,choice:o.key,correct:o.correct});
+  if(o.correct){ GUIDE.fixChosen='self'; goFix(); return; }
+  SFX.buzz();
+  if(GUIDE.fixAttempts>=2){                    // после 2-й ошибки не запираем: показываем ход и чиним
+    GUIDE.fixChosen='shown';
+    $('#fixhint').innerHTML='Правильный ход — <b>наоборот</b>: маленькие ладони и большие кулаки. ИИ нужно увидеть то, чего НЕ БЫЛО в его примерах.';
+    $('#fixhint').classList.remove('hidden');
+    const btns=$('#fixbtns'); btns.innerHTML='';
+    const b=document.createElement('button'); b.className='ok'; b.style.cssText='width:min(340px,74vw);flex:0 0 auto';
+    b.textContent='🔧 Чинить'; b.onclick=goFix; btns.appendChild(b);
+    return;
+  }
+  $('#fixhint').innerHTML='Вспомни разгадку: ВСЕ твои ладони были большими, а кулаки маленькими. Чего ИИ ещё ни разу не видел?';
+  $('#fixhint').classList.remove('hidden');
+}
+function goFix(){    // одна карточка: интро t2a и есть подтверждение (двойная модалка — трение)
+  const self=GUIDE.fixChosen==='self';
+  TASK_INTRO.t2a.title=self?'Точно! Маленькие ладони':T2A_NEUTRAL.title;
+  TASK_INTRO.t2a.text =self?'ИИ нужно то, чего он не видел. Покажи ладонь ИЗДАЛЕКА, маленькую как контур. Чуть меняй наклон между кадрами. 3 фото.<br><br><span style="color:var(--warn)">📒 Старые примеры остаются в альбоме — ты ДОБАВЛЯЕШЬ новые.</span>':T2A_NEUTRAL.text;
+  showScreen(null); startTask('t2a');
+}
+function showFinal(){
+  state='gpause';
+  NAV.finalSeen=true;   // финал был — свободные зоны базы (съёмка/полигон) открываются c кодом ведущего
+  NAV.lesson=null;      // урок закончен: протухший мид-урочный якорь (gteach с GUIDE.task=null) вёл в мёртвый экран и запирал зоны (ревью 14.07)
+  const o=GUIDE.outcome, r2=GUIDE.res2, r1=GUIDE.res1;
+  if(o==='no_break'){
+    $('#fbig').textContent='😮'; $('#ftitle').textContent='ИИ не обманулся!';
+    $('#fscore').textContent='';
+    // ws до кода ведущего: НЕ раскрывать ловушку — этот ребёнок попал в финал МИМО замка разгадки,
+    // а группа ещё не дошла до общей галереи. После опроса (unlocked) showFinal перерисуется с полным текстом
+    $('#freveal').innerHTML=(WS&&!GUIDE.unlocked)
+      ?'Твой ИИ прошёл проверку, на которой у многих он ошибается! Почему у других он сломался, а у тебя нет — обсудим все вместе. Дождись разбора у ведущего 😉'
+      :'Признаемся: мы готовили ИИ ловушку — просили показывать ладонь только КРУПНО, а кулак только МЕЛКО. Но твои примеры оказались достаточно разными, и ИИ не попался. Так бывает — ты случайно сделал то, что делают настоящие тренеры ИИ: <b>разные данные = умный ИИ</b>.';
+  } else if(o==='inconclusive'){
+    $('#fbig').textContent='📷'; $('#ftitle').textContent='Кадр не получился';
+    $('#fscore').textContent='';
+    $('#freveal').innerHTML='ИИ так и не смог разглядеть руку издалека — похоже, камере трудно. Бывает! Позови ведущего — и попробуй ещё раз в лаборатории.';
+  } else {
+    $('#fbig').textContent=o==='fixed'?'🏆':'💪';
+    $('#ftitle').textContent=o==='fixed'?'Ты починил ИИ!':'Почти починил!';
+    // «до → после» — главный родительский артефакт: рост виден цифрой (ревью terra 09.07)
+    $('#fscore').textContent=r2?`${r1?`До починки: ${r1.correct} из ${r1.total} → `:''}после: ${r2.correct} из ${r2.total}`:'';
+    $('#freveal').innerHTML=o==='fixed'
+      ?'Открываем секрет: мы <b>нарочно</b> подстроили совпадение — все твои ладони были БОЛЬШИМИ, а кулаки МАЛЕНЬКИМИ. ИИ ищет в примерах любые совпадения и верит им, даже случайным. Ты нашёл его ошибку и починил её своими примерами — как настоящий тренер ИИ.'
+      :'Открываем секрет: мы <b>нарочно</b> подстроили совпадение — все твои ладони были БОЛЬШИМИ, а кулаки МАЛЕНЬКИМИ. ИИ ищет в примерах любые совпадения и верит им. Ты нашёл его ошибку и почти починил — добавь ещё разных примеров в лаборатории, и он перестанет путаться.';
+  }
+  // воркшоп: сертификат/игра/лаборатория заперты, пока ведущий не назвал код (иначе группа рассинхронится).
+  // Код открывает опрос; прошёл опрос — открылось всё. Дома (без ?ws) всё открыто сразу.
+  // компактный итог для рубрики одним событием + честный флаг «оценивать нельзя» при ?nogate
+  // (без гейтов ловушка не режиссируется — сессия не годится для рубрики; ревью terra 09.07)
+  TELE.push('final_summary',{assessed:!NOGATE,outcome:o,guessCat:GUIDE.guessCat||null,fixChosen:GUIDE.fixChosen||null,
+    r1:GUIDE.res1||null,r2:GUIDE.res2||null});
+  const locked=WS&&!GUIDE.unlocked;
+  // inconclusive — не тупик: камера могла просто мигнуть, даём переиграть проверку (ревью terra 09.07)
+  $('#fRetryProbe').classList.toggle('hidden',o!=='inconclusive');
+  // счёт не идеальный → опциональное дообучение: ребёнок видел ❌ и хочет добить (смок Алексея 10.07,
+  // принцип «мгновенный retry без штрафа»). Не под замком: это учебный цикл, не пост-урочный режим
+  $('#fMore').classList.toggle('hidden',!((o==='fixed'||o==='partial')&&r2&&r2.correct<r2.total));
+  $('#fCert').classList.toggle('hidden',locked);
+  $('#fAlbum').classList.toggle('hidden',locked);   // no_break-финал до кода: альбом мог бы спойлерить общий разбор
+  $('#fLab').classList.toggle('hidden',locked);
+  $('#fGame').classList.toggle('hidden',locked);
+  $('#fSurvey').classList.toggle('hidden',!locked);   // !locked === !WS||!!unlocked (boolean): без явного boolean toggle с undefined-force ФЛИПАЕТ класс — кнопка мигала между показами финала
+  $('#fSurvey').textContent=locked?'🔒 Дальше — по коду ведущего':'📝 Три вопроса от ведущего';
+  TELE.push('final',{outcome:o,r1,r2});
+  showScreen('final');
+}
+/* ---- опрос: 3 вопроса, вход по коду ведущего ---- */
+const SURVEY_QS=[
+  'Почему ИИ сначала ошибался?',
+  'Что ты сделал, чтобы его починить?',
+  'Каких примеров ты бы добавил ещё, чтобы ИИ стал умнее?'];
+const SURVEY_QS_NOBREAK=[
+  'Твой ИИ не обманулся! Как думаешь, почему ИИ у других ребят мог ошибиться?',
+  'Что делает примеры хорошими, чтобы ИИ не путался?',
+  'Каких примеров ты бы добавил ещё, чтобы ИИ стал умнее?'];
+let svIdx=-1, svQs=SURVEY_QS;
+function openSurvey(){ svIdx=-1; TELE.push('survey_open');
+  svQs=GUIDE.outcome==='no_break'?SURVEY_QS_NOBREAK:SURVEY_QS;
+  $('#svstep').textContent='Код от ведущего';
+  $('#svq').textContent='Ведущий скажет код — введи его цифрами';
+  $('#svtext').value=''; $('#svtext').setAttribute('inputmode','numeric');
+  $('#svtext').placeholder='введи код цифрами';
+  $('#svNext').textContent='Открыть →'; $('#svBack').classList.remove('hidden');
+  showScreen('survey'); $('#svtext').focus();
+}
+function surveyNext(){
+  const v=$('#svtext').value.trim();
+  if(svIdx===-1){
+    if(v!==CFG.wsCode){ showToast('Не тот код — послушай ведущего 👂',1300); return; }
+    svIdx=0; $('#svtext').removeAttribute('inputmode');
+    $('#svtext').placeholder='напиши пару слов…'; $('#svBack').classList.add('hidden');
+  } else {
+    if(!v){ showToast('Напиши хотя бы пару слов ✍️',1200); return; }
+    TELE.push('survey_answer',{i:svIdx,q:svQs[svIdx],text:v.slice(0,500)});
+    svIdx++;
+  }
+  if(svIdx>=svQs.length){ TELE.push('survey_done'); TELE._saveT=0; TELE._save(); TELE.send();
+    GUIDE.unlocked=true;                       // код введён и опрос пройден — ведущий открыл финальные режимы
+    try{ localStorage.setItem('ws_unlocked_'+(TELE.seat??'x'),'1'); }catch(e){}   // переживает F5: дома по ТОЙ ЖЕ ссылке (то же место) не заперто; новое место — заперто заново (прогон 13.07)
+    showToast('Спасибо! 🙌',1400); showFinal(); return; }
+  $('#svstep').textContent=`Вопрос ${svIdx+1} из ${svQs.length}`;
+  $('#svq').textContent=svQs[svIdx];
+  $('#svtext').value=''; $('#svNext').textContent=svIdx===svQs.length-1?'Готово ✓':'Дальше →';
+  $('#svtext').focus();
+}
+/* ---- лаборатория: свободный режим (обученная модель остаётся) ---- */
+function enterLab(){
+  // онбординг один раз: «зажми и держи» неочевидно, дети тыкали кнопки классов одиночными кликами (смок 10.07)
+  if(!GUIDE.labIntroShown){   // флаг — по факту «Понятно»: уход на Базу с карточки не сжигает онбординг (ревью 14.07)
+    stepCard({zone:true,big:'🧪',title:'Лаборатория',
+      text:'Тут ты сам тренер! <b>ЗАЖМИ</b> кнопку класса или держи <b>клавишу 1</b> (ладонь) / <b>2</b> (кулак) — ИИ фотографирует, пока держишь. «📒 Альбом» покажет все карточки. ⌫ удаляет последний кадр.<br><br>Миссии детектива: ① сломай ИИ фоном или светом — и почини · ② убери себя из кадра: что изменится? · ③ покажи жест другой рукой. Не просто играй — <b>ищи, ЧТО меняет ответ</b>.',
+      btn:'✅ Понятно',onGo:()=>{GUIDE.labIntroShown=true;enterLab();}});
+    return; }
+  TELE.push('lab_entered'); showScreen(null); guideEl.classList.add('hidden');
+  state='train'; topEl.classList.remove('hidden'); bottom.classList.remove('hidden');
+  $('#reset').classList.remove('hidden');
+  $('#toFinalRow').classList.toggle('hidden',!GUIDE.outcome);   // из урока всегда можно вернуться к финалу
+  refresh(); updateHint();
+  showToast('🧪 Лаборатория: учи и проверяй как хочешь!',1600);
+}
+
+/* ====================== ИГРА «ЗНАКИ» ====================== */
+const SIGN_VY=0.0053, SIGN_IMPACT=0.74, WIN_Y=0.42;
+let signs=[],lives=3,score=0,gameT=0,spawnT=0,effects=[],hitstopUntil=0,combo=0;
+let warmup=true, stats={hit:0,total:0,misread:0,unsure:0};
+function startGame(){ state='game';
+  signs=[];lives=3;score=0;gameT=0;effects=[];combo=0;stats={hit:0,total:0,misread:0,unsure:0};warmup=true;spawnT=70;
+  topEl.classList.remove('hidden'); $('#toFinalRow').classList.add('hidden');
+  $('#trainBtns').classList.add('hidden');$('#gameBtns').classList.remove('hidden');
+  teachrow.classList.add('hidden');$('#datapanel').classList.add('hidden');bottom.classList.remove('hidden');zoneEl.classList.add('hidden');
+  hintEl.textContent='Прилетит знак — покажи ТАКОЙ ЖЕ жест. ИИ путается? Меняй расстояние — вспомни, какие примеры он видел 😉';
+  showToast(provenTier>=2?'СИЛЬНЫЙ ИИ! 💪':'ОТБИВАЙСЯ!',900);
+}
+function backToTrain(){ state='train'; bigmsg.classList.add('hidden');
+  $('#gameBtns').classList.add('hidden');$('#trainBtns').classList.remove('hidden');
+  teachrow.classList.remove('hidden');$('#datapanel').classList.remove('hidden');bottom.classList.remove('hidden');
+  topEl.classList.remove('hidden'); $('#reset').classList.remove('hidden');
+  $('#toFinalRow').classList.toggle('hidden',!GUIDE.outcome);
+  refresh(); updateHint();
+}
+function spawnSign(){ signs.push({cls:(Math.random()<0.5)?0:1,y:-0.14,charge:0,judged:false}); }
+function tickGame(p,now){
+  if(now<hitstopUntil)return; gameT++;
+  const lbl=smoothLabel(), far=p?p.far:true, vote=p?(p.vote||0):0;
+  if(warmup){ if(!signs.length)signs.push({cls:0,y:-0.14,charge:0,judged:false}); bigmsg.classList.remove('hidden');
+    const s=signs[0]; bigmsg.innerHTML=`Покажи ${CLASSES[s.cls].emoji} ${CLASSES[s.cls].name}<br>и держи!`; s.y+=SIGN_VY*0.5;
+    if(lbl===s.cls && !far) s.charge=Math.min(1,s.charge+0.05);
+    if(s.charge>=1){warmup=false;bigmsg.classList.add('hidden');signs=[];spawnT=40;showToast('ПОЕХАЛИ! 💪',1000);hintEl.textContent='Покажи жест со знака и держи.';}
+    return; }
+  for(const s of signs){ s.y+=SIGN_VY; if(s.judged)continue;
+    const inWin=s.y>=WIN_Y, correct=lbl===s.cls && !far;
+    if(inWin&&correct){ s.charge=Math.min(1,s.charge+(vote>=0.99?0.055:0.038)*(1+provenTier*0.18)); }
+    else if(s.charge>0){ s.charge=Math.max(0,s.charge-0.03); }
+    if(s.charge>=1){ resolveSign(s,true,now,vote); continue; }
+    if(s.y>=SIGN_IMPACT) resolveSign(s,false,now);
+  }
+  signs=signs.filter(s=>!(s.judged&&s.y>1.1));
+  spawnT--; if(spawnT<=0 && signs.filter(s=>!s.judged).length===0){ spawnSign(); spawnT=Math.max(45,105-gameT/12); }
+}
+function resolveSign(s,ok,now,vote){
+  s.judged=true; stats.total++; const ax=cv.width*0.5, ay=cv.height*SIGN_IMPACT;
+  if(ok){ stats.hit++; combo++; const tier=vote>=0.99?2:1; score+=(10+tier*10)*(1+Math.floor(combo/5));
+    effects.push({type:'wave',x:ax,y:ay,r:0,maxR:cv.width*(0.16+tier*0.06),life:1,c:CLASSES[s.cls].color});
+    burst(ax,ay,12+tier*8,tier,CLASSES[s.cls].color);
+    effects.push({type:'txt',x:ax,y:ay-cv.width*0.08,t:CLASSES[s.cls].emoji+' ✓'+(combo>=5?' x'+(1+Math.floor(combo/5)):''),c:NEON[0],life:1.1});
+    SFX.hit2(); hitstopUntil=now+(tier>=2?150:90); shake=6+tier*3;   // вспышку убрали: мигание пугает (фидбек 02.07)
+  } else { combo=0; lives--; SFX.miss(); shake=12; s.fail=true; const need=CLASSES[s.cls].emoji; let txt;
+    const sl=smoothLabel();
+    if(predCache&&predCache.far){txt='ИИ: непохоже · нужен '+need;stats.unsure++;}
+    else if(sl!==s.cls&&sl>=0){txt='ИИ увидел '+CLASSES[sl].emoji+', а нужен '+need;stats.misread++;}
+    else{txt='ИИ не уверен · нужен '+need;stats.unsure++;}
+    effects.push({type:'txt',x:ax,y:ay-cv.width*0.07,t:txt,c:'#ff6b8b',life:1.5});
+    if(lives<=0){endGame();return}
+  }
+}
+function endGame(){ state='gameover';
+  const nom=stats.hit>=10?'🔥 Мастер знаков':(score>=80?'🛡️ Стойкий':'🎯 Новичок');
+  const fails=[]; if(stats.misread)fails.push(`${stats.misread}× перепутал`); if(stats.unsure)fails.push(`${stats.unsure}× не уверен`);
+  const tip=(stats.misread||stats.unsure)?'ИИ путается — в лаборатории добери РАЗНЫХ примеров':'крутой ИИ!';
+  bigmsg.innerHTML=`💀 Счёт ${score} · ${nom}<br>отбил ${stats.hit} из ${stats.total}${fails.length?'<br>'+fails.join(' · '):''}<br><span style="font-size:.75em;color:var(--muted)">${tip}</span>`;
+  bigmsg.classList.remove('hidden');   // висит, пока ребёнок сам не нажмёт «↻ К обучению» / «К финалу»
+}
+
+/* ---- рендер ---- */
+let last=performance.now(), fpsAcc=[],  fpsT=0;
+function medianFps(){ if(!fpsAcc.length)return null; const a=[...fpsAcc].sort((x,y)=>x-y); return Math.round(1000/a[(a.length/2)|0]); }
+function loop(now){
+  const dt=now-last;last=now;
+  if(dt>0&&dt<500){ fpsAcc.push(dt); if(fpsAcc.length>240)fpsAcc.shift(); }
+  if(now-fpsT>30000){ fpsT=now; if(state!=='intro')TELE.push('perf',{fps:medianFps()}); }
+  const sh=shake>0?(Math.random()-.5)*shake:0;if(shake>0)shake*=0.85;
+  ctx.save();ctx.clearRect(0,0,cv.width,cv.height);ctx.translate(sh,sh);
+  if(DEMO){const g=ctx.createLinearGradient(0,0,0,cv.height);g.addColorStop(0,'#10243a');g.addColorStop(1,'#0b0e14');ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height)}
+  else{ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);try{ctx.drawImage(cam,0,0,cv.width,cv.height)}catch(e){}ctx.restore()}
+
+  if(state==='game'||state==='gameover'){
+    ctx.fillStyle='rgba(8,11,18,.6)';ctx.fillRect(0,0,cv.width,cv.height);
+    const ax=cv.width*0.5, ay=cv.height*SIGN_IMPACT;
+    ctx.strokeStyle='rgba(122,162,255,.25)';ctx.lineWidth=Math.max(1,cv.width*0.003);ctx.setLineDash([cv.width*0.02,cv.width*0.02]);
+    ctx.beginPath();ctx.moveTo(0,WIN_Y*cv.height);ctx.lineTo(cv.width,WIN_Y*cv.height);ctx.stroke();ctx.setLineDash([]);
+    for(const s of signs)drawSign(s);
+    const bob=Math.sin(now*0.006)*cv.width*0.006, R0=cv.width*0.055;
+    ctx.save();ctx.shadowColor='#7aa2ff';ctx.shadowBlur=cv.width*0.03;ctx.fillStyle='#5a78b8';ctx.fillRect(ax-R0,ay+bob-R0,R0*2,R0*2);ctx.restore();
+    if(state==='game')tickGame(predCache,now);
+  }
+  particles=particles.filter(p=>p.life>0);
+  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.life-=.025;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.c;ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz)}
+  ctx.globalAlpha=1;
+  effects=effects.filter(e=>e.life>0);
+  for(const e of effects){
+    if(e.type==='wave'){e.r+=(e.maxR-e.r)*0.25;e.life-=0.06;ctx.globalAlpha=Math.max(0,e.life)*0.85;ctx.strokeStyle=e.c||'#7aa2ff';ctx.lineWidth=Math.max(2,cv.width*0.007);ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,7);ctx.stroke();}
+    else{e.y-=cv.width*0.004;e.life-=0.02;ctx.globalAlpha=Math.max(0,e.life);ctx.fillStyle=e.c;ctx.font='800 '+Math.round(cv.width*0.05)+'px sans-serif';ctx.textAlign='center';ctx.fillText(e.t,e.x,e.y);}
+  }
+  ctx.globalAlpha=1;ctx.restore();
+  if(state==='check'||state==='gcheck')tickCheck(now);
+
+  const showPeek=(state==='train'||state==='check'||state==='train-pause'||state==='gteach'||state==='gcheck');
+  peek.classList.toggle('hidden',!showPeek); $('#peeklbl').classList.toggle('hidden',!showPeek);
+  if(showPeek) drawAiFrame();   // рамка «ИИ видит только этот квадрат»
+  // рамка-цель гейта: где должна оказаться рука (урок)
+  if(state==='gteach'&&GUIDE.task) drawGateFrame(GUIDE.task.gate,GUIDE.task.cls);
+  if(state==='gcheck'&&CHK&&CHK.phase!=='reveal'){ const c=CHK.cards[CHK.idx]; if(c&&c.gate)drawGateFrame(c.gate,c.cls); }
+  // полигон: контур — ПОДСКАЗКА разнообразия («покажи ЭТАК»), не блокер: judgeCard в свободном
+  // режиме размер/форму не проверяет, замер валиден любой рукой (фидбек Алексея 14.07)
+  if(state==='check'&&CHK&&!CHK.guided){ const c=CHK.cards[CHK.idx]; if(c&&c.gate)drawGateFrame(c.gate,c.cls); }
+  updateZone();
+  let statTxt=null;
+  if(state==='train'||state==='check'||state==='train-pause'){updateBars(predCache);
+    statTxt=(predCache&&!predCache.far)?'<span style="color:var(--ok)">📷 вижу кадр</span>':'<span style="color:var(--warn)">📷 наведись</span>';}
+  if(state==='gcheck'){updateBars(predCache);statTxt='';}
+  if(state==='game'||state==='gameover'){updateBars(predCache);statTxt=`${'❤️'.repeat(Math.max(0,lives))}&nbsp;&nbsp;<b>${score}</b>`}
+  if(statTxt!=null&&statTxt!==loop._stat){loop._stat=statTxt;statEl.innerHTML=statTxt;}
+  requestAnimationFrame(loop);
+}
+/* мишень-силуэт: полупрозрачная рука ЦЕЛЕВОГО размера по центру + живая рамка вокруг руки ребёнка.
+   Ребёнок просто совмещает свою руку с контуром — размер задаётся картинкой, а не словами. */
+function drawGateFrame(gate,cls){
+  const s=Math.min(cv.width,cv.height), x0=(cv.width-s)/2, y0=(cv.height-s)/2;
+  const [glo,ghi]=gateLoHi(gate,cls), mid=(glo+ghi)/2;   // мишень честная к жесту: большой КУЛАК меньше большой ладони
+  const ok=gateOkStable(gate,cls), em=CLASSES[cls!=null?cls:0].emoji;
+  ctx.save();
+  // мишень: круг-пунктир целевого размера + полупрозрачная эмодзи-рука внутри
+  const R=mid*s/2, cx=x0+s/2, cy=y0+s/2;
+  ctx.strokeStyle=ok?'rgba(70,224,138,.9)':'rgba(255,207,92,.75)';
+  ctx.lineWidth=Math.max(3,cv.width*0.005);
+  if(!ok)ctx.setLineDash([cv.width*0.016,cv.width*0.013]);
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha=ok?0.38:0.30;
+  ctx.font=Math.round(mid*s*0.86)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(em,cx,cy+mid*s*0.05);
+  ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+  // живая рамка руки: уголки вокруг детектированной кисти (зеркало по X), со сглаживанием
+  const b=smoothBox(lastHand.box);
+  if(lastHand.ok&&b){
+    const hx0=x0+(1-b.x1)*s, hx1=x0+(1-b.x0)*s, hy0=y0+b.y0*s, hy1=y0+b.y1*s;
+    const L=Math.min(hx1-hx0,hy1-hy0)*0.22, lw=Math.max(3,cv.width*0.005);
+    ctx.strokeStyle=ok?'rgba(70,224,138,.95)':'rgba(255,207,92,.9)'; ctx.lineWidth=lw;
+    const corner=(x,y,dx,dy)=>{ctx.beginPath();ctx.moveTo(x+dx*L,y);ctx.lineTo(x,y);ctx.lineTo(x,y+dy*L);ctx.stroke();};
+    corner(hx0,hy0,1,1); corner(hx1,hy0,-1,1); corner(hx0,hy1,1,-1); corner(hx1,hy1,-1,-1);
+    if(ok){ ctx.font='800 '+Math.round(cv.width*0.028)+'px sans-serif'; ctx.textAlign='center';
+      ctx.fillStyle='rgba(70,224,138,.95)'; ctx.fillText('✓',(hx0+hx1)/2,hy0-cv.width*0.012); }
+  }
+  ctx.restore();
+}
+let recCls=-1; // какой класс сейчас записывается (для подсветки зоны)
+function updateZone(){ zoneEl.classList.add('hidden'); }  // позиционные зоны убраны — собираем свободно
+
+/* квадратная рамка: что «видит» ИИ (центральный квадрат кадра, как в grabFeature) */
+function drawAiFrame(){
+  const s=Math.min(cv.width,cv.height), x=(cv.width-s)/2, y=(cv.height-s)/2;
+  ctx.save();
+  ctx.fillStyle='rgba(8,11,18,.45)';  // затемнить всё, кроме квадрата
+  ctx.fillRect(0,0,cv.width,y); ctx.fillRect(0,y+s,cv.width,cv.height-y-s);
+  ctx.fillRect(0,y,x,s); ctx.fillRect(x+s,y,cv.width-x-s,s);
+  ctx.strokeStyle='rgba(122,162,255,.9)'; ctx.lineWidth=Math.max(2,cv.width*0.004);
+  ctx.setLineDash([cv.width*0.02,cv.width*0.015]); ctx.strokeRect(x,y,s,s); ctx.setLineDash([]);
+  ctx.fillStyle='rgba(122,162,255,.95)'; ctx.font='700 '+Math.round(cv.width*0.026)+'px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('ИИ видит только этот квадрат', cv.width/2, y+s+Math.round(cv.width*0.045));
+  ctx.restore();
+}
+function drawSign(s){
+  const x=cv.width*0.5, y=s.y*cv.height, c=CLASSES[s.cls], sz=cv.width*0.13;
+  ctx.save();ctx.globalAlpha=s.judged?Math.max(0,1-(s.y-SIGN_IMPACT)*4):1;
+  ctx.shadowColor=c.color;ctx.shadowBlur=cv.width*0.03;ctx.fillStyle=s.fail?'#ff6b8b':'rgba(14,19,28,.9)';
+  ctx.strokeStyle=s.fail?'#ff6b8b':c.color;ctx.lineWidth=Math.max(3,cv.width*0.008);
+  roundRect(x-sz/2,y-sz/2,sz,sz,cv.width*0.025);ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;ctx.font='900 '+Math.round(sz*0.52)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.fillText(c.emoji,x,y);
+  if(s.charge>0){ctx.strokeStyle=NEON[0];ctx.lineWidth=Math.max(3,cv.width*0.01);ctx.beginPath();ctx.arc(x,y,sz*0.72,-Math.PI/2,-Math.PI/2+s.charge*2*Math.PI);ctx.stroke();}
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+/* ---- старт ---- */
+// модель префетчится фоном с интро-экрана (пока ребёнок читает) — после «Поехали» ждать почти нечего.
+// Камера — только по клику: запрос разрешения без жеста пользователя браузер блокирует или пугает ребёнка
+let modelPromise=null;
+function preloadModel(){
+  if(!modelPromise) modelPromise=initModel()
+    .then(()=>{ $('#preload').textContent='✅ ИИ загружен'; })
+    .catch(e=>{ modelPromise=null; $('#preload').textContent='📶 ИИ пока не догрузился — жми «Поехали», попробую снова'; throw e; });
+  return modelPromise;
+}
+async function boot(){$('#intro').classList.add('hidden');$('#loading').classList.remove('hidden');initAudio();
+  try{ setLoad(DEMO?'Демо…':'Запускаю камеру…',false,8);await initCamera();resize();
+       setLoad('Гружу ИИ… (несколько секунд)',false,30);await preloadModel();resize();
+       setLoad('Почти готово…',false,100);
+       $('#loading').classList.add('hidden');
+       buildTeach();classifyTick();requestAnimationFrame(loop);
+       TELE.push('boot_ok'); TELE.cleanup(); TELE.resend();
+       enterLab();            // ПОЛИГОН: сразу свободный режим обучения (v5lab — минуя урок)
+  }catch(e){console.error(e);const m=String(e.message||e);TELE.push('boot_fail',{m:m.slice(0,80)});
+    setLoad(m.startsWith('CAM:')?'❌ Камера не дала доступ. Если браузер спрашивал — нажми «Разрешить» (значок камеры у адресной строки). Если камера занята видеозвонком — выключи её там и нажми «Повторить».'
+      :m.startsWith('HAND:')?'❌ Этот компьютер не смог запустить детектор руки. Попробуй браузер Chrome или позови ведущего 🙋'
+      :'❌ Не загрузилось ('+m+'). Нужны vendor/ и models/ рядом.',true)}
+}
+let RESUME=false;
+$('#start').onclick=()=>{RESUME=false;SAVE_FRESH=true;SAVE_CYCLE=Math.random().toString(36).slice(2,10);boot();};$('#retry').onclick=boot;   // Поехали = новый цикл сейва
+// «Продолжить с места»: кнопка видна, только если есть свежий сейв для этого места
+try{ if(WS&&loadSave())$('#resume').classList.remove('hidden'); }catch(e){}
+$('#resume').onclick=()=>{ RESUME=true; boot(); };
+/* Восстановление в безопасную точку. Вызывается ВМЕСТО startFirstTask при RESUME. */
+function resumeFlow(){
+  const s=loadSave();
+  if(!s){ startFirstTask(); return; }
+  // битый сейв не должен ронять boot() в «❌ Не загрузилось» с вечным Повторить (ревью 14.07)
+  try{ applySave(s); }catch(e){ console.error('resume:',e); clearSave();
+    showToast('Не смог прочитать сохранёнку —\nначнём заново 🙂',1600); startFirstTask(); return; }
+  SAVE_CYCLE=s.cy||SAVE_CYCLE;   // «Продолжить» усыновляет цикл снимка (Codex R2)
+  refresh(); updateHint();
+  TELE.push('resume',{ms:s.ms});
+  const FIN=['fixed','partial','no_break','inconclusive'];
+  const r2=GUIDE.res2, r2ok=!!r2&&Number.isFinite(r2.correct)&&Number.isFinite(r2.total)&&r2.correct>=0&&r2.total>0;   // res2={} — не результат
+  const finOk=FIN.includes(GUIDE.outcome)&&((GUIDE.outcome!=='fixed'&&GUIDE.outcome!=='partial')||r2ok);   // fixed/partial без валидного res2 = битый инвариант
+  if(s.ms==='final'&&finOk){ showFinal(); }   // no_break/inconclusive: res2 нет, но финал легитимен
+  else if(s.ms==='fixdata'){ // ВСЕГДА через проверку R2: res2 в сейве бывает провальным ПЕРВЫМ замером
+    // (F5 во время дополнительной починки) — прямой showFinal рисовал «Почти починил» до второй проверки (Codex CRIT 14.07)
+    state='gpause'; stepCard({big:'🔧',title:'С возвращением!',text:'Твои примеры целы. Проверим починку ещё раз?',album:true,btn:'🔍 Проверить',onGo:()=>startGuidedCheck(2)}); }
+  else if(s.ms==='revealed'){ showRevealScreen(); }
+  else { state='gpause'; stepCard({big:'⏩',title:'С возвращением!',text:'Твои '+(counts[0]+counts[1])+' примеров целы — ИИ помнит всё. Быстро повторим проверку и поедем дальше.',btn:'🔍 Проверить ИИ',onGo:()=>startGuidedCheck(1)}); }
+}
+preloadModel().catch(()=>{});   // старт префетча сразу при открытии страницы; ошибку доловит boot
+try{ if(localStorage.getItem('ws_unlocked_'+(TELE.seat??'x')))GUIDE.unlocked=true; }catch(e){}   // ключ по месту: опрос пройден НА ЭТОМ месте → дома не заперто; чужое/новое место запирается (старый глобальный ws_unlocked игнорируется)
+if(WS){ try{$('#winhint').classList.remove('hidden');}catch(e){}
+  const sb=$('#modebadge'); sb.classList.remove('hidden');
+  const qseat=parseInt(QP.get('seat'),10);
+  sb.textContent=(qseat>=1&&qseat<=99)?`🎓 Версия занятия · место ${qseat} · ссылка персональная, не пересылай`:'🎓 Версия занятия · место скажет ведущий';
+  // постоянный бейдж «место · этап» (просьба 10.07): шеринг экрана больше не пререквизит,
+  // техпомощь = ребёнок читает бейдж вслух («место 5, проверка») + дашборд наблюдателя
+  const SB=$('#stagebadge'); SB.classList.remove('hidden');
+  const SBN={intro:'старт',loading:'загрузка',gteach:'сбор данных',gcheck:'проверка',train:'съёмка',
+    'train-pause':'съёмка',check:'полигон',game:'игра',gameover:'игра',labgal:'альбом',hub:'база'};
+  const SCR={seat:'выбор места',hypo:'гипотеза',guess:'угадайка',lock:'замок',reveal:'разгадка',
+    fixpick:'починка',final:'финал',survey:'опрос',result:'итог'};
+  setInterval(()=>{
+    let st=SBN[state]||'';
+    if(!st){ const scr=Object.keys(SCR).find(s=>!$('#'+s).classList.contains('hidden'));
+      st=scr?SCR[scr]:(!$('#stepcard').classList.contains('hidden')?'урок':''); }
+    SB.textContent=`место ${TELE.seat??'—'} · ${st||'…'}`;
+  },1000); }
+toCheckBtn.onclick=startCheck;
+$('#toHub').onclick=()=>{ if(state!=='train')return; navToHub(); };   // из лаборатории на базу
+/* навигация игра↔лаборатория↔финал (смок 10.07): имена — места назначения, «Ещё раз» — главная */
+const goFinal=()=>{ bottom.classList.add('hidden'); topEl.classList.add('hidden'); bigmsg.classList.add('hidden'); showFinal(); };
+$('#again').onclick=()=>{ startGame(); };
+$('#gLab').onclick=()=>{ if(state==='game')state='gameover'; backToTrain(); };
+$('#gFinal').onclick=goFinal;
+$('#gCert').onclick=()=>{ if(!certFrame){showToast('Сначала сними хоть одну карточку 📸',1400);return;}
+  TELE.push('cert_made'); const r=GUIDE.res2||GUIDE.res1||{correct:0,total:0}; makeCert(r.correct,r.total,certFrame); };
+$('#toGame').onclick=()=>{ TELE.push('game_played'); startGame(); };
+$('#ckExit').onclick=()=>{ if(!CHK)return;
+  if(CHK.phase==='count'||CHK.phase==='hold')return;   // посреди замера не выходим
+  if(CHK.guided){ if(!GUIDE.outcome)return;   // выход только из ОПЦИОНАЛЬНОЙ проверки дообучения — обязательный урок не рвём
+    CHK=null; checkui.classList.add('hidden'); topEl.classList.add('hidden'); $('#ckExit').textContent='← В лабораторию'; showFinal(); return; }
+  if(CHK.results.length){ finishCheck(); return; }   // полигон: «Хватит» = честный итог с рекомендациями (СДВГ: у действия есть финал)
+  CHK=null; checkui.classList.add('hidden');
+  if(NAV.rangeFromHub){ NAV.rangeFromHub=false; navToHub(); } else backToTrain(); };
+$('#toGallery').onclick=()=>{ if(state!=='train')return; buildGallery($('#labgalrows'),true,albumEditable());
+  $('#labgalClose').textContent='← Назад в лабораторию';
+  state='labgal'; $('#labgal').classList.remove('hidden'); bottom.classList.add('hidden'); TELE.push('lab_gallery'); };
+/* альбом-оверлей ИЗ УРОКА (карточки починки, финал): поверх текущего экрана, закрытие возвращает как было.
+   Фидбек Алексея 14.07: понятие «альбом» должно показывать сам альбом, а не жить словами в тексте */
+function openAlbumOverlay(){ buildGallery($('#labgalrows'),true,albumEditable());
+  openAlbumOverlay._prev=state; state='labgal';
+  $('#labgalClose').textContent='← Назад';
+  $('#labgal').classList.remove('hidden'); TELE.push('lab_gallery'); try{navRender();}catch(e){} }
+$('#labgalClose').onclick=()=>{ $('#labgal').classList.add('hidden');
+  if(openAlbumOverlay._prev!=null){ state=openAlbumOverlay._prev; openAlbumOverlay._prev=null; try{navRender();}catch(e){} return; }   // оверлей из урока
+  $('#labgalClose').textContent='← Назад в лабораторию';
+  bottom.classList.remove('hidden'); state='train'; updateHint(); try{navRender();}catch(e){} };
+$('#scAlbum').onclick=openAlbumOverlay;
+$('#fAlbum').onclick=openAlbumOverlay;
+$('#scExit').onclick=()=>{ $('#stepcard').classList.add('hidden'); showFinal(); };   // выход из опционального дообучения (телеметрию не трогаем — заморозка)
+$('#reset').onclick=(e)=>{ // прогон 13.07: удаление переспрашивает; дабл-клик НЕ проскакивает оба шага (ревью 14.07)
+  const b=e.currentTarget, now=performance.now();
+  if(!b._arm){ b._arm=now; b._old=b.textContent; b.textContent='❗️Точно стереть все примеры? Жми ещё раз';
+    clearTimeout(b._t); b._t=setTimeout(()=>{b._arm=0;b.textContent=b._old;},2500); return; }
+  if(now-b._arm<450)return;   // второй клик дабл-тапа — не осознанное подтверждение
+  clearTimeout(b._t); b._arm=0; b.textContent=b._old;
+  stopCollect();
+  TELE.push('reset');KNN.clear();counts=[0,0];THUMBS[0].length=0;THUMBS[1].length=0;predCache=null;provenTier=0;smooth=[];certFrame=null;clearSave();refresh();updateHint()};
+/* ---- кнопки урока ---- */
+$('#fixBtn').onclick=()=>{ TELE.push('fix_start'); showFixPick(); };
+$('#fCert').onclick=()=>{ if(!certFrame){showToast('Сначала сними хоть одну карточку 📸',1400);return;}
+  TELE.push('cert_made');
+  const r=GUIDE.res2||GUIDE.res1||{correct:0,total:0}; makeCert(r.correct,r.total,certFrame); };
+$('#fSurvey').onclick=openSurvey;
+$('#fRetryProbe').onclick=()=>{ TELE.push('probe_retry'); GUIDE.outcome=null; showScreen(null); startGuidedCheck(1); };
+$('#fMore').onclick=()=>{ TELE.push('more_training'); Object.assign(TASK_INTRO.t2a,T2A_NEUTRAL); showScreen(null); startTask('t2a'); };
+$('#svNext').onclick=surveyNext;
+$('#svtext').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();surveyNext();} });
+$('#fLab').onclick=enterLab;
+$('#toFinal').onclick=goFinal;
+$('#ckShot').onclick=ckShotClick; $('#ckRetry').onclick=ckRetryClick; $('#ckNext').onclick=ckNextClick;
+// ПРОБЕЛ = главная кнопка текущего экрана (смок 09.07): на проверке рука в кадре/вытянута — тянуться
+// мышкой неудобно; на карточках «Дальше/Начали» и разгадке тоже удобнее с клавиатуры.
+// НЕ работает при фокусе в textarea/input (там пробел — это пробел) и на экранах выбора (выбор — руками).
+// Отсчёт замера после нажатия и так ждёт появления руки: «пробел → показал руку» — штатный порядок
+addEventListener('keydown',e=>{
+  if(e.code!=='Space'||e.repeat)return;
+  if(/^(textarea|input)$/i.test(e.target.tagName))return;
+  const vis=el=>el&&!el.classList.contains('hidden')&&!el.disabled;
+  let btn=null;
+  if(!$('#labgal').classList.contains('hidden')) btn=$('#labgalClose');   // альбом-оверлей сверху: пробел = закрыть, не клик сквозь
+  else if(state==='hub') btn=$('#hubGo');                                 // база: пробел = продолжить урок
+  else if(!checkui.classList.contains('hidden'))
+    btn=[$('#ckShot'),$('#ckRetry'),$('#ckNext')].find(vis);
+  else if(!$('#stepcard').classList.contains('hidden')) btn=vis($('#scGo'))?$('#scGo'):null;
+  else if(!$('#reveal').classList.contains('hidden'))   btn=vis($('#fixBtn'))?$('#fixBtn'):null;
+  else if(state==='train')    btn=vis(toCheckBtn)?toCheckBtn:null;   // лаборатория: пробел = «Проверить ИИ»
+  else if(state==='gameover') btn=$('#again');                       // проигрыш: пробел = мгновенный retry
+  if(!btn)return;
+  e.preventDefault();
+  const now=performance.now(); if(now-(ckShotClick._sp||0)<350)return; ckShotClick._sp=now;
+  btn.click();
+});
+$('#svBack').onclick=()=>showScreen('final');
+$('#fGame').onclick=()=>{ TELE.push('game_played'); showScreen(null); startGame(); };
+/* ---- камера: ватчдог + ручное восстановление (звонок может занять камеру) ---- */
+$('#camRetry').onclick=async()=>{ $('#camRetry').disabled=true;
+  try{ await initCamera(); resize(); $('#camfix').classList.add('hidden'); camWasDown=false; TELE.push('cam_reconnect'); }
+  catch(e){ showToast('Пока не выходит — проверь, что звонок отпустил камеру',1800); }
+  $('#camRetry').disabled=false; };
+setInterval(()=>{
+  if(DEMO||state==='intro'||!$('#loading').classList.contains('hidden'))return;
+  const down=!cam.srcObject||cam.readyState<2||!(cam.srcObject.getVideoTracks?.()[0]?.readyState==='live');
+  if(down){ if(!camWasDown){ camWasDown=true; TELE.push('cam_drop'); predCache=null; smooth.length=0; } $('#camfix').classList.remove('hidden'); }
+  else if(camWasDown){ camWasDown=false; $('#camfix').classList.add('hidden'); }
+},2000);
+/* ---- debug-приборы (?debug=1): гейт, разбивка веток KNN, выгрузка телеметрии ---- */
+let dbText=null;
+function renderDebug(p){
+  const d=$('#debug');
+  if(!dbText){ d.classList.remove('hidden');
+    d.innerHTML='<div id="dbtext"></div><div class="dbtns"><button class="ghost" id="dbTele">💾 телеметрия</button></div>';
+    $('#dbTele').onclick=()=>TELE.download();
+    dbText=$('#dbtext'); }
+  const hand=lastHand.ok?('side '+lastHand.side.toFixed(2)):'нет руки';
+  const T=GUIDE.task, gate=T?T.gate:(state==='gcheck'&&CHK?CHK.cards[CHK.idx]?.gate:null);
+  let knn='';
+  if(p&&p.top){ knn=p.top.map(t=>`  ${CLASSES[t.l].emoji} emb:${t.ed.toFixed(2)} pix:${t.pd.toFixed(2)} → ${(EMB_W*t.ed+PIX_W*t.pd).toFixed(2)}`).join('\n');
+    knn=`\nKNN top-${p.top.length} (label:${p.label!=null?CLASSES[p.label].emoji:'—'} vote:${(p.vote*100)|0}%)\n`+knn; }
+  dbText.innerHTML=`<b>state</b> ${state}  <b>рука</b> ${hand}${gate?`  <b>gate:${gate}</b> ${gateOk(gate)?'✅':'✋'}`:''}
+<b>пороги</b> big ${CFG.bigLo}–${CFG.bigHi} · small ${CFG.smLo}–${CFG.smHi}  <b>детектор</b> ${hander?'ok':'НЕТ'}
+<b>примеры</b> ✋${counts[0]} ✊${counts[1]}${knn}`;
+}
+/* pointer-сбор — общий реестр с клавишами: stopCollect() гасит ОБА канала (reset/blur/смена класса — Codex R2 п.13) */
+let _ptrHold={t:null,el:null};
+function stopPtrHold(){ if(_ptrHold.t)clearInterval(_ptrHold.t);
+  if(_ptrHold.el)_ptrHold.el.classList.remove('rec');
+  _ptrHold={t:null,el:null}; if(_keyHold.cls<0)recCls=-1; }
+function stopCollect(){ stopKeyHold(); stopPtrHold(); }
+function bindHold(){[...teachrow.children].forEach(el=>{const i=+el.dataset.i;
+  const del=el.querySelector('.del');
+  // ⌫ = удаление ПОСЛЕДНЕЙ карточки класса — через общий delExample (кэши, certFrame, персист; Codex R5)
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();if(state!=='train')return;
+    if(THUMBS[i].length&&delExample(i,THUMBS[i].length-1)){SFX.buzz();showToast((i===0?'✋':'✊')+' последняя карточка убрана',800);}});
+  const dn=e=>{if(e.target.closest('.del'))return;e.preventDefault();if(state!=='train')return;stopCollect();el.classList.add('rec');recCls=i;addExample(i);
+    _ptrHold={el,t:setInterval(()=>{ if(state!=='train'){stopPtrHold();return;} addExample(i); },450)}};
+  const up=()=>stopPtrHold();
+  el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up)})}
+/* Клавиши 1/2: собирать примеры, не отрывая руку от жеста (прогон 13.07: «руки накрест» —
+   мышь на кнопке + жест в камеру одновременно неудобно). Держишь клавишу — идёт сбор. */
+let _keyHold={t:null,cls:-1};
+function stopKeyHold(){ if(_keyHold.t)clearInterval(_keyHold.t);
+  if(_keyHold.cls>=0){ const el=teachrow.children[_keyHold.cls]; if(el)el.classList.remove('rec'); recCls=-1; }
+  _keyHold={t:null,cls:-1}; }
+window.addEventListener('keydown',e=>{
+  if(state!=='train'||e.repeat)return;
+  const cls=e.key==='1'?0:e.key==='2'?1:-1;
+  if(cls<0||_keyHold.cls===cls)return;
+  if(e.target&&/INPUT|TEXTAREA/.test(e.target.tagName))return;
+  stopCollect();   // переключение 1↔2 и клавиша поверх зажатого pointer: старый сбор гаснет целиком
+  _keyHold={cls,t:setInterval(()=>{ if(state!=='train'){stopKeyHold();return;} addExample(cls); },450)};
+  const el=teachrow.children[cls]; if(el)el.classList.add('rec'); recCls=cls;
+  addExample(cls);
+});
+window.addEventListener('keyup',e=>{
+  const cls=e.key==='1'?0:e.key==='2'?1:-1;
+  if(cls<0||_keyHold.cls!==cls)return;
+  stopKeyHold();
+});
+window.addEventListener('blur',stopCollect);   // Cmd+Tab/клик в звонок уносит keyup/pointerup мимо страницы — сбор не должен продолжаться (ревью 14.07)
+document.addEventListener('visibilitychange',()=>{ if(document.hidden)stopCollect(); });
+window.addEventListener('resize',resize);
+if(DEMO)$('.badge').textContent='демо: без камеры, кадр синтетический';
+</script>
+</body>
+</html>
