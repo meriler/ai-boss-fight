@@ -1,0 +1,321 @@
+{
+ "T_conf": 0.03,
+ "points": {
+  "0.65/0.35": {
+   "checks": {
+    "conflict_flips": "8/8",
+    "conflict_pass": true,
+    "false_flips": 0,
+    "strange_pass": true,
+    "normal": "8/8",
+    "normal_pass": true,
+    "holdout_after": "4/4",
+    "holdout_pass": true,
+    "holdout_before_info": "2/4",
+    "min_flip_conf": 77.7,
+    "conf_pass": true,
+    "ALL_PASS": true
+   },
+   "details": {
+    "conflict": {
+     "pc1u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 77.7,
+      "nn": "d2"
+     },
+     "pc2u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 99.0,
+      "nn": "d2"
+     },
+     "pc3u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 86.2,
+      "nn": "c4"
+     },
+     "pc4u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 86.1,
+      "nn": "d2"
+     },
+     "pd1h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 99.9,
+      "nn": "c1"
+     },
+     "pd2h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 99.7,
+      "nn": "c6"
+     },
+     "pd3h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 100.0,
+      "nn": "c8"
+     },
+     "pd4h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 97.4,
+      "nn": "c4"
+     }
+    },
+    "normal": {
+     "pc1": {
+      "label": "cat",
+      "conf": 99.7
+     },
+     "pc2": {
+      "label": "cat",
+      "conf": 95.0
+     },
+     "pc3": {
+      "label": "cat",
+      "conf": 99.9
+     },
+     "pc4": {
+      "label": "cat",
+      "conf": 99.9
+     },
+     "pd1": {
+      "label": "dog",
+      "conf": 88.5
+     },
+     "pd2": {
+      "label": "dog",
+      "conf": 99.9
+     },
+     "pd3": {
+      "label": "dog",
+      "conf": 94.9
+     },
+     "pd4": {
+      "label": "dog",
+      "conf": 99.2
+     }
+    },
+    "strange": {
+     "sc1": {
+      "label": "cat",
+      "conf": 100.0
+     },
+     "sc2": {
+      "label": "cat",
+      "conf": 99.8
+     },
+     "sd1": {
+      "label": "dog",
+      "conf": 98.4
+     },
+     "sd2": {
+      "label": "dog",
+      "conf": 99.9
+     }
+    },
+    "holdout_before": {
+     "h1": {
+      "label": "cat",
+      "conf": 66.1
+     },
+     "h2": {
+      "label": "cat",
+      "conf": 86.3
+     },
+     "h3": {
+      "label": "dog",
+      "conf": 68.0
+     },
+     "h4": {
+      "label": "dog",
+      "conf": 47.8
+     }
+    },
+    "holdout_after": {
+     "h1": {
+      "label": "cat",
+      "conf": 92.4
+     },
+     "h2": {
+      "label": "dog",
+      "conf": 58.5
+     },
+     "h3": {
+      "label": "cat",
+      "conf": 69.4
+     },
+     "h4": {
+      "label": "dog",
+      "conf": 90.5
+     }
+    },
+    "train_self_errors": []
+   }
+  },
+  "1.0/0.0": {
+   "checks": {
+    "conflict_flips": "8/8",
+    "conflict_pass": true,
+    "false_flips": 0,
+    "strange_pass": true,
+    "normal": "8/8",
+    "normal_pass": true,
+    "holdout_after": "3/4",
+    "holdout_pass": false,
+    "holdout_before_info": "2/4",
+    "min_flip_conf": 74.1,
+    "conf_pass": false,
+    "ALL_PASS": false
+   },
+   "details": {
+    "conflict": {
+     "pc1u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 96.3,
+      "nn": "d2"
+     },
+     "pc2u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 99.6,
+      "nn": "d2"
+     },
+     "pc3u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 91.3,
+      "nn": "c4"
+     },
+     "pc4u": {
+      "label": "dog",
+      "want": "dog",
+      "conf": 74.1,
+      "nn": "c6"
+     },
+     "pd1h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 99.9,
+      "nn": "c1"
+     },
+     "pd2h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 98.5,
+      "nn": "c6"
+     },
+     "pd3h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 100.0,
+      "nn": "c1"
+     },
+     "pd4h": {
+      "label": "cat",
+      "want": "cat",
+      "conf": 97.1,
+      "nn": "c4"
+     }
+    },
+    "normal": {
+     "pc1": {
+      "label": "cat",
+      "conf": 100.0
+     },
+     "pc2": {
+      "label": "cat",
+      "conf": 94.9
+     },
+     "pc3": {
+      "label": "cat",
+      "conf": 99.8
+     },
+     "pc4": {
+      "label": "cat",
+      "conf": 99.8
+     },
+     "pd1": {
+      "label": "dog",
+      "conf": 98.9
+     },
+     "pd2": {
+      "label": "dog",
+      "conf": 99.2
+     },
+     "pd3": {
+      "label": "dog",
+      "conf": 97.7
+     },
+     "pd4": {
+      "label": "dog",
+      "conf": 74.3
+     }
+    },
+    "strange": {
+     "sc1": {
+      "label": "cat",
+      "conf": 100.0
+     },
+     "sc2": {
+      "label": "cat",
+      "conf": 99.9
+     },
+     "sd1": {
+      "label": "dog",
+      "conf": 94.2
+     },
+     "sd2": {
+      "label": "dog",
+      "conf": 99.5
+     }
+    },
+    "holdout_before": {
+     "h1": {
+      "label": "cat",
+      "conf": 45.0
+     },
+     "h2": {
+      "label": "cat",
+      "conf": 98.3
+     },
+     "h3": {
+      "label": "dog",
+      "conf": 80.7
+     },
+     "h4": {
+      "label": "dog",
+      "conf": 95.5
+     }
+    },
+    "holdout_after": {
+     "h1": {
+      "label": "cat",
+      "conf": 98.6
+     },
+     "h2": {
+      "label": "cat",
+      "conf": 82.5
+     },
+     "h3": {
+      "label": "cat",
+      "conf": 68.8
+     },
+     "h4": {
+      "label": "dog",
+      "conf": 96.9
+     }
+    },
+    "train_self_errors": [
+     "c4"
+    ]
+   }
+  }
+ }
+}

@@ -2,3 +2,8 @@ _v1-image-classifier.html
 __pycache__/
 e2e/node_modules/
 content/node_modules/
+pilot/images/
+pilot/images512/
+pilot/.venv.nosync/
+pilot/sheet_*.png
+server/yougile-mcp-debug.log
