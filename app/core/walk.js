@@ -109,8 +109,10 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
             return { img: t, class: img ? img.class : '?' };
           }),
         ];
+        const counts = { traps: payload.traps.length };
+        for (const b of payload.baskets) counts[b.basket] = (counts[b.basket] || 0) + 1;
         j('train_commit', { version: trainVersion, sig: 'walk-v' + trainVersion,
-                            n: composition.length, composition });
+                            n: composition.length, composition, counts, engine: 'knn' });
       }
 
       if (els.some(e => /^frag[1-9]$/.test(e))) {

@@ -14,7 +14,7 @@
 
 import { loadManifest } from '../core/manifest.js';
 import { createMachine } from '../core/machine.js';
-import { initialPayload, reduce } from '../core/reducer.js';
+import { initialPayload, reduce, activeStableModel } from '../core/reducer.js';
 import { createJournal } from '../core/journal.js';
 import { fetchRestore, applyRestore, createSeatSave, newInstanceId } from '../core/save.js';
 import { createAcked } from '../core/acked.js';
@@ -243,11 +243,13 @@ ctx.modelGate = (btn) => {
 };
 
 /** Тихо восстановить обученность после F5: «Научить» — журнальный факт (train_commit,
- * фаза 0.5), поэтому восстановление модели идёт ИЗ COMPOSITION последней версии состава,
+ * фаза 0.5), поэтому восстановление модели идёт ИЗ COMPOSITION версии состава,
  * а не из эвристик позиции. Раскладка могла уже уехать дальше (переразметка, добор) —
- * модель честно остаётся той версии, которую ребёнок реально заморозил кнопкой. */
+ * модель честно остаётся той версии, которую ребёнок реально заморозил кнопкой.
+ * V2 (§3.3): восстанавливается последняя НЕ-volatile версия — фотка (класс C) живёт
+ * только в памяти вкладки, volatile-версия после F5 невоспроизводима by design. */
 function rebuildModelIfTrained() {
-  const model = ctx.payload.model;
+  const model = activeStableModel(ctx.payload);
   if (!model || !(model.composition || []).length) return;
   ctx.classifier.whenReady().then(() => {
     ctx.classifier.train(model.composition);

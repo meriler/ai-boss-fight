@@ -118,6 +118,28 @@ say('');
     probesAll.every((v, i) => i === 0 || v >= probesAll[i - 1]));
   check('зеркало отрицательных маржей: scaleConf(-m) = 100 - scaleConf(m)',
     Math.abs(scaleConf(-0.02, ANCHORS) - (100 - scaleConf(0.02, ANCHORS))) < 1e-9);
+  // метрика живости (ТЗ-платформа-v3 §2.3, сценарная проверка шкалы — остаток дорожки А):
+  // страховка от повторения насыщения (до калибровки медиана была ≈97). На normal-наборе
+  // разброс экранных conf ≥10 пунктов и медиана ≤93; шкала обязана оставаться живой
+  // и на шумовых сценариях (шум разметки 25/50%, слом 12/4) — не только на чистых
+  const median = xs => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+  {
+    const confs = clean.map(r => r.conf);
+    const spread = Math.max(...confs) - Math.min(...confs);
+    check('живость (normal): разброс conf ≥10 пунктов', spread >= 10, 'разброс ' + spread);
+    check('живость (normal): медиана conf ≤93', median(confs) <= 93, 'медиана ' + median(confs));
+  }
+  for (const name of ['noise25', 'noise50', 'imbalance']) {
+    const [, ex, pr] = scenarios.find(s => s[0] === name);
+    const confs = run(ex, pr).map(r => r.conf);
+    const spread = Math.max(...confs) - Math.min(...confs);
+    check('живость (' + name + '): разброс conf ≥15, медиана ≤93',
+      spread >= 15 && median(confs) <= 93,
+      'разброс ' + spread + ', медиана ' + median(confs));
+  }
 }
 say('');
 say(allOk ? '**Итог: все проверки калибровки зелёные.**'

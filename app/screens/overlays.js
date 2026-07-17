@@ -113,8 +113,12 @@ export function createOverlays(ctx) {
       box.append(kidText('Ты всё предсказал — молодец!', { small: true }));
       return box;
     }
+    // первая встреча с буфером — «зачем»-строка (аудит линзы, решение владельца 17.07):
+    // куда попадёт результат, а не действие без объяснения
     box.append(
-      kidText('Какая это картинка? Предскажи ответ коробки', { small: true }),
+      kidText(!ctx.payload.buffer.length
+        ? 'Пока ждём: предскажи, что ещё сломает коробку — потом проверишь'
+        : 'Какая это картинка? Предскажи ответ коробки', { small: true }),
       imgCard(ctx.assetsBase + next.src),
       h('div', { class: 'row' },
         ...ctx.bankIndex.bank.classes.map(c =>

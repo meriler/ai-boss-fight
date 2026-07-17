@@ -9,7 +9,8 @@ import path from 'node:path';
 import url from 'node:url';
 
 import { normalizeLesson, indexBank } from './manifest.js';
-import { reduce, initialPayload, replay, basketsByImg } from './reducer.js';
+import { reduce, initialPayload, replay, basketsByImg, activeStableModel,
+         stableComposition } from './reducer.js';
 import { createMachine } from './machine.js';
 import { createJournal } from './journal.js';
 import { applyRestore, createSeatSave } from './save.js';
@@ -90,6 +91,46 @@ test('редьюсер фазы 0.5: baskets_clear, train_commit (версии),
   reduce(old, { type: 'train_commit', args: { version: 1, sig: 'x', n: 0, composition: [] } });
   reduce(old, { type: 'experiment_start', args: { step: 's2' } });
   assert.ok(old.trap_skips.length === 1 && old.model_history.length === 1 && old.experiments.s2);
+});
+
+test('редьюсер V2: train_commit несёт counts/engine/volatile, история хранит composition', () => {
+  const p = initialPayload();
+  reduce(p, { type: 'train_commit', ts: 1700000001000, args: { version: 1, sig: 'aaa', n: 2,
+    composition: [{ img: 't1', class: 'cat' }, { img: 't2', class: 'dog' }],
+    counts: { cat: 1, dog: 1, traps: 0 } } });
+  assert.equal(p.model.engine, 'knn', 'дефолт чтения engine — knn');
+  assert.equal(p.model.volatile, false, 'дефолт volatile — false');
+  assert.deepEqual(p.model.counts, { cat: 1, dog: 1, traps: 0 });
+  const h = p.model_history[0];
+  assert.equal(h.composition.length, 2, 'история хранит состав целиком (переживает переукладку)');
+  assert.equal(h.ts, 1700000001000, 'когда научена — для карточки версии');
+  // запись фазы 0.5 БЕЗ новых полей реплеится без миграции
+  reduce(p, { type: 'train_commit', args: { version: 2, sig: 'bbb', n: 1,
+    composition: [{ img: 't1', class: 'dog' }] } });
+  assert.equal(p.model.version, 2);
+  assert.equal(p.model.counts, null);
+});
+
+test('редьюсер V2: activeStableModel — последняя не-volatile версия (анти-тупик В-6)', () => {
+  const p = initialPayload();
+  assert.equal(activeStableModel(p), null, 'до первого обучения стабильной версии нет');
+  reduce(p, { type: 'train_commit', args: { version: 1, sig: 'v1', n: 1,
+    composition: [{ img: 't1', class: 'cat' }] } });
+  assert.equal(activeStableModel(p).sig, 'v1');
+  // версия с фоткой (класс C): активная — volatile, стабильная — прежняя v1
+  reduce(p, { type: 'train_commit', args: { version: 2, sig: 'v2vol', n: 2, volatile: true,
+    composition: [{ img: 't1', class: 'cat' }, { img: 'local:ph1', class: 'dog' }] } });
+  assert.equal(p.model.sig, 'v2vol', 'на полке активная — volatile');
+  assert.equal(activeStableModel(p).sig, 'v1', 'restore и замеры идут по стабильной');
+  // «Научить без фотки» даёт новую не-volatile — она и становится стабильной
+  reduce(p, { type: 'train_commit', args: { version: 3, sig: 'v3', n: 1,
+    composition: [{ img: 't1', class: 'cat' }] } });
+  assert.equal(activeStableModel(p).sig, 'v3');
+  // «Научить без фотки» (В-6): local-примеры класса C отфильтровываются из состава
+  assert.deepEqual(
+    stableComposition([{ img: 't1', class: 'cat' }, { img: 'local:ph1', class: 'dog' },
+                       { img: 'tr1', class: 'dog' }]).map(c => c.img),
+    ['t1', 'tr1']);
 });
 
 test('журнал: стартовый rev нового инстанса = max(server_rev, local_rev) + 1', () => {

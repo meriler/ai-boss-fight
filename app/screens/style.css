@@ -288,6 +288,62 @@ body {
 .scorecell.ok { background: #2fa14e; }
 .scorecell.bad { background: #d64545; }
 
+/* ---------- полка версий В-1/В-2 (остаток дорожки А, ТЗ-платформа-v3 §3.1) ---------- */
+.vshelf { width: 100%; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.vshelf-row { gap: 6px; }
+.vchip {
+  display: inline-block; padding: 6px 12px; border-radius: 999px;
+  background: #f1f5f9; border: 2px solid var(--c-border);
+  font-size: 14px; font-weight: 800; color: var(--c-muted); white-space: nowrap;
+}
+.vchip-active { background: #dbeafe; border-color: var(--c-primary); color: var(--c-primary-dark); }
+.vchip-volatile { opacity: .6; }
+/* В-2 «черновик ≠ учёное»: активная версия приглушена, бейдж говорит почему */
+.vchip-draft { opacity: .5; border-style: dashed; }
+.vshelf-badge {
+  font-size: 14px; font-weight: 800; color: var(--c-secondary-text);
+  background: #fef3c7; border-radius: 10px; padding: 4px 10px; text-align: center;
+}
+.vshelf-more { font-size: 13px; font-weight: 800; color: var(--c-muted); }
+/* тапабельная полка (только «спокойные» экраны): один интерактив в счёте лимита */
+.vshelf-tap { cursor: pointer; border: 2px dashed var(--c-border); border-radius: 14px; padding: 8px; min-height: 44px; justify-content: center; }
+.vshelf-tap:hover { border-color: var(--c-primary); background: #f8fafc; }
+.vshelf-tap:focus-visible { outline: 4px solid rgba(37, 99, 235, .4); }
+
+/* ---------- В-5 рост ячейками: два ряда holdout-миниатюр, счёт — подписью ---------- */
+.growth { display: flex; flex-direction: column; gap: 4px; align-items: center; width: 100%; }
+.growthrow { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.growthcap { display: flex; gap: 8px; align-items: baseline; }
+.growthcap-name { font-size: 15px; font-weight: 900; }
+.growthcap-score { font-size: 13px; font-weight: 800; color: var(--c-muted); }
+.growthcells { display: flex; gap: 8px; justify-content: center; }
+.gcell {
+  width: 64px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border-radius: 12px; padding: 4px; position: relative;
+}
+.gcell-ok { background: #ecfdf5; box-shadow: inset 0 0 0 2px #2fa14e; }
+.gcell-bad { background: #fef2f2; box-shadow: inset 0 0 0 2px #d64545; }
+.gcell-pic { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
+.gcell-mark { position: absolute; right: 2px; top: 2px; font-size: 14px; font-weight: 900; color: #fff;
+  width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; }
+.gcell-ok .gcell-mark { background: #2fa14e; }
+.gcell-bad .gcell-mark { background: #d64545; }
+.gcell-label { font-size: 12px; font-weight: 800; color: var(--c-muted); }
+.growtharrows { display: flex; gap: 8px; justify-content: center; }
+.growtharrow { width: 64px; text-align: center; font-size: 18px; font-weight: 900; color: transparent; }
+.growtharrow.on { color: var(--c-accent-text); }
+
+/* акцент на ошибке пробы (аудит линзы 17.07): драматургия видна без голоса */
+.verdict-alert {
+  font-size: 17px; font-weight: 900; color: var(--c-accent-text);
+  background: #fdf2f8; border: 2px solid #fbcfe8; border-radius: 12px; padding: 8px 14px;
+  text-align: center;
+}
+
+/* панель чата заранее в неактивном виде (линза П5) */
+.chatpanel-preview { opacity: .55; }
+.chatpanel-preview .chatinput { background: #f1f5f9; }
+
 /* широкое окно (полноэкранный просмотр, большой монитор) — масштабируем всё
    пропорционально; узкая половина 13" (конституция п.13) остаётся как есть */
 @media (min-width: 1400px) {

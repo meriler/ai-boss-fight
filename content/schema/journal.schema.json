@@ -49,9 +49,14 @@
         "n": { "type": "integer", "minimum": 0 },
         "composition": { "type": "array", "items": { "type": "object", "required": ["img", "class"], "additionalProperties": false,
           "properties": { "img": { "type": "string" }, "class": { "type": "string" } } },
-          "description": "полный состав версии — restore после F5 переобучает модель ИЗ НЕГО (эвристики позиции убраны)" }
+          "description": "полный состав версии — restore после F5 переобучает модель ИЗ НЕГО (эвристики позиции убраны)" },
+        "counts": { "type": ["object", "null"], "additionalProperties": { "type": "integer", "minimum": 0 },
+          "description": "V2 (аддитивно, ТЗ-платформа-v3 §3.1): состав словами для карточки версии — {classId: n, traps: n}" },
+        "engine": { "type": "string", "description": "V2 (аддитивно): движок версии; дефолт чтения \"knn\"" },
+        "params_rev": { "type": ["integer", "string"], "description": "V2 (аддитивно): ревизия frozen_params банка на момент обучения" },
+        "volatile": { "type": "boolean", "description": "V2 (аддитивно, дефолт false): версия с локальной фоткой (класс C) — на полке остаётся, замеры на ней не строятся" }
       } } },
-        "description": "«Научить» — журнальный факт (фаза 0.5): состав замораживается в версию" } },
+        "description": "«Научить» — журнальный факт (фаза 0.5): состав замораживается в версию; поля counts/engine/params_rev/volatile — аддитивное расширение V2 (записи 0.5 реплеятся без миграции)" } },
     { "if": { "properties": { "type": { "const": "experiment_start" } } },
       "then": { "properties": { "args": { "required": ["step"], "additionalProperties": false, "properties": { "step": { "type": "string" } } } },
         "description": "«Проверить другую раскладку» после reveal (фаза 0.5): сброс раскладки и показанных проб; замок уже открыт — version/choice закоммичены" } },
@@ -70,18 +75,20 @@
     { "if": { "properties": { "type": { "const": "best_trap_pick" } } },
       "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } } } },
     { "if": { "properties": { "type": { "const": "probe_result" } } },
-      "then": { "properties": { "args": { "required": ["img", "label", "conf"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": "string" }, "conf": { "type": "number", "minimum": 0, "maximum": 100 }, "margin": { "type": "number", "description": "сырая d̄-маржа проигравший−победитель — источник словесной шкалы уверенности" } } } },
+      "then": { "properties": { "args": { "required": ["img", "label", "conf"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": "string" }, "conf": { "type": "number", "minimum": 0, "maximum": 100 }, "margin": { "type": "number", "description": "сырая d̄-маржа проигравший−победитель — источник словесной шкалы уверенности" }, "engine": { "type": "string", "description": "V2 (аддитивно): движок вердикта" }, "params_rev": { "type": ["integer", "string"] } } } },
         "description": "Показанный вердикт — фиксируется, чтобы F5 не пересчитывал/не перепоказывал (DoD п.3)" } },
     { "if": { "properties": { "type": { "const": "mistake_mark" } } },
       "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } },
         "description": "Наблюдение ребёнка «она ошиблась!» на пробе — модель НЕ меняет, идёт в телеметрию и карточку дела" } },
     { "if": { "properties": { "type": { "const": "measure_result" } } },
       "then": { "properties": { "args": { "required": ["phase", "score", "of"], "additionalProperties": false, "properties": {
-        "phase": { "enum": ["before", "after"] }, "score": { "type": "integer", "minimum": 0 }, "of": { "type": "integer", "minimum": 1 },
+        "phase": { "enum": ["before", "after", "free"], "description": "before/after — канонический замер «до/после»; free — замеры свободного окна (эксперимент после reveal, лаборатория) — канон не размывают (V2, аддитивно)" }, "score": { "type": "integer", "minimum": 0 }, "of": { "type": "integer", "minimum": 1 },
         "details": { "type": "array", "items": { "type": "object", "required": ["img", "ok"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": ["string", "null"] }, "conf": { "type": ["number", "null"] }, "ok": { "type": "boolean" } } }, "description": "по-картиночный итог — подписи каждой ошибки на экране замера" },
         "model_n": { "type": "integer", "minimum": 0, "description": "число примеров обученной модели на момент замера" },
         "model_sig": { "type": "string", "description": "подпись состава модели (compositionSig) — версия состава" },
-        "baskets_sig": { "type": "string", "description": "подпись раскладки корзин на момент замера — stale-чек «Было»" }
+        "baskets_sig": { "type": "string", "description": "подпись раскладки корзин на момент замера — stale-чек «Было»" },
+        "engine": { "type": "string", "description": "V2 (аддитивно): движок замера" },
+        "params_rev": { "type": ["integer", "string"] }
       } } } } }
   ]
 }

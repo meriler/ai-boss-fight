@@ -66,11 +66,25 @@ export function reduce(payload, action) {
     }
     case 'train_commit': {
       // «Научить» — журнальный факт: версия состава обучения замораживается (v1, v2, …);
-      // restore после F5 переобучает модель из composition ПОСЛЕДНЕЙ версии, не из эвристик
+      // restore после F5 переобучает модель из composition ПОСЛЕДНЕЙ версии, не из эвристик.
+      // Аддитивные поля V2 (ТЗ-платформа-v3 §3.1): counts (состав словами для карточки
+      // версии), engine (дефолт чтения "knn"), volatile (версия с локальной фоткой —
+      // класс C: на полке остаётся, замеры на ней не строятся). Записи фазы 0.5 без
+      // этих полей реплеятся как раньше.
       payload.model = { version: args.version, sig: args.sig, n: args.n,
-                        composition: args.composition || [] };
+                        composition: args.composition || [],
+                        counts: args.counts || null,
+                        engine: args.engine || 'knn',
+                        volatile: !!args.volatile };
       const hist = payload.model_history || (payload.model_history = []);
-      hist.push({ version: args.version, sig: args.sig, n: args.n });
+      // composition хранится и в истории целиком (≤40 пар — дёшево): история переживает
+      // переукладку корзин, restore при volatile-активной пересобирает НЕ-volatile версию
+      hist.push({ version: args.version, sig: args.sig, n: args.n,
+                  counts: args.counts || null,
+                  engine: args.engine || 'knn',
+                  volatile: !!args.volatile,
+                  ts: action.ts || null,
+                  composition: args.composition || [] });
       break;
     }
     case 'experiment_start': {
@@ -136,6 +150,27 @@ export function replay(payload, entries, serverRev) {
   const tail = entries.filter(e => e.rev > serverRev).sort((a, b) => a.rev - b.rev);
   for (const e of tail) reduce(payload, e);
   return payload;
+}
+
+/** Активная СТАБИЛЬНАЯ версия: последняя не-volatile (веса нигде не хранятся — модель
+ * пересобирается train() из composition). Volatile-версии (со своей фоткой, класс C)
+ * остаются на полке, но восстановление после F5 и канонические замеры идут только
+ * по стабильной (NFR-9: утрата класса C — явная, с путём восстановления). */
+export function activeStableModel(payload) {
+  const m = payload.model;
+  if (m && !m.volatile) return m;
+  const hist = payload.model_history || [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const h = hist[i];
+    if (!h.volatile && (h.composition || []).length) return h;
+  }
+  return null;
+}
+
+/** Состав без локальных примеров (класс C, «local:*») — «Научить без фотки» (В-6):
+ * train того же состава минус local-примеры даёт не-volatile версию, замер открывается. */
+export function stableComposition(composition) {
+  return (composition || []).filter(c => !String(c.img).startsWith('local:'));
 }
 
 /** Производные представления (view-хелперы поверх журнальной формы). */

@@ -7,8 +7,11 @@
  *    (правило 9): пустая зона приглушена, не спрятана;
  *  - F5 не перепоказывает сделанное: показанные вердикты/замеры берутся из payload. */
 
-import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom } from './dom.js';
+import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom, confWord } from './dom.js';
 import { compositionSig } from '../engine/classifier.js';
+import { trainExamples, countsOf, countsFromComposition, versionShelf, growthCells,
+         sameMeasureSet } from './versions.js';
+import { stableComposition } from '../core/reducer.js';
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
 
@@ -46,17 +49,6 @@ const classLabel = (ctx, id) => {
 const hasEl = (p, name) => (p.elements || []).includes(name);
 const hasRe = (p, re) => (p.elements || []).some(e => re.test(e));
 
-/* ---------- общее: сборка примеров и обучение ---------- */
-
-export function trainExamples(ctx) {
-  const ex = ctx.payload.baskets.map(b => ({ img: b.img, class: b.basket }));
-  for (const t of ctx.payload.traps) {
-    const img = ctx.bankIndex.byId.get(t);
-    if (img) ex.push({ img: t, class: img.class });
-  }
-  return ex;
-}
-
 /* ---------- зоны коробки ---------- */
 
 function zones(ctx, step, { input, box, output }) {
@@ -66,7 +58,10 @@ function zones(ctx, step, { input, box, output }) {
       h('div', { class: 'zone-body' }, ...[content].flat().filter(Boolean)));
   // зона коробки — не пустая полка: маскот (коробку ВИДНО, а не только слово)
   // + альбом, ЧЕМ она научена (миниатюры корзин — обучение видимо и правдоподобно)
-  const boxBody = [boxMascot(), ...[box.content].flat().filter(Boolean), boxAlbum(ctx)];
+  // + полка версий В-1 (пассивная: на тактах с интерактивами задания чипы не тапаются —
+  // 0 из лимита ≤5; несёт и бейдж В-2 «в корзинах уже по-другому»)
+  const boxBody = [boxMascot(), ...[box.content].flat().filter(Boolean), boxAlbum(ctx),
+                   versionShelf(ctx, { tappable: false })];
   return h('div', { class: 'zones' },
     zone('in', 'Картинки — вход', input.content, input.active),
     zone('box', 'Коробка — учится', boxBody, box.active),
@@ -196,10 +191,12 @@ function trainPhase(ctx, step, phase) {
     const examples = trainExamples(ctx);
     const n = ctx.classifier.train(examples);
     // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
-    // restore после F5 переобучает модель из composition последней версии
+    // restore после F5 переобучает модель из composition последней версии.
+    // counts/engine — аддитивные поля V2 (состав словами для карточки версии В-1)
     const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
     const sig = ctx.classifier.modelInfo().sig;
-    ctx.j('train_commit', { version, sig, n, composition: examples });
+    ctx.j('train_commit', { version, sig, n, composition: examples,
+                            counts: countsOf(ctx), engine: 'knn' });
     ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained', { n, version, sig });
     setTimeout(() => {
       boxEl && boxEl.classList.remove('learning');
@@ -208,14 +205,23 @@ function trainPhase(ctx, step, phase) {
   }, { id: 'btn_train' });
   ctx.modelGate(btn);
   const box = [kidText(boxStatus(ctx), { small: true }), btn];
-  // «Разложить заново» (фаза 0.5): элемент манифеста btn_relayout — раскладка с нуля
-  // и возврат на такт корзин; версию состава не трогает (замораживает только «Научить»)
+  // «Разложить заново» (В-3): ТОЛЬКО до первого обучения — после первого train_commit
+  // переукладка идёт по рельсам (ловушки) или через эксперимент после reveal (В-4).
+  // Двухтактно (конституция п.7: необратимое = выбор → крупное подтверждение)
   const basketsPhase = step.phases.find(p => (p.elements || []).some(e => e.startsWith('basket_')));
-  if (hasEl(phase, 'btn_relayout') && basketsPhase) {
+  if (hasEl(phase, 'btn_relayout') && basketsPhase && !ctx.payload.model) {
     box.push(bigBtn('Разложить заново', () => {
-      ctx.j('baskets_clear', {});
-      ctx.tele.push('baskets_cleared', { step: step.id });
-      ctx.jumpToPhase(step.id, basketsPhase.id);
+      ctx.overlays.openModal(
+        h('div', { class: 'modal-title', 'data-kid': '1' }, 'Разложить всё заново?'),
+        kidText('Корзины опустеют — разложишь с первой картинки'),
+        h('div', { class: 'modal-actions' },
+          bigBtn('Да, заново', ctx.guarded(() => {
+            ctx.overlays.closeModal();
+            ctx.j('baskets_clear', {});
+            ctx.tele.push('baskets_cleared', { step: step.id });
+            ctx.jumpToPhase(step.id, basketsPhase.id);
+          }), { id: 'btn_confirm_relayout' }),
+          bigBtn('Назад', () => ctx.overlays.closeModal(), { kind: 'secondary', id: 'btn_cancel_confirm' })));
     }, { kind: 'ghost', id: 'btn_relayout', disabled: !ctx.payload.baskets.length }));
   }
   return zones(ctx, step, {
@@ -256,8 +262,16 @@ function probeFeed(ctx, step, phase) {
   const out = [];
   if (verdict) {
     out.push(verdictCard('Это ' + classLabel(ctx, verdict.label) + '!', verdict.conf, { margin: verdict.margin }));
+    // акцент на ошибке пробы (аудит линзы, решение владельца 17.07): драматургия
+    // «уверена — и ошибается» видна без голоса ведущего
+    if (img && verdict.label !== img.class) {
+      const { word } = confWord(verdict.conf);
+      out.push(h('div', { class: 'verdict-alert', 'data-kid': '1' },
+        verdict.conf >= 75 ? 'Стоп… она ' + word + ' — и ошибается!'
+                           : 'Она ошиблась — и сама сомневалась'));
+    }
     // отметка «она ошиблась!» — НАБЛЮДЕНИЕ ребёнка (план-правок п.4): сам решает, был ли
-    // ответ верным; модель не меняет, уходит в телеметрию и карточку дела. Авто-спойлера нет.
+    // ответ верным; модель не меняет, уходит в телеметрию и карточку дела.
     const marked = (ctx.payload.mistakes || []).includes(current);
     if (marked) out.push(kidText('Записано: коробка тут ошиблась!', { small: true }));
     else out.push(bigBtn('Она ошиблась!', () => {
@@ -361,10 +375,13 @@ function measureErrors(ctx, m) {
 }
 
 /** Честный итог замера по факту (план-правок п.3/п.6): лучше / держит идеал / без
- * изменений / хуже. beforeValid=false → сравнивать не с чем (stale-«Было»). */
+ * изменений / хуже. beforeValid=false → сравнивать не с чем (stale-«Было»).
+ * Сравнение честно только на ОДНОМ holdout-наборе (В-5, §3.1) — иначе null,
+ * экран показывает «состав проверок менялся» и последний счёт. */
 function measureOutcome(before, after, beforeValid) {
   if (!after) return null;
   if (!before || !beforeValid) return null;
+  if (before.details && after.details && !sameMeasureSet(before, after)) return null;
   if (after.score > before.score) return 'Коробка починилась!';
   if (after.score === before.score && after.score === after.of) return 'Держит идеал — все ответы верные!';
   if (after.score === before.score) return 'Пока без изменений — можно добрать картинок';
@@ -385,10 +402,25 @@ function measurePhase(ctx, step, phase) {
     // stale-«Было»: раскладка корзин менялась после замера «до» (restore/переразметка) —
     // старый счёт сделан ДРУГОЙ моделью, сравнивать нечестно (Codex D1–D2)
     const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx));
-    if (m.before && beforeValid) out.push(scoreCard(m.before.score, m.before.of, 'Было'));
-    if (m.before && !beforeValid)
-      out.push(kidText('Раскладка менялась — старый замер не в счёт', { small: true }));
-    out.push(scoreCard(m.after.score, m.after.of, 'Стало', { errors: measureErrors(ctx, m.after) }));
+    // сравнение честно только на одном holdout-наборе (В-5, §3.1); у старых записей
+    // details может не быть — тогда набор неизвестен, показываем по-старому парой счётов
+    const setKnown = !!(m.before && m.before.details && m.after.details);
+    const sameSet = setKnown ? sameMeasureSet(m.before, m.after) : null;
+    if (m.before && beforeValid && setKnown && sameSet) {
+      // В-5: рост показом — два ряда одних holdout-миниатюр (было/стало), стрелки
+      // на изменившихся, счёт — подписью (линза П4)
+      out.push(growthCells(ctx, m.before, m.after));
+      const errs = measureErrors(ctx, m.after);
+      if (errs.length) out.push(h('div', { class: 'score-errors' },
+        ...errs.map(t => h('div', { class: 'score-err', 'data-kid': '1' }, '✗ ' + t))));
+    } else {
+      if (m.before && beforeValid && setKnown && !sameSet)
+        out.push(kidText('Состав проверок менялся — показываем последнюю', { small: true }));
+      if (m.before && beforeValid && (!setKnown || sameSet)) out.push(scoreCard(m.before.score, m.before.of, 'Было'));
+      if (m.before && !beforeValid)
+        out.push(kidText('Раскладка менялась — старый замер не в счёт', { small: true }));
+      out.push(scoreCard(m.after.score, m.after.of, 'Стало', { errors: measureErrors(ctx, m.after) }));
+    }
     const outcome = measureOutcome(m.before, m.after, beforeValid);
     if (outcome) out.push(kidText(outcome, { small: true }));
     // цикл добора (фаза 0.5, стык с паттерном r2): замер слабее порога и остались
@@ -410,16 +442,37 @@ function measurePhase(ctx, step, phase) {
     if (m.after && afterIsStale(ctx, m))
       out.push(kidText('Состав обучения менялся — проверь коробку заново', { small: true }));
     if (m.before) out.push(scoreCard(m.before.score, m.before.of, 'Было до ловушек'));
-    const btn = bigBtn('Проверить коробку', () => {
-      const r = ctx.classifier.measure(step.measure.holdout);
-      const mi = ctx.classifier.modelInfo();
-      ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of, details: r.details,
-                                model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
-      ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of, model_sig: mi.sig });
-      ctx.render();
-    }, { id: 'btn_check' });
-    ctx.modelGate(btn);
-    out.push(btn);
+    // В-6 анти-тупик volatile (§3.1): канонический замер требует стабильной модели
+    // (measure.requires_stable_model — дефолт true, иначе невоспроизводим после F5).
+    // Активная версия с фоткой → одна фраза + одно действие, тупика нет (конституция п.5)
+    const requiresStable = !step.measure || step.measure.requires_stable_model !== false;
+    const live = ctx.payload.model;
+    if (requiresStable && live && live.volatile) {
+      out.push(kidText('Твоя фотка не идёт в проверку — научи коробку без неё'));
+      const btn6 = bigBtn('Научить без фотки', () => {
+        const composition = stableComposition(live.composition);
+        const n = ctx.classifier.train(composition);
+        const version = live.version + 1;
+        const sig = ctx.classifier.modelInfo().sig;
+        ctx.j('train_commit', { version, sig, n, composition,
+                                counts: countsFromComposition(ctx, composition), engine: 'knn' });
+        ctx.tele.push('retrained', { n, version, sig });
+        ctx.render();   // не-volatile версия активна — замер открылся
+      }, { id: 'btn_train_stable' });
+      ctx.modelGate(btn6);
+      out.push(btn6);
+    } else {
+      const btn = bigBtn('Проверить коробку', () => {
+        const r = ctx.classifier.measure(step.measure.holdout);
+        const mi = ctx.classifier.modelInfo();
+        ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of, details: r.details,
+                                  model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
+        ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of, model_sig: mi.sig });
+        ctx.render();
+      }, { id: 'btn_check' });
+      ctx.modelGate(btn);
+      out.push(btn);
+    }
   }
   return zones(ctx, step, {
     input: { content: kidText('Проверяем на НОВЫХ картинках', { small: true }), active: false },
@@ -575,19 +628,31 @@ function revealPhase(ctx, step, phase) {
       ...info.anon_versions.map(v => h('div', { class: 'anonitem' },
         (v && (v.readable || v.text)) || 'версия из фрагментов'))));
   }
+  // полка версий В-1: reveal_view — «спокойный» экран, тап по полке открывает карточку
+  // версии (полка = один интерактив в счёте лимита ≤5)
+  body.push(versionShelf(ctx, { tappable: true }));
   // «Проверить другую раскладку» (фаза 0.5): замок уже открыт (version/choice закоммичены),
   // эксперимент настоящий — раскладка с нуля, «Научить» даст новую версию состава,
-  // пробы прогоняются заново, потом возврат сюда же
+  // пробы прогоняются заново, потом возврат сюда же. Двухтактно (В-4, конституция п.7):
+  // сброс раскладки и показанных проб необратим — кнопка → крупное подтверждение
   const basketsPhase = step.phases.find(p => (p.elements || []).some(e => e.startsWith('basket_')));
   if (hasEl(phase, 'btn_next'))
     body.push(bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(), { id: 'btn_next' }));
   if (basketsPhase && ctx.commitDone('choice', step.id))
     body.push(bigBtn('Проверить другую раскладку', () => {
-      ctx.j('experiment_start', { step: step.id });
-      ctx.tele.push('experiment_start', { step: step.id });
-      // указатели лент проб — с чистого листа (вердикты обнулены experiment_start)
-      for (const k of Object.keys(ctx.local)) if (k.startsWith('probeptr_')) delete ctx.local[k];
-      ctx.jumpToPhase(step.id, basketsPhase.id);
+      ctx.overlays.openModal(
+        h('div', { class: 'modal-title', 'data-kid': '1' }, 'Раскладка и проверки начнутся заново — точно?'),
+        kidText('Версии на полке сохранятся', { small: true }),
+        h('div', { class: 'modal-actions' },
+          bigBtn('Да, проверить', ctx.guarded(() => {
+            ctx.overlays.closeModal();
+            ctx.j('experiment_start', { step: step.id });
+            ctx.tele.push('experiment_start', { step: step.id });
+            // указатели лент проб — с чистого листа (вердикты обнулены experiment_start)
+            for (const k of Object.keys(ctx.local)) if (k.startsWith('probeptr_')) delete ctx.local[k];
+            ctx.jumpToPhase(step.id, basketsPhase.id);
+          }), { id: 'btn_confirm_experiment' }),
+          bigBtn('Назад', () => ctx.overlays.closeModal(), { kind: 'secondary', id: 'btn_cancel_confirm' })));
     }, { kind: 'secondary', id: 'btn_experiment' }));
   if (!ctx.local['reveal_seen_' + step.id]) {
     ctx.local['reveal_seen_' + step.id] = true;
@@ -727,8 +792,14 @@ function talkPhase(ctx, step, phase) {
   const started = ctx.local[key];
   const thinkSec = ctx.demo ? Math.min(2, step.think_sec || 30) : (step.think_sec || 30);
   const body = [h('div', { class: 'quiz-title', 'data-kid': '1' }, step.prompt || '')];
+  // поле действия видно ДО того, как понадобится (линза П5, решение владельца 17.07):
+  // панель чата показана заранее в неактивном виде — не появляется «из ниоткуда»
+  const chatPreview = (hint) => h('div', { class: 'chatpanel chatpanel-preview' },
+    h('div', { class: 'row' },
+      h('input', { class: 'chatinput', disabled: true, placeholder: hint }),
+      bigBtn('Отправить', null, { kind: 'secondary', disabled: true })));
   if (!started) {
-    body.push(kidText('Сначала подумай молча — потом откроется чат, куда напечатать', { small: true }));
+    body.push(kidText('Сначала подумай молча — потом этот чат откроется', { small: true }));
     body.push(bigBtn('Начать думать (' + (step.think_sec || 30) + ' сек)', () => {
       ctx.local[key] = Date.now();
       ctx.render();
@@ -739,10 +810,12 @@ function talkPhase(ctx, step, phase) {
         if (left <= 0) { clearInterval(tick); ctx.local[key + '_done'] = true; ctx.render(); }
       }, 300);
     }, { id: 'btn_think' }));
+    body.push(chatPreview('Чат откроется после ' + (step.think_sec || 30) + ' сек'));
   } else if (!ctx.local[key + '_done'] && (Date.now() - started) / 1000 < thinkSec) {
     body.push(h('div', { class: 'thinktimer' }, h('span', { id: 'think_left' },
       String(Math.max(0, thinkSec - Math.floor((Date.now() - started) / 1000))))));
     body.push(kidText('Подумай молча…', { small: true }));
+    body.push(chatPreview('Чат откроется — подумай молча'));
   } else {
     body.push(ctx.overlays.buildChatPanel(ctx));
     if (ctx.local['chat_sent_' + step.id])
@@ -785,6 +858,8 @@ function finalPhase(ctx, step, phase) {
       hist.length ? h('div', { class: 'factrow' }, 'Учил коробку: ',
         h('b', {}, hist.length + ' ' + razWord(hist.length) + ' (состав v' +
           hist[hist.length - 1].version + ', картинок: ' + hist[hist.length - 1].n + ')')) : null,
+      // полка версий В-1: card_view — «спокойный» экран, тап открывает карточку версии
+      versionShelf(ctx, { tappable: true }),
       lastErrors.length ? h('div', { class: 'factrow' }, 'Ошибки последней проверки: ',
         h('span', {}, ...lastErrors.map(t => h('div', { class: 'facterr' }, '✗ ' + t)))) : null,
       rstep ? h('div', { class: 'factrow' }, 'Твоя версия: ', h('b', {}, versionSentence(ctx, rstep))) : null,

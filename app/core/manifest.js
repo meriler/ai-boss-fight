@@ -65,7 +65,16 @@ export function derivePhases(step) {
 export function normalizeLesson(rawManifest) {
   const lesson = rawManifest.lesson;
   if (!lesson || !Array.isArray(lesson.steps)) throw new Error('манифест без lesson.steps');
-  const norm = steps => steps.map(s => ({ ...s, phases: derivePhases(s) }));
+  // постоянные интерактивные элементы состояния (ТЗ-платформа-v3 §1.1) — валидатор
+  // считает лимит ≤5 ДО DOM (конституция п.11): на такте разгадки живут тапабельная
+  // полка версий + «Проверить другую раскладку», на card_view — тапабельная полка
+  const norm = steps => steps.map(s => {
+    const phases = derivePhases(s);
+    if (s.reveal && phases.length) phases[phases.length - 1].limitCount += 2;
+    if (s.type === 'final_card')
+      for (const p of phases) if (p.id === 'card_view') p.limitCount += 1;
+    return { ...s, phases };
+  });
   const steps = norm(lesson.steps);
   const reserve = norm(lesson.reserve_steps || []);
   const stepById = new Map();

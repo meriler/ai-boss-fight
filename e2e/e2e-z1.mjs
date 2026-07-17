@@ -302,10 +302,22 @@ const versionStep = man.lesson.steps.find(s => s.version);
 await driveLesson(A, man, {
   code: '4712',
   hook: async (st, p) => {
-    // «Разложить заново» (фаза 0.5): на такте «Научить» вернуться к пустым корзинам
+    // «Разложить заново» (В-3): двухтактно — кнопка → крупное подтверждение; «Назад»
+    // ничего не сбрасывает (конституция п.7). Доступна только до первого обучения
     if (!relayoutDone && !st.entry && st.step === versionStep.id && st.phase === 'train') {
       relayoutDone = true;
+      const before = await p.evaluate(() =>
+        [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
       await p.click('#btn_relayout');
+      await p.waitForSelector('#btn_cancel_confirm', { timeout: 8000 });
+      await p.click('#btn_cancel_confirm');
+      const afterCancel = await p.evaluate(() =>
+        [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
+      ok('В-3 двухтактность: «Назад» не сбрасывает раскладку', afterCancel === before,
+         before + '→' + afterCancel);
+      await p.click('#btn_relayout');
+      await p.waitForSelector('#btn_confirm_relayout', { timeout: 8000 });
+      await p.click('#btn_confirm_relayout');
       await waitState(p, s2 => s2.phase === 'baskets', 8000, 'relayout → корзины');
       const counts = await p.evaluate(() =>
         [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
@@ -359,6 +371,10 @@ await f5restore(A, '«коммит есть, reveal нет»', '#stuck');
      st.step === versionStep.id && st.phase === waitingPhase.id, JSON.stringify(st));
   const bufferSeen = await A.waitForSelector('.buffer', { timeout: 8000 }).then(() => true).catch(() => false);
   ok('ожидание — не пустой экран: буфер «предскажи» виден', bufferSeen);
+  // «зачем»-строка при первой встрече (аудит линзы): куда попадёт результат
+  const bufTxt = await A.evaluate(() => document.querySelector('.buffer')?.textContent || '');
+  ok('линза: «зачем»-строка при первой встрече буфера', /Пока ждём: предскажи/.test(bufTxt),
+     bufTxt.slice(0, 80));
   await domCheck(A, 'z1-kot:waiting-buffer');
   if (bufferSeen && !bufferChecked) {
     bufferChecked = true;
@@ -401,11 +417,43 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
 /* --- A: «проверить другую раскладку» (фаза 0.5) — эксперимент после reveal,
  *     F5 МЕЖДУ версиями состава (v1 заморожена, v2 ещё нет), возврат к разгадке --- */
 {
+  /* В-1: полка версий на «спокойном» экране разгадки — один тапабельный блок,
+   * карточка версии в модалке (состав словами, легенда, одна кнопка «Назад») */
+  ok('В-1: полка версий видна на разгадке', !!(await A.$('#version_shelf')));
+  const chipTxt = await A.evaluate(() => [...document.querySelectorAll('.vchip')].map(e => e.textContent).join(' | '));
+  ok('В-1: чип v1 с числом картинок, активный подсвечен', /v1 · 16/.test(chipTxt), chipTxt);
+  await A.click('#version_shelf');
+  await A.waitForSelector('.modalcard', { timeout: 8000 });
+  await domCheck(A, 'z1-kot:version-card');
+  const cardTxt = await A.evaluate(() => document.querySelector('.modalcard').textContent);
+  ok('В-1 карточка версии: v1 активная, состав словами, легенда полки',
+     /Версия v1 — активная/.test(cardTxt) && /Коты: 8/.test(cardTxt) && /новая версия/.test(cardTxt),
+     cardTxt.slice(0, 120));
+  await A.screenshot({ path: '/tmp/z1-version-card.png' });   // ревью интерфейса В-1
+  await A.click('#vcard_back');
+  await A.waitForSelector('.modalcard', { state: 'detached', timeout: 8000 }).catch(() => {});
+  /* В-4 двухтактность: «Проверить другую раскладку» — кнопка → подтверждение
+   * с оговоркой «версии на полке сохранятся»; «Назад» ничего не сбрасывает */
   await A.click('#btn_experiment');
+  await A.waitForSelector('#btn_cancel_confirm', { timeout: 8000 });
+  const confirmTxt = await A.evaluate(() => document.querySelector('.modalcard').textContent);
+  ok('В-4 подтверждение: «начнутся заново — точно?» + «версии на полке сохранятся»',
+     /заново — точно\?/.test(confirmTxt) && /Версии на полке сохранятся/.test(confirmTxt), confirmTxt);
+  await A.click('#btn_cancel_confirm');
+  ok('В-4 двухтактность: «Назад» оставил разгадку на месте', (await state(A)).phase === lastPhase);
+  await A.click('#btn_experiment');
+  await A.waitForSelector('#btn_confirm_experiment', { timeout: 8000 });
+  await A.click('#btn_confirm_experiment');
   await waitState(A, s => s.step === versionStep.id && s.phase === 'baskets', 8000, 'эксперимент → корзины');
   let counts = await A.evaluate(() =>
     [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
   ok('эксперимент: раскладка с нуля (замок открыт, version/choice не трогаются)', counts === 0);
+  /* В-2 «черновик ≠ учёное»: корзины сброшены, коробка думает по v1 — полка в зоне
+   * коробки пассивна (0 из лимита) и несёт бейдж */
+  const badge = await A.evaluate(() => document.querySelector('.vshelf-badge')?.textContent || '');
+  ok('В-2: бейдж «в корзинах уже по-другому» при расхождении с активной версией',
+     /по-другому/.test(badge), badge);
+  ok('В-2/В-1: полка на активном такте пассивна (не тапается)', !(await A.$('#version_shelf')));
   // разложить 5 картинок и F5: позиция и модель v1 должны пережить перезагрузку
   for (let i = 0; i < 5; i++) {
     const imgId = await A.$eval('#img_current', el => el.dataset.img);
@@ -434,12 +482,15 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   await waitState(A, s => s.phase === 'train', 8000, 'эксперимент → научить');
   await A.click('#btn_train');
   await waitState(A, s => s.phase === 'probe', 10000, 'эксперимент → пробы');
+  let alertSeen = false;   // акцент на ошибке пробы (аудит линзы): «Стоп… она уверена — и ошибается!»
   for (let i = 0; i < 4; i++) {
     await clickIf(A, '#btn_check');
     await A.waitForSelector('.verdict', { timeout: 8000 });
+    if (await A.$('.verdict-alert')) alertSeen = true;
     await clickIf(A, '#btn_next');
     await new Promise(r => setTimeout(r, 120));
   }
+  ok('линза: акцент-текст на неверном вердикте пробы (драматургия без голоса)', alertSeen);
   await clickIf(A, '#btn_next');   // «все проверки пройдены» → возврат к разгадке
   await waitState(A, s => s.phase === lastPhase, 8000, 'эксперимент → назад к разгадке');
   ok('эксперимент: после проб вернулись к разгадке (такты версии не перепоказаны)', true);
@@ -454,10 +505,20 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
 }
 
 // --- A: продолжение до конца занятия, F5-точка 3 после R2 внутри hook ---
+// счёт замера живёт и в growth-рядах (В-5), и в scoreCard (fallback) — читаем оба вида
+const scoresOf = (p) => p.evaluate(() =>
+  [...document.querySelectorAll('.growthcap-score, .score-big')].map(e => e.textContent));
+let chatPreviewSeen = false, shelfOnCard = false, growthSeenA = false;
 await driveLesson(A, man, {
   code: '4712',
   hook: async (st, p) => {
     const step = man.stepById[st.step];
+    // линза П5: панель чата видна заранее в неактивном виде (до think-таймера)
+    if (!chatPreviewSeen && step && step.type === 'talk_chat' && !st.entry)
+      chatPreviewSeen = !!(await p.$('.chatpanel-preview'));
+    // В-1: полка версий на card_view («спокойный» экран) — тапабельна
+    if (!shelfOnCard && step && step.type === 'final_card' && st.phase === 'card_view')
+      shelfOnCard = !!(await p.$('#version_shelf'));
     if (!f5measureDone && step && step.measure && !st.entry &&
         (step.phases.find(ph => ph.id === st.phase) || {}).elements?.includes('btn_check') &&
         !(step.phases.find(ph => ph.id === st.phase) || {}).probe_set &&
@@ -465,17 +526,21 @@ await driveLesson(A, man, {
       // это такт замера: прогоняем R2 и делаем F5
       f5measureDone = true;
       await p.click('#btn_check');
-      await p.waitForSelector('.score-big', { timeout: 10000 });
-      const before = await p.evaluate(() => [...document.querySelectorAll('.score-big')].map(e => e.textContent));
+      await p.waitForSelector('.growthcap-score, .score-big', { timeout: 10000 });
+      growthSeenA = !!(await p.$('.growth'));
+      const before = await scoresOf(p);
       await f5restore(p, 'после замера R2', '#btn_check');
-      await p.waitForSelector('.score-big', { timeout: 5000 });
-      const after = await p.evaluate(() => [...document.querySelectorAll('.score-big')].map(e => e.textContent));
+      await p.waitForSelector('.growthcap-score, .score-big', { timeout: 5000 });
+      const after = await scoresOf(p);
       ok('F5 после R2: счёт восстановлен без перегона замера', JSON.stringify(before) === JSON.stringify(after),
          JSON.stringify({ before, after }));
     }
   },
 });
 ok('A: занятие пройдено целиком до «Дело закрыто»', (await state(A)).done);
+ok('линза: чат-поле показано заранее в неактивном виде (talk_chat)', chatPreviewSeen);
+ok('В-1: полка версий тапабельна на card_view', shelfOnCard);
+ok('В-5: замер R2 у A — ростом ячейками (два ряда «было/стало»)', growthSeenA);
 ok('оверлеи: на активном такте раскладки буфер НЕ висел', overlayEmptyOnTask === true);
 
 /* --- B: настоящий выбор ловушек + цикл добора (фаза 0.5) ---
@@ -502,8 +567,8 @@ ok('оверлеи: на активном такте раскладки буфе
   await B.click('#btn_train');
   await waitState(B, s => s.phase === 'measure_after', 10000, 'B → замер');
   await clickIf(B, '#btn_check');                               // «Проверить коробку»
-  await B.waitForSelector('.score-big', { timeout: 8000 });
-  let score = await B.evaluate(() => [...document.querySelectorAll('.score-big')].pop().textContent);
+  await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
+  let score = (await scoresOf(B)).pop() || '';
   ok('слабый замер на подмножестве: 2 из 4', score.includes('2 из 4'), score);
   const more = await B.$('#btn_more_traps');
   ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
@@ -520,10 +585,23 @@ ok('оверлеи: на активном такте раскладки буфе
   const staleNote = await B.evaluate(() => document.body.textContent.includes('Состав обучения менялся'));
   ok('честная инвалидация: старый замер не показан после смены состава', staleNote);
   await clickIf(B, '#btn_check');
-  await B.waitForSelector('.score-big', { timeout: 8000 });
-  score = await B.evaluate(() => [...document.querySelectorAll('.score-big')].pop().textContent);
+  await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
+  score = (await scoresOf(B)).pop() || '';
   ok('добор починил коробку: 4 из 4', score.includes('4 из 4'), score);
   ok('после сильного замера кнопки добора нет', !(await B.$('#btn_more_traps')));
+  // В-5: рост ячейками — два ряда одних holdout-миниатюр, стрелки на изменившихся,
+  // счёт — подписью (число не заголовком: .score-big в growth-режиме отсутствует)
+  const growth = await B.evaluate(() => ({
+    rows: document.querySelectorAll('.growthrow').length,
+    arrows: document.querySelectorAll('.growtharrow.on').length,
+    cells: document.querySelectorAll('.gcell').length,
+    bigNum: document.querySelectorAll('.score-big').length,
+  }));
+  await B.screenshot({ path: '/tmp/z1-growth.png' });   // ревью интерфейса В-5
+  ok('В-5: два ряда ячеек (было/стало) по 4 holdout-миниатюры',
+     growth.rows === 2 && growth.cells === 8, JSON.stringify(growth));
+  ok('В-5: стрелки на изменившихся ячейках есть', growth.arrows >= 1, JSON.stringify(growth));
+  ok('В-5: счёт — подписью, не крупным числом (П4)', growth.bigNum === 0, JSON.stringify(growth));
   await driveLesson(B, man, { code: '4712' });                  // добить занятие до конца
   ok('B: занятие пройдено до конца после цикла добора', (await state(B)).done);
 }
