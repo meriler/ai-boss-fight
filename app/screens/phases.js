@@ -282,9 +282,10 @@ function fragPhase(ctx, step, phase) {
   const slotIdx = phase.slot;
   const frags = step.version.template.slots[slotIdx - 1] || [];
   const picked = ctx.payload.version.slots[slotIdx];
-  const btns = frags.map((f, i) => bigBtn(f, () => {
+  const btns = frags.map((f, i) => bigBtn(f, (ev) => {
+    ev.currentTarget.parentElement.querySelectorAll('button').forEach(b => { b.disabled = true; });
     ctx.j('frag_pick', { slot: slotIdx, frag: i });
-    setTimeout(() => ctx.advancePhase(), 250);
+    setTimeout(ctx.guarded(() => ctx.advancePhase()), 250);
   }, { kind: picked === i ? 'primary' : 'secondary', id: 'frag' + (i + 1) }));
   return h('div', { class: 'taskcard private' },
     h('div', { class: 'private-mark' }, '🔒 видно только тебе'),
@@ -322,6 +323,7 @@ function commitPhase(ctx, step, phase) {
   }
   const btn = bigBtn(label, async (ev) => {
     ev.currentTarget.disabled = true;
+    const go = ctx.guarded(() => ctx.advancePhase());
     try {
       if (isForecast) {
         const f = step.forecast;
@@ -340,7 +342,7 @@ function commitPhase(ctx, step, phase) {
         await ctx.commit('version', data);
         ctx.tele.push('version_committed', { template_parts: data.slots, text: data.text });
       }
-      ctx.advancePhase();
+      go();
     } catch (e) {
       ev.currentTarget.disabled = false;   // терминальный отказ (reset/epoch) — обработает sync
     }
@@ -370,16 +372,19 @@ function optPhase(ctx, step, phase) {
   const picked = spec.kind === 'choice' ? null : ctx.payload.forecast[spec.kind];
   body.push(h('div', { class: 'col' }, ...spec.options.map((opt, i) =>
     bigBtn(opt, async (ev) => {
+      // вся группа гаснет с первого тапа: второй коммит проталкивал бы reveal мимо замка
+      const group = ev.currentTarget.parentElement.querySelectorAll('button');
+      group.forEach(b => { b.disabled = true; });
       if (spec.kind === 'choice') {
-        ev.currentTarget.disabled = true;
+        const go = ctx.guarded(() => ctx.advancePhase());
         try {
           await ctx.commit('choice', { option: i, correct: i === step.version.choice.correct });
           ctx.tele.push('version_choice', { option: i, correct: i === step.version.choice.correct });
-          ctx.advancePhase();
-        } catch (e) { ev.currentTarget.disabled = false; }
+          go();
+        } catch (e) { group.forEach(b => { b.disabled = false; }); }
       } else {
         ctx.j('forecast_pick', { field: spec.kind, option: i });
-        setTimeout(() => ctx.advancePhase(), 250);
+        setTimeout(ctx.guarded(() => ctx.advancePhase()), 250);
       }
     }, { kind: picked === i ? 'primary' : 'secondary', id: 'opt' + (i + 1) }))));
   return h('div', { class: 'taskcard' + (spec.kind === 'choice' ? ' private' : '') }, ...body);
@@ -476,14 +481,15 @@ function quizCard(ctx, step, phase) {
       ctx.j('quiz_answer', { card: card.id, answer: i });
       ctx.tele.push('quiz_click', { card: card.id, answer: i, correct: i === card.correct });
       ctx.render();
-      setTimeout(() => ctx.advancePhase() || ctx.finishStep(), ctx.demo ? 250 : 900);
+      setTimeout(ctx.guarded(() => ctx.advancePhase() || ctx.finishStep()), ctx.demo ? 250 : 900);
     }, { kind, id: 'quizopt' + i });
   })));
   if (answered != null) {
     body.push(kidText(answered === card.correct ? 'Верно!' : 'Правильный ответ подсвечен', { small: true }));
     // ручной выход с уже отвеченной карточки: авто-переход по setTimeout живёт только
-    // в момент клика — после F5 или повторного входа в резерв без этой кнопки тупик
-    body.push(bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(),
+    // в момент клика — после F5 или повторного входа в резерв без этой кнопки тупик;
+    // guarded — чтобы не гоняться с авто-таймером свежего ответа
+    body.push(bigBtn('Дальше', ctx.guarded(() => ctx.advancePhase() || ctx.finishStep()),
       { id: 'btn_next', kind: 'secondary' }));
   }
   return h('div', { class: 'taskcard quizcard' }, ...body);
@@ -530,6 +536,14 @@ function captchaCard(ctx, step, phase, card) {
 
 function talkPhase(ctx, step, phase) {
   const key = 'think_' + step.id;
+  // F5 не должен заставлять думать и писать заново: своё сообщение этого шага
+  // уже есть в серверном чате → сразу панель + «Дальше» (Codex-находка 8)
+  if (!ctx.local['chat_sent_' + step.id] &&
+      ctx.chatLog.some(m => String(m.seat) === String(ctx.seat) && m.step === step.id)) {
+    ctx.local['chat_sent_' + step.id] = true;
+    ctx.local[key] = 1;
+    ctx.local[key + '_done'] = true;
+  }
   const started = ctx.local[key];
   const thinkSec = ctx.demo ? Math.min(2, step.think_sec || 30) : (step.think_sec || 30);
   const body = [h('div', { class: 'quiz-title', 'data-kid': '1' }, step.prompt || '')];

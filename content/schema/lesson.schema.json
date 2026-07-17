@@ -94,7 +94,7 @@
         "id": { "type": "string" },
         "img": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор" },
         "title": { "$ref": "#/$defs/childText" },
-        "options": { "type": "array", "minItems": 2, "maxItems": 5, "items": { "$ref": "#/$defs/childText" } },
+        "options": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "$ref": "#/$defs/childText" }, "description": "≤4: на отвеченной карточке появляется «Дальше» — 4 варианта + Дальше = 5, лимит держится" },
         "correct": { "description": "int для одиночного выбора, int[] для multi" },
         "multi": { "type": "boolean" },
         "cells": { "type": "integer", "minimum": 2, "maximum": 4, "description": "Сетка multi-карточки. >4 ячеек ломает лимит ≤5 (cells+коммит) — только осознанным исключением владельца, валидатор даёт warning" }

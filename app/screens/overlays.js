@@ -94,7 +94,8 @@ export function createOverlays(ctx) {
     body.push(h('div', { class: 'modal-actions' }, ...actions));
     openModal(...body);
   }
-  stuckBtn.addEventListener('click', openHint);
+  // boot() может перезапускаться (no_run, офлайн) — не вешать второй обработчик
+  if (!stuckBtn.dataset.bound) { stuckBtn.dataset.bound = '1'; stuckBtn.addEventListener('click', openHint); }
 
   /** Была ли помощь уровня ≥2 (честность карточки — правило 4). */
   function assisted() {

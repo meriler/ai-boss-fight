@@ -41,8 +41,9 @@ export function derivePhases(step) {
         derived: true, limitCount: quizCardLimit(step, card),
       }));
     case 'talk_chat':
-      // панель чата (разворачивается в talk_chat — §1.1) + поле ввода
-      return [{ id: 'main', elements: ['free_text'], overlays: ['chat'],
+      // панель чата ВСТРОЕНА в экран (после think-таймера) — overlay-иконку не даём:
+      // она позволяла обойти «подумай молча» и дублировала панель (Codex-находка 11)
+      return [{ id: 'main', elements: ['free_text'], overlays: [],
                 derived: true, limitCount: 2 }];
     case 'final_card':
       // карточка дела → «лучшая ловушка» по одной (3 интерактива, аннекс) → блок «что дальше»

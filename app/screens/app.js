@@ -175,6 +175,21 @@ function advancePhase() {
 }
 ctx.advancePhase = advancePhase;
 
+/* Колбэк, привязанный к месту планирования: сработает, только если ребёнок всё ещё
+ * на том же шаге/такте ТОЙ ЖЕ машины. Закрывает гонки: двойной тап по вариантам,
+ * поздний ответ сети, авто-таймер после ручного «Дальше», вход в резерв при
+ * коммите в полёте (находки Codex-ревью 1/6/7/10). */
+ctx.guarded = (fn) => {
+  const m = ctx.machine, p = m.position();
+  const key = (p.step || '') + '/' + (p.phaseIndex ?? -1);
+  return (...args) => {
+    if (ctx.machine !== m) return;
+    const q = ctx.machine.position();
+    if ((q.step || '') + '/' + (q.phaseIndex ?? -1) !== key) return;
+    return fn(...args);
+  };
+};
+
 ctx.finishFinal = () => {
   ctx.tele.push('artifact_saved', { lesson: ctx.normalized.lesson.id, best_trap: ctx.payload.best_trap });
   ctx.seatSave.flushNow();
@@ -528,7 +543,14 @@ async function boot() {
   ctx.machine = createMachine(
     reserveStep ? { ...normalized, steps: [reserveStep] } : normalized,
     { onJournal: (t, a) => ctx.j(t, a) });
-  if (reserveStep) { ctx.inReserve = true; mainMachine = createMachine(normalized, { onJournal: (t, a) => ctx.j(t, a) }); }
+  if (reserveStep) {
+    ctx.inReserve = true;
+    mainMachine = createMachine(normalized, { onJournal: (t, a) => ctx.j(t, a) });
+    // F5 внутри резерва: позиция основной машины не в снапшоте — возвращаем ребёнка
+    // к текущему шагу группы (current_step ведущего), а не в начало занятия
+    const cur = view.current_step;
+    if (cur && normalized.stepById.get(cur)) { try { mainMachine.jumpTo(cur); } catch (e) { /* нет такта — старт шага */ } }
+  }
 
   // фон: эмбеддер + переобучение из payload (restore ≤3 c — не ждём модель)
   if (!ctx.demo) {

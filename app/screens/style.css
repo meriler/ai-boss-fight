@@ -8,7 +8,9 @@
   --c-primary: #2563eb;
   --c-primary-dark: #1d4ed8;
   --c-secondary: #f59e0b;
+  --c-secondary-text: #92400e;  /* жёлтый как ТЕКСТ не читается (контраст ~2.15) — текстом тёмный оттенок */
   --c-accent: #ec4899;
+  --c-accent-text: #9d174d;     /* то же для розового на мелком кегле */
   --c-bg: #eff6ff;
   --c-fg: #0f172a;
   --c-muted: #64748b;
@@ -86,7 +88,7 @@ body {
   align-items: stretch;
 }
 .taskcard.private { border-color: var(--c-accent); }
-.private-mark { font-size: 13px; font-weight: 800; color: var(--c-accent); }
+.private-mark { font-size: 15px; font-weight: 800; color: var(--c-accent-text); }
 .phasetext {
   font-size: 19px; font-weight: 800;
   padding: 4px 4px 12px;
@@ -105,11 +107,12 @@ body {
   padding: 8px; box-shadow: var(--shadow);
   align-self: center;
 }
-.imgcard img { display: block; max-width: 100%; border-radius: 12px; width: 220px; height: 165px; object-fit: cover; }
-.imgcard-big img { width: 340px; height: 255px; }
+/* картинки банка и ассетов — квадратные: контейнер 4:3 резал бы четверть арта */
+.imgcard img { display: block; max-width: 100%; border-radius: 12px; width: 220px; height: 220px; object-fit: cover; }
+.imgcard-big img { width: 320px; height: 320px; }
 .imgcard-tap { cursor: grab; }
 .imgcard-tap:active { cursor: grabbing; }
-.feedcount { font-size: 13px; font-weight: 800; color: var(--c-muted); text-align: center; }
+.feedcount { font-size: 15px; font-weight: 800; color: var(--c-muted); text-align: center; }
 
 /* ---------- зоны коробки (правило 9: видимы всегда) ---------- */
 .zones { display: flex; flex-direction: column; gap: 10px; }
@@ -123,12 +126,12 @@ body {
 }
 .zone-active { opacity: 1; border-style: solid; box-shadow: var(--shadow); }
 .zone-title {
-  font-size: 12.5px; font-weight: 900; text-transform: uppercase;
+  font-size: 15px; font-weight: 900; text-transform: uppercase;
   letter-spacing: .04em; color: var(--c-muted); margin-bottom: 8px;
 }
-.zone-in.zone-active .zone-title { color: var(--c-secondary); }
-.zone-box.zone-active .zone-title { color: var(--c-primary); }
-.zone-out.zone-active .zone-title { color: var(--c-accent); }
+.zone-in.zone-active .zone-title { color: var(--c-secondary-text); }
+.zone-box.zone-active .zone-title { color: var(--c-primary-dark); }
+.zone-out.zone-active .zone-title { color: var(--c-accent-text); }
 .zone-body { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .zone-box.learning { animation: learnpulse .5s ease-in-out infinite alternate; }
 @keyframes learnpulse { from { transform: scale(1); } to { transform: scale(1.02); background: #dbeafe; } }
@@ -147,7 +150,7 @@ body {
 .basket:focus-visible { outline: 4px solid rgba(245, 158, 11, .5); }
 .basket-lid { width: 54px; height: 12px; border-radius: 6px; background: var(--c-secondary); }
 .basket-label { font-weight: 900; font-size: 18px; }
-.basket-count { font-size: 13px; font-weight: 800; color: var(--c-muted); }
+.basket-count { font-size: 15px; font-weight: 800; color: var(--c-muted); }
 
 /* вердикт + уверенность */
 .verdict { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
@@ -234,7 +237,7 @@ body {
 .chatlist { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .chatmsg { background: #f1f5f9; border-radius: 12px; padding: 6px 10px; font-size: 15px; font-weight: 600; }
 .chatmsg.mine { background: #dbeafe; }
-.chatwho { color: var(--c-muted); font-weight: 800; font-size: 13px; }
+.chatwho { color: var(--c-muted); font-weight: 800; font-size: 15px; }
 .chatinput { flex: 1; min-height: 48px; font: inherit; font-size: 16px; border: 3px solid var(--c-border); border-radius: 12px; padding: 6px 12px; }
 .talkcard .chatpanel { border: none; box-shadow: none; padding: 0; }
 .thinktimer { font-size: 52px; font-weight: 900; color: var(--c-primary-dark); text-align: center; }
@@ -265,7 +268,7 @@ body {
 /* широкое окно (полноэкранный просмотр, большой монитор) — масштабируем всё
    пропорционально; узкая половина 13" (конституция п.13) остаётся как есть */
 @media (min-width: 1400px) {
-  #app { zoom: 1.3; }
+  body { zoom: 1.3; }   /* body, не #app: «Застрял» и модалки должны масштабироваться вместе со всем */
 }
 
 @media (prefers-reduced-motion: reduce) {
