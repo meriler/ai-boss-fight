@@ -55,6 +55,8 @@ def _blank_state(run_id, lesson_id):
         'ops': {},               # op_id -> результат (идемпотентность /commit)
         'op_order': [],          # порядок op_id для подрезки ledger'а
         'log': [],               # host-действия: override, reset_version, fix_n, start
+        'steps_meta': [],        # снимок шагов занятия для дашборда (кладёт кнопка старта):
+                                 # [{id, type, label, gate, has_version, timebox}] — данные, не код
     }
 
 
@@ -121,9 +123,10 @@ class LessonStore:
             self._cache[run_id] = st
         return st
 
-    def start_run(self, lesson_id):
+    def start_run(self, lesson_id, steps_meta=None):
         """Кнопка старта на дашборде: новый run_id (<date>-<n>) и ЧИСТЫЙ lesson-state.
-        Повторный запуск в тот же день = новый n; старый файл остаётся архивом (§4.1)."""
+        Повторный запуск в тот же день = новый n; старый файл остаётся архивом (§4.1).
+        steps_meta — снимок шагов занятия для панели дашборда (сервер контент не читает)."""
         with self.lock:
             date = time.strftime('%Y-%m-%d')
             n = 1
@@ -131,6 +134,12 @@ class LessonStore:
                 n += 1
             run_id = '%s-%d' % (date, n)
             st = _blank_state(run_id, lesson_id)
+            if isinstance(steps_meta, list):
+                st['steps_meta'] = [
+                    {'id': str(s.get('id', '')), 'type': str(s.get('type', '')),
+                     'label': str(s.get('label', ''))[:60], 'gate': s.get('gate'),
+                     'has_version': bool(s.get('has_version')), 'timebox': s.get('timebox')}
+                    for s in steps_meta[:40] if isinstance(s, dict) and s.get('id')]
             st['log'].append({'op': 'start', 'lesson_id': lesson_id, 'ts': _now_ms()})
             self._cache[run_id] = st
             self._write_atomic(self._state_path(run_id), st)
@@ -156,6 +165,16 @@ class LessonStore:
             return status, resp
 
     # ---- снапшоты /save ----
+    def view(self):
+        """Глубокая копия состояния текущего запуска для рендера дашборда (читатель
+        не должен трогать кэш вне лока)."""
+        with self.lock:
+            rid = self.current_run()
+            if not rid:
+                return None
+            st = self._load_state(rid)
+            return json.loads(json.dumps(st)) if st is not None else None
+
     def read_snapshot(self, run_id, seat):
         try:
             with open(self._save_path(run_id, seat), encoding='utf-8') as f:
@@ -356,6 +375,7 @@ def api_sync(store, seat, cursor):
 
     def fn(state):
         rec = _seat_rec(state, seat)
+        rec['last_sync'] = _now_ms()   # только в памяти (dirty=False): лампа «нет связи» на дашборде
         reveal = {}
         for step, r in state['reveal'].items():
             item = {'open': r['open'], 'payload_rev': r['payload_rev']}
@@ -439,7 +459,7 @@ def api_host_gate(store, body):
     action = body.get('action')
     if action == 'start':
         lesson_id = str(body.get('lesson_id', '') or 'z1-kot')
-        run_id = store.start_run(lesson_id)
+        run_id = store.start_run(lesson_id, steps_meta=body.get('steps'))
         return 200, {'ok': True, 'run_id': run_id}
 
     def fn(state):

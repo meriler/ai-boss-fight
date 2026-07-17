@@ -3,88 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>З1 · ядро (фаза 0)</title>
-<style>
-  body{background:#f5f7fa;color:#1a2330;font:16px/1.5 -apple-system,system-ui,sans-serif;
-       margin:0;padding:24px;max-width:900px}
-  h1{font-size:20px;margin:0 0 4px}
-  .note{color:#66738a;font-size:13px}
-  .big{font-size:18px;font-weight:800;padding:12px 16px;border-radius:12px;margin:14px 0}
-  .ok{background:#e8f7ee;border:1px solid #35b46a}
-  .warn{background:#fdeaea;border:1px solid #d64545}
-  pre{background:#fff;border:1px solid #e2e7ee;border-radius:10px;padding:12px;
-      font-size:12.5px;overflow:auto;max-height:420px}
-</style>
+<title>Дело №1 · тренажёр</title>
+<link rel="stylesheet" href="app/screens/style.css">
 </head>
 <body>
-<h1>Занятие З1 — клиент-ядро (вертикальный срез, фаза 0)</h1>
-<p class="note">Это харнесс ЯДРА (манифест-интерпретатор · машина состояний · журнал/редьюсер ·
-seat-save/restore · TELE), не детские экраны — они идут пунктами §7.5–6 ТЗ.
-Режимы: <code>?demo=1</code> — эталонная проходимость в браузере тем же кодом, что CI;
-<code>&variant=_test-variant</code> — тестовый манифест (критерий фазы 0: другой банк/шаги без правки кода).</p>
-<div id="status" class="big">Загружаю манифест…</div>
-<pre id="out"></pre>
-
-<script type="module">
-import { loadManifest } from './app/core/manifest.js';
-import { walkLesson } from './app/core/walk.js';
-import { createMachine } from './app/core/machine.js';
-import { initialPayload, reduce } from './app/core/reducer.js';
-import { createJournal } from './app/core/journal.js';
-import { applyRestore } from './app/core/save.js';
-import { createTele } from './app/core/tele.js';
-
-const QP = new URLSearchParams(location.search);
-const variant = QP.get('variant') || 'z1-kot';
-const statusEl = document.getElementById('status');
-const out = document.getElementById('out');
-const log = s => { out.textContent += s + '\n'; };
-const fail = s => { statusEl.textContent = '✗ ' + s; statusEl.className = 'big warn'; };
-
-const tele = createTele({ demo: QP.has('demo'), ws: QP.has('ws'),
-                          seat: parseInt(QP.get('seat'), 10) || null }).attach();
-tele.cleanup();
-
-try {
-  const { normalized, bankIndex } = await loadManifest('content/' + variant);
-  log(`манифест: ${normalized.lesson.id} «${normalized.lesson.title}» — ` +
-      `${normalized.steps.length} шагов, банк ${bankIndex.bank.id} ` +
-      `(${bankIndex.bank.images.length} картинок, подвох: ${bankIndex.bank.spurious})`);
-  const machine = createMachine(normalized);
-  log(`машина: старт ${JSON.stringify(machine.position())}`);
-
-  if (QP.has('demo')) {
-    // 1) эталонная проходимость — ровно тот же код, что в CI (validate.mjs)
-    const res = walkLesson(normalized, bankIndex);
-    log(`\nпроходимость: шаги [${res.visited.join(' → ')}]`);
-    log(`журнал: ${res.journal.length} действий; acked-операций: ${res.acked.length}`);
-    if (!res.ok) { res.errors.forEach(e => log('  ✗ ' + e)); fail('эталонная проходимость: ' + res.errors.length + ' ошибок'); }
-    else {
-      // 2) restore-раунд: журнал прохода → localStorage → replay через ЕДИНЫЙ редьюсер
-      const key = 'z1demo_journal_' + variant;
-      localStorage.setItem(key, JSON.stringify({ counter: res.journal.length, entries: res.journal }));
-      const j = createJournal({ storageKey: key });
-      const half = Math.floor(res.journal.length / 2);   // «сервер видел» первую половину
-      const base = initialPayload();
-      res.journal.slice(0, half).forEach(e => reduce(base, e));
-      const { payload } = applyRestore({ server_rev: half, payload: base }, j);
-      const same = JSON.stringify(payload) === JSON.stringify(res.payload);
-      log(`restore-раунд: серверная база rev=${half} + replay хвоста → ` +
-          (same ? 'payload сошёлся байт-в-байт ✓' : 'ПАЙЛОАД РАЗОШЁЛСЯ ✗'));
-      localStorage.removeItem(key);
-      tele.push('artifact_saved', { demo: true, lesson: normalized.lesson.id });
-      if (same) { statusEl.textContent = `✓ ${variant}: проходимость + restore-раунд OK`; statusEl.className = 'big ok'; }
-      else fail('restore-раунд разошёлся');
-      log('\nитоговый payload:\n' + JSON.stringify(res.payload, null, 1));
-    }
-  } else {
-    statusEl.textContent = `✓ манифест ${variant} загружен (добавь ?demo=1 для проходимости)`;
-    statusEl.className = 'big ok';
-  }
-} catch (e) {
-  fail(e.message);
-  log(String(e.stack || e));
-}
-</script>
+<!-- Детский клиент З1 (ТЗ-демка-з1 §2): вход по персональной ссылке ?ws=1&seat=N.
+     ?demo=1 — фикс-эмбеддинги (e2e/CI-детерминизм); &variant=_test-variant — тест-манифест
+     (критерий фазы 0). Харнесс ядра без экранов переехал в z1-core.html. -->
+<div id="app">
+  <header id="hdr">
+    <div id="stepind">…</div>
+    <div id="lessontitle"></div>
+    <div id="statuspill" class="pill"></div>
+  </header>
+  <div id="reservebar"></div>
+  <main id="screen">
+    <div class="taskcard"><div class="kidtext" data-kid="1">Загружаю…</div></div>
+  </main>
+  <div id="overlaybar" class="empty"></div>
+</div>
+<button id="stuck">Застрял</button>
+<div id="modal"></div>
+<script type="module" src="app/screens/app.js"></script>
 </body>
 </html>

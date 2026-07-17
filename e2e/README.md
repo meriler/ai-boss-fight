@@ -10,3 +10,15 @@ node run-e2e.mjs e2e-home.mjs   # self-paced путь: без гипотезы/�
 ```
 
 Ожидаемо: все строки PASS. Chromium берётся из `~/Library/Caches/ms-playwright/chromium-1223` (переменная EXE в run-e2e.mjs).
+
+## e2e-z1 (демка З1, фаза 0)
+
+```bash
+cd e2e && node e2e-z1.mjs        # самодостаточный: сам спавнит server/tele.py со статикой
+node shots-z1.mjs /tmp           # скриншоты ключевых экранов (визуальная проверка)
+```
+Покрытие — e2e-must ТЗ-демка-з1 §9: полный tap-проход `?ws=1&seat=N` → artifact_saved;
+reveal-lock на 2 клиентах + дашборд (замок до N/N, override с подтверждением и логом);
+3 F5-точки (посреди раскладки / «коммит есть, reveal нет» / после R2) с restore ≤3 с
+и без перепоказа сделанного; DOM-чеки конституции (≤5 интерактивов, тексты ≤120,
+touch ≥44 px) на каждом детском экране; полный проход `_test-variant` ТЕМ ЖЕ кодом (DoD п.2).

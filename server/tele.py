@@ -12,17 +12,22 @@ GET  /dash  — дашборд для Алексея/Насти (за nginx basi
 /sync /chat /react /host/* (маршрутизация ниже, вся логика и файлы состояния — в модуле;
 контракты /tele, /dash, sess_start/sess_stop НЕ меняются, DoD п.10).
 
-Деплой: scp server/{tele.py,telemetry_model.py,lesson_state.py} aeza:/opt/ws-tele/ && ssh aeza systemctl restart ws-tele
+Деплой: scp server/{tele.py,telemetry_model.py,lesson_state.py,dash_lesson.py} aeza:/opt/ws-tele/ && ssh aeza systemctl restart ws-tele
 Данные: /var/lib/ws-tele/YYYY-MM-DD.jsonl (owner bots, TTL 45д через tmpfiles.d)."""
-import html, json, os, re, threading, time
+import html, json, mimetypes, os, re, threading, time
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from telemetry_model import (parse_lines, dedupe, build_children, fmt_r, cut, stage_label,
                              roster_child, fmt_stages, fmt_hw)
 import lesson_state
+import dash_lesson
 
 DIR = os.environ.get('WS_TELE_DIR', '/var/lib/ws-tele')   # env — для локального теста
+PORT = int(os.environ.get('WS_TELE_PORT', '8236'))
+# ТОЛЬКО локальный e2e/разработка: раздать статику демки этим же сервером (одна origin для
+# z1.html + /sync + /dash). На проде НЕ выставлять — статику отдаёт nginx (/var/www/ws).
+STATIC_DIR = os.environ.get('WS_STATIC_DIR')
 MAX = 262144
 MSK = timezone(timedelta(hours=3))
 _lock = threading.Lock()  # append из потоков — сериализуем, чтобы строки JSONL не перемешивались
@@ -205,6 +210,8 @@ class H(BaseHTTPRequestHandler):
             status, resp = lesson_state.handle_get(LESSON_STORE, u.path, parse_qs(u.query))
             return self._json(status, resp)
         if u.path.rstrip('/') != '/dash':          # /tele — только POST; наружу торчит лишь /dash (за basic auth)
+            if STATIC_DIR:                         # локальный e2e: одна origin для статики и API
+                return self._static(u.path)
             self.send_response(404); self.end_headers(); return
         q = parse_qs(u.query)
         date = (q.get('date') or [''])[0]
@@ -219,6 +226,24 @@ class H(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _static(self, path):
+        """Раздача файлов демки в локальном e2e (STATIC_DIR). Прод-путь не задет: без env — 404."""
+        rel = path.lstrip('/') or 'index.html'
+        full = os.path.realpath(os.path.join(STATIC_DIR, rel))
+        if not full.startswith(os.path.realpath(STATIC_DIR) + os.sep) or not os.path.isfile(full):
+            self.send_response(404); self.end_headers(); return
+        ctype = mimetypes.guess_type(full)[0] or 'application/octet-stream'
+        if full.endswith('.mjs'):
+            ctype = 'application/javascript'       # прецедент ws.meriler.cc: без этого модуль мёртв
+        with open(full, 'rb') as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -513,6 +538,12 @@ def render_dash(date, demo=False, review=False, added='', taken=''):
     admin = render_admin(date, kids_s)
     sess = render_session(date)
     linkblk = render_link_block(date, added, taken)
+    try:   # панель занятия фазы 0 (§5) — аддитивно, ломаться молча не должна и не должна ронять дашборд.
+        # Дампы — ВКЛЮЧАЯ demo (e2e/репетиция ходят с ?demo=1, их stuck/hint панель обязана видеть)
+        lesson_dumps = dedupe(raws, include_demo=True)
+        lesson_panel = dash_lesson.render_lesson_panel(LESSON_STORE, lesson_dumps, names, session_live)
+    except Exception as e:
+        lesson_panel = '<p class="note">панель занятия недоступна: %s</p>' % esc(e)
 
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="15">
@@ -538,6 +569,7 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
 {banner}
 {linkblk}
 {sess}
+{lesson_panel}
 {helpb}
 <h2>Все дети <span class="note">(красные сверху · страница сама обновляется каждые 15 сек)</span></h2>
 <table><tr><th>кто</th><th>что делать</th><th>стадия</th><th>активность</th><th></th></tr>{live or '<tr><td colspan=5>—</td></tr>'}</table>
@@ -562,4 +594,4 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
 
 
 if __name__ == '__main__':
-    ThreadingHTTPServer(('127.0.0.1', 8236), H).serve_forever()
+    ThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()
