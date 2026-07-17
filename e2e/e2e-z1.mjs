@@ -486,6 +486,34 @@ await driveLesson(V1, man2, { code: '7' });
 ok('тест-вариант: полный проход ТЕМ ЖЕ кодом до done (критерий фазы 0)', (await state(V1)).done);
 await V1.close(); await V2.close();
 
+/* ---------- смоук широкого окна: ветка zoom ≥1400px (клики + настоящий drag) ---------- */
+{
+  const firstGate = man.lesson.steps.find(s => s.type === 'gate' && s.gate.kind === 'code').id;
+  await host('/host/gate', { action: 'code', step: firstGate, code: '4712', show: true });
+  const c = await browser.newContext({ viewport: { width: 1512, height: 950 } });
+  const W = await c.newPage();
+  W.setDefaultTimeout(30000);
+  await W.goto(`${BASE}/z1.html?ws=1&demo=1&seat=9`);
+  const zoomVal = await W.evaluate(() => getComputedStyle(document.body).zoom);
+  ok('широкий экран: zoom-ветка активна (' + zoomVal + ')', parseFloat(zoomVal) === 1.5);
+  const trainer = man.lesson.steps.find(s => s.type === 'trainer_act').id;
+  await driveLesson(W, man, { code: '4712',
+    stopWhen: (st) => st.step === trainer && st.phase === 'baskets' && !st.entry });
+  const target = await W.evaluate(() => {
+    const img = document.querySelector('#img_current');
+    return img ? 'basket_cat' : null;
+  });
+  ok('широкий экран: гейт и квиз пройдены кликами до раскладки', !!target);
+  const countBefore = await W.evaluate(() =>
+    parseInt(document.querySelector('#basket_cat .basket-count')?.textContent || '0', 10) || 0);
+  await W.dragAndDrop('#img_current', '#basket_cat');
+  const countAfter = await W.evaluate(() =>
+    parseInt(document.querySelector('#basket_cat .basket-count')?.textContent || '0', 10) || 0);
+  ok('широкий экран: настоящий drag в корзину при zoom работает (счёт ' +
+     countBefore + '→' + countAfter + ')', countAfter === countBefore + 1);
+  await W.close(); await c.close();
+}
+
 /* ---------- DOM-чек: свод ---------- */
 let domFails = 0;
 for (const [tag, list] of domViolations) {

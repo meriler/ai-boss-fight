@@ -6,53 +6,197 @@
     "duration_min": 75,
     "bank": "z1-cats-dogs",
     "steps": [
-      { "id": "s1", "type": "gate", "gate": { "kind": "code" }, "timebox_min": 2,
-        "catchup": "Занятие началось. Введи код с голоса ведущего" },
-
-      { "id": "s1q", "type": "cards_quiz", "timebox_min": 5,
+      {
+        "id": "s1",
+        "type": "gate",
+        "gate": {
+          "kind": "code"
+        },
+        "timebox_min": 2,
+        "catchup": "Занятие началось. Введи код с голоса ведущего"
+      },
+      {
+        "id": "s1q",
+        "type": "cards_quiz",
+        "timebox_min": 5,
         "catchup": "Разминка: смотри на карточку и решай — ИИ это или не ИИ",
         "cards": [
-          { "id": "c1", "img": "quiz/kolonka.png", "title": "Умная колонка",
-            "options": ["ИИ", "не ИИ"], "correct": 0 },
-          { "id": "c2", "img": "quiz/fonarik.png", "title": "Фонарик",
-            "options": ["ИИ", "не ИИ"], "correct": 1 },
-          { "id": "c3", "img": "quiz/lenta.png", "title": "Лента рекомендаций",
-            "options": ["ИИ", "не ИИ"], "correct": 0 },
-          { "id": "c4", "img": "quiz/kalkulyator.png", "title": "Калькулятор",
-            "options": ["ИИ", "не ИИ"], "correct": 1 }
-        ] },
-
-      { "id": "s2", "type": "trainer_act", "mode": "rails", "timebox_min": 24,
+          {
+            "id": "c1",
+            "img": "quiz/kolonka.png",
+            "title": "Умная колонка",
+            "options": [
+              "ИИ",
+              "не ИИ"
+            ],
+            "correct": 0
+          },
+          {
+            "id": "c2",
+            "img": "quiz/fonarik.png",
+            "title": "Фонарик",
+            "options": [
+              "ИИ",
+              "не ИИ"
+            ],
+            "correct": 1
+          },
+          {
+            "id": "c3",
+            "img": "quiz/lenta.png",
+            "title": "Лента рекомендаций",
+            "options": [
+              "ИИ",
+              "не ИИ"
+            ],
+            "correct": 0
+          },
+          {
+            "id": "c4",
+            "img": "quiz/kalkulyator.png",
+            "title": "Калькулятор",
+            "options": [
+              "ИИ",
+              "не ИИ"
+            ],
+            "correct": 1
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "type": "trainer_act",
+        "mode": "rails",
+        "timebox_min": 24,
         "catchup": "Учим коробку отличать котов от собак. Разложи картинки по корзинам",
         "phases": [
-          { "id": "baskets", "text": "Разложи картинки: коты — сюда, собаки — сюда",
-            "elements": ["img_current", "basket_cat", "basket_dog", "btn_next", "btn_undo"], "overlays": [] },
-          { "id": "train", "text": "Жми «Научить»!",
-            "elements": ["btn_train"], "overlays": ["reaction"] },
-          { "id": "probe", "text": "Проверь коробку на новых картинках",
-            "probe_set": ["p1", "p2", "p3", "p4"], "microcycle_reaction": true,
-            "elements": ["img_current", "btn_check", "btn_next"], "overlays": ["reaction"] },
-          { "id": "version_slot1", "text": "Что выучила коробка? Выбери",
-            "slot": 1, "elements": ["frag1", "frag2", "frag3", "frag4"], "overlays": [] },
-          { "id": "version_slot2", "text": "Почему? Выбери",
-            "slot": 2, "elements": ["frag1", "frag2", "frag3"], "overlays": [] },
-          { "id": "version_free", "text": "Хочешь — допиши своими словами",
-            "elements": ["free_text", "btn_skip"], "overlays": [] },
-          { "id": "version_commit", "text": "Готов? Жми «Моя версия!»",
-            "elements": ["btn_commit"], "overlays": [] },
-          { "id": "version_choice", "text": "А теперь выбери причину из вариантов",
-            "elements": ["opt1", "opt2", "opt3", "opt4"], "overlays": [] },
-          { "id": "waiting", "text": "Твоя версия принята — ждём остальных",
-            "elements": [], "overlays": ["buffer"] },
-          { "id": "reveal_view", "text": "Разгадка открыта!",
-            "elements": ["btn_next"], "overlays": ["reaction", "chat"] }
+          {
+            "id": "baskets",
+            "text": "Разложи картинки: коты — сюда, собаки — сюда",
+            "elements": [
+              "img_current",
+              "basket_cat",
+              "basket_dog",
+              "btn_next",
+              "btn_undo"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "train",
+            "text": "Жми «Научить»!",
+            "elements": [
+              "btn_train"
+            ],
+            "overlays": [
+              "reaction"
+            ]
+          },
+          {
+            "id": "probe",
+            "text": "Проверь коробку на новых картинках",
+            "probe_set": [
+              "p1",
+              "p2",
+              "p3",
+              "p4"
+            ],
+            "microcycle_reaction": true,
+            "elements": [
+              "img_current",
+              "btn_check",
+              "btn_next"
+            ],
+            "overlays": [
+              "reaction"
+            ]
+          },
+          {
+            "id": "version_slot1",
+            "text": "Что выучила коробка? Выбери",
+            "slot": 1,
+            "elements": [
+              "frag1",
+              "frag2",
+              "frag3",
+              "frag4"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "version_slot2",
+            "text": "Почему? Выбери",
+            "slot": 2,
+            "elements": [
+              "frag1",
+              "frag2",
+              "frag3"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "version_free",
+            "text": "Хочешь — допиши своими словами",
+            "elements": [
+              "free_text",
+              "btn_skip"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "version_commit",
+            "text": "Готов? Жми «Моя версия!»",
+            "elements": [
+              "btn_commit"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "version_choice",
+            "text": "А теперь выбери причину из вариантов",
+            "elements": [
+              "opt1",
+              "opt2",
+              "opt3",
+              "opt4"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "waiting",
+            "text": "Твоя версия принята — ждём остальных",
+            "elements": [],
+            "overlays": [
+              "buffer"
+            ]
+          },
+          {
+            "id": "reveal_view",
+            "text": "Разгадка открыта!",
+            "elements": [
+              "btn_next"
+            ],
+            "overlays": [
+              "reaction",
+              "chat"
+            ]
+          }
         ],
         "version": {
           "template": {
             "lead": "Коробка выучила ___, потому что ___",
             "slots": [
-              ["животное", "цвет", "фон и улицу", "размер"],
-              ["коты дома, собаки на улице", "котов больше", "картинки мутные"]
+              [
+                "животное",
+                "цвет",
+                "фон и улицу",
+                "размер"
+              ],
+              [
+                "коты дома, собаки на улице",
+                "котов было больше, чем собак",
+                "все собаки крупнее котов"
+              ]
             ],
             "free_text": true
           },
@@ -68,100 +212,277 @@
           "reveal_lock": true
         },
         "reveal": {
-          "cards": ["reveal/trava-ulitsa.png"],
+          "cards": [
+            "reveal/trava-ulitsa.png"
+          ],
           "text": "Тайная примета — трава и улица, не животное!",
           "show_anon_versions": true
-        } },
-
-      { "id": "s5", "type": "cards_quiz", "timebox_min": 5,
+        }
+      },
+      {
+        "id": "s5",
+        "type": "cards_quiz",
+        "timebox_min": 5,
         "catchup": "Реши капчу: выбери все светофоры и подтверди",
         "private_commit": true,
         "cards": [
-          { "id": "cap1", "img": "captcha/svetofory.png",
-            "title": "Выбери все светофоры", "multi": true, "cells": 4,
-            "correct": [0, 3] }
+          {
+            "id": "cap1",
+            "img": "captcha/svetofory.png",
+            "title": "Выбери все светофоры",
+            "multi": true,
+            "cells": 4,
+            "correct": [
+              0,
+              3
+            ]
+          }
         ],
-        "reveal_text": "Раскладывая картинки, ты ОБУЧАЛ ИИ — как только что в корзинах!" },
-
-      { "id": "s6", "type": "trainer_act", "mode": "fix", "timebox_min": 20,
-        "gate": { "kind": "checkin" },
+        "reveal_text": "Раскладывая картинки, ты ОБУЧАЛ ИИ — как только что в корзинах!"
+      },
+      {
+        "id": "s6",
+        "type": "trainer_act",
+        "mode": "fix",
+        "timebox_min": 20,
+        "gate": {
+          "kind": "checkin"
+        },
         "catchup": "Чиним коробку: добавь картинки-ловушки и научи её заново",
         "traps_from_bank": true,
         "phases": [
-          { "id": "traps", "text": "Добавь картинки-ловушки — по одной",
-            "elements": ["img_current", "btn_pick", "btn_next", "btn_undo"], "overlays": [] },
-          { "id": "retrain", "text": "Научи коробку заново!",
-            "elements": ["btn_train"], "overlays": ["reaction"] },
-          { "id": "measure_after", "text": "Проверим на новых картинках",
-            "elements": ["btn_check"], "overlays": [] },
-          { "id": "forecast_predict", "text": "Что скажет коробка про эту картинку?",
-            "elements": ["img_current", "opt1", "opt2"], "overlays": [] },
-          { "id": "forecast_reason", "text": "Почему ты так думаешь?",
-            "elements": ["opt1", "opt2", "opt3"], "overlays": [] },
-          { "id": "forecast_commit", "text": "Уверен? Жми «Мой прогноз!»",
-            "elements": ["btn_commit"], "overlays": [] },
-          { "id": "forecast_run", "text": "Проверяем!",
-            "elements": ["btn_check", "btn_next"], "overlays": ["reaction"] }
+          {
+            "id": "traps",
+            "text": "Добавь картинки-ловушки — по одной",
+            "elements": [
+              "img_current",
+              "btn_pick",
+              "btn_next",
+              "btn_undo"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "retrain",
+            "text": "Научи коробку заново!",
+            "elements": [
+              "btn_train"
+            ],
+            "overlays": [
+              "reaction"
+            ]
+          },
+          {
+            "id": "measure_after",
+            "text": "Проверим на новых картинках",
+            "elements": [
+              "btn_check"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "forecast_predict",
+            "text": "Что скажет коробка про эту картинку?",
+            "elements": [
+              "img_current",
+              "opt1",
+              "opt2"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "forecast_reason",
+            "text": "Почему ты так думаешь?",
+            "elements": [
+              "opt1",
+              "opt2",
+              "opt3"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "forecast_commit",
+            "text": "Уверен? Жми «Мой прогноз!»",
+            "elements": [
+              "btn_commit"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "forecast_run",
+            "text": "Проверяем!",
+            "elements": [
+              "btn_check",
+              "btn_next"
+            ],
+            "overlays": [
+              "reaction"
+            ]
+          }
         ],
-        "measure": { "holdout": ["h1", "h2", "h3", "h4"], "pass": "3/4",
-          "before": "auto", "after": "on_retrain" },
-        "forecast": { "img": "f1",
-          "predict_options": ["скажет «кот»", "скажет «собака»"],
-          "reason_options": ["теперь она смотрит на животное",
-            "она всё ещё смотрит на фон", "она угадывает"],
-          "expected": { "predict": 0, "reason": 0 } } },
-
-      { "id": "s7", "type": "talk_chat", "timebox_min": 7, "gate": { "kind": "checkin" },
+        "measure": {
+          "holdout": [
+            "h1",
+            "h2",
+            "h3",
+            "h4"
+          ],
+          "pass": "3/4",
+          "before": "auto",
+          "after": "on_retrain"
+        },
+        "forecast": {
+          "img": "f1",
+          "predict_options": [
+            "скажет «кот»",
+            "скажет «собака»"
+          ],
+          "reason_options": [
+            "теперь она смотрит на животное",
+            "она всё ещё смотрит на фон",
+            "она угадывает"
+          ],
+          "expected": {
+            "predict": 0,
+            "reason": 0
+          }
+        }
+      },
+      {
+        "id": "s7",
+        "type": "talk_chat",
+        "timebox_min": 7,
+        "gate": {
+          "kind": "checkin"
+        },
         "catchup": "Обсуждаем «думает ли ИИ». Подумай 30 секунд и напечатай в чат",
         "prompt": "«ИИ думает»? Скажи точнее — на языке коробки. 30 сек подумай — напечатай",
-        "think_sec": 30 },
-
-      { "id": "s8", "type": "final_card", "timebox_min": 5,
+        "think_sec": 30
+      },
+      {
+        "id": "s8",
+        "type": "final_card",
+        "timebox_min": 5,
         "catchup": "Открой свою карточку дела и отметь лучшую ловушку",
         "action": "mark_best_trap",
         "presentation": "one_by_one",
-        "next_block": { "cards": ["next/put-detektiva.png", "next/pasport-preview.png"] } }
+        "next_block": {
+          "cards": [
+            "next/put-detektiva.png",
+            "next/pasport-preview.png"
+          ]
+        }
+      }
     ],
-
     "reserve_steps": [
-      { "id": "r1", "kind": "talk", "type": "cards_quiz",
+      {
+        "id": "r1",
+        "kind": "talk",
+        "type": "cards_quiz",
         "title": "Рекомендации для книжного персонажа",
         "catchup": "Резерв: квиз про рекомендации для книжного персонажа",
         "cards": [
-          { "id": "rq1", "img": "reserve/kniga-geroy.png", "title": "Что посоветует лента герою-детективу?",
-            "options": ["ещё детективы", "случайную книгу"], "correct": 0 },
-          { "id": "rq2", "img": "reserve/kniga-novichok.png", "title": "А новичку без истории?",
-            "options": ["самое популярное", "ничего не сможет"], "correct": 0 }
-        ] },
-      { "id": "r2", "kind": "trainer", "type": "trainer_act", "mode": "boost",
+          {
+            "id": "rq1",
+            "img": "reserve/kniga-geroy.png",
+            "title": "Что посоветует лента герою-детективу?",
+            "options": [
+              "ещё детективы",
+              "случайную книгу"
+            ],
+            "correct": 0
+          },
+          {
+            "id": "rq2",
+            "img": "reserve/kniga-novichok.png",
+            "title": "А новичку без истории?",
+            "options": [
+              "самое популярное",
+              "ничего не сможет"
+            ],
+            "correct": 0
+          }
+        ]
+      },
+      {
+        "id": "r2",
+        "kind": "trainer",
+        "type": "trainer_act",
+        "mode": "boost",
         "title": "Добьём до 4 из 4?",
         "catchup": "Добираем точность: добавь картинки, которых коробке не хватало",
         "images_from_role": "reserve",
         "phases": [
-          { "id": "boost_add", "text": "Счёт 3 из 4 — добьём? Вот картинки, которых не хватает",
-            "elements": ["img_current", "btn_pick", "btn_next", "btn_undo"], "overlays": [] },
-          { "id": "boost_train", "text": "Научи заново!",
-            "elements": ["btn_train"], "overlays": ["reaction"] },
-          { "id": "boost_measure", "text": "Проверяем ещё раз",
-            "elements": ["btn_check"], "overlays": [] }
+          {
+            "id": "boost_add",
+            "text": "Счёт 3 из 4 — добьём? Вот картинки, которых не хватает",
+            "elements": [
+              "img_current",
+              "btn_pick",
+              "btn_next",
+              "btn_undo"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "boost_train",
+            "text": "Научи заново!",
+            "elements": [
+              "btn_train"
+            ],
+            "overlays": [
+              "reaction"
+            ]
+          },
+          {
+            "id": "boost_measure",
+            "text": "Проверяем ещё раз",
+            "elements": [
+              "btn_check"
+            ],
+            "overlays": []
+          }
         ],
-        "measure": { "holdout": ["h1", "h2", "h3", "h4"], "pass": "4/4",
-          "before": "auto", "after": "on_retrain" } }
+        "measure": {
+          "holdout": [
+            "h1",
+            "h2",
+            "h3",
+            "h4"
+          ],
+          "pass": "4/4",
+          "before": "auto",
+          "after": "on_retrain"
+        }
+      }
     ],
-
     "hints": {
-      "s2.baskets": { "l1": "Посмотри на хвост и уши — кто это?",
-        "l2": "Перетащи ЭТУ картинку в корзину «Коты»", "restore_to": "s2.train" },
-      "s2.probe": { "l1": "Нажми «Проверить» и смотри, что ответит коробка",
-        "l2": "Жми «Проверить», потом «Дальше»", "restore_to": "s2.version_slot1" },
-      "s2.version_slot1": { "l1": "Вспомни, на каких картинках коробка ошиблась",
-        "l2": "Выбери вариант, который больше похож на правду", "restore_to": "s2.version_commit" },
-      "s6.traps": { "l1": "Каких котов коробка ещё не видела?",
-        "l2": "Добавь кота НА УЛИЦЕ в корзину «Коты»", "restore_to": "s6.retrain" },
-      "s6.forecast_predict": { "l1": "Вспомни, чему коробка научилась теперь",
-        "l2": "Выбери ответ и жми «Мой прогноз!»", "restore_to": "s6.forecast_commit" }
+      "s2.baskets": {
+        "l1": "Посмотри на хвост и уши — кто это?",
+        "l2": "Перетащи ЭТУ картинку в корзину «Коты»",
+        "restore_to": "s2.train"
+      },
+      "s2.probe": {
+        "l1": "Нажми «Проверить» и смотри, что ответит коробка",
+        "l2": "Жми «Проверить», потом «Дальше»",
+        "restore_to": "s2.version_slot1"
+      },
+      "s2.version_slot1": {
+        "l1": "Вспомни, на каких картинках коробка ошиблась",
+        "l2": "Выбери вариант, который больше похож на правду",
+        "restore_to": "s2.version_commit"
+      },
+      "s6.traps": {
+        "l1": "Каких котов коробка ещё не видела?",
+        "l2": "Добавь кота НА УЛИЦЕ в корзину «Коты»",
+        "restore_to": "s6.retrain"
+      },
+      "s6.forecast_predict": {
+        "l1": "Вспомни, чему коробка научилась теперь",
+        "l2": "Выбери ответ и жми «Мой прогноз!»",
+        "restore_to": "s6.forecast_commit"
+      }
     },
-
     "ui_texts": {
       "buffer_btn": "Предскажи!",
       "stuck_btn": "Застрял",
