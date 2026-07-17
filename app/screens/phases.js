@@ -8,8 +8,21 @@
  *  - F5 не перепоказывает сделанное: показанные вердикты/замеры берутся из payload. */
 
 import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom } from './dom.js';
+import { compositionSig } from '../engine/classifier.js';
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
+
+/** Класс словом в ед. числе для подписей ошибок («кот», «собака»): bank.classes[].label_one,
+ * фолбэк — label корзины. */
+const classOne = (ctx, id) => {
+  const c = ctx.bankIndex.classById.get(id);
+  return (c && (c.label_one || c.label)) || id;
+};
+
+/** Подпись раскладки корзин СЕЙЧАС — сверяется с baskets_sig замера (stale-«Было»). */
+export function basketsSig(ctx) {
+  return compositionSig(ctx.payload.baskets.map(b => ({ img: b.img, class: b.basket })));
+}
 
 /* Детерминированная перемешка подачи (сид = seat + роль): банк хранит картинки
  * классами подряд — без перемешки ребёнок жмёт одну корзину 8 раз не глядя.
@@ -174,6 +187,7 @@ function countsByClass(ctx) {
 }
 
 function trainPhase(ctx, step, phase) {
+  ctx.local.reactionOk = false;   // до обучения «Получилось!» безусловна — не показываем
   const btn = bigBtn('Научить!', async (ev) => {
     const b = ev.currentTarget;
     b.disabled = true;
@@ -216,7 +230,7 @@ function probeFeed(ctx, step, phase) {
   const checkBtn = hasEl(phase, 'btn_check') && img && !verdict && bigBtn('Проверить', () => {
     const v = ctx.classifier.classify(current);
     if (!v) return;
-    ctx.j('probe_result', { img: current, label: v.label, conf: v.conf });
+    ctx.j('probe_result', { img: current, label: v.label, conf: v.conf, margin: v.margin });
     ctx.tele.push('probe', { img: current, label: v.label, conf: v.conf });
     ctx.render();
   }, { id: 'btn_check' });
@@ -224,10 +238,19 @@ function probeFeed(ctx, step, phase) {
 
   const out = [];
   if (verdict) {
-    out.push(verdictCard('Это ' + classLabel(ctx, verdict.label) + '!', verdict.conf));
-    if (img && verdict.label !== img.class)
-      out.push(kidText('Ой! Коробка ошиблась — и как уверенно…', { small: true }));
+    out.push(verdictCard('Это ' + classLabel(ctx, verdict.label) + '!', verdict.conf, { margin: verdict.margin }));
+    // отметка «она ошиблась!» — НАБЛЮДЕНИЕ ребёнка (план-правок п.4): сам решает, был ли
+    // ответ верным; модель не меняет, уходит в телеметрию и карточку дела. Авто-спойлера нет.
+    const marked = (ctx.payload.mistakes || []).includes(current);
+    if (marked) out.push(kidText('Записано: коробка тут ошиблась!', { small: true }));
+    else out.push(bigBtn('Она ошиблась!', () => {
+      ctx.j('mistake_mark', { img: current });
+      ctx.tele.push('mistake_marked', { img: current, label: verdict.label,
+                                        was_wrong: !!img && verdict.label !== img.class });
+      ctx.render();
+    }, { kind: 'ghost', id: 'btn_mistake' }));
   } else if (img) out.push(kidText('Жми «Проверить» — что скажет коробка?', { small: true }));
+  ctx.local.reactionOk = !!verdict;   // «Получилось!» — только когда на такте есть результат
 
   const nextBtn = hasEl(phase, 'btn_next') && bigBtn('Дальше', () => {
     if (current) { ctx.local[lkey] = ptr + 1; ctx.render(); }
@@ -241,28 +264,29 @@ function probeFeed(ctx, step, phase) {
   });
 }
 
+/* Подача ловушек — ЧЕСТНАЯ (план-правок п.5): никакого псевдовыбора «Другую» —
+ * добавляются ВСЕ, по одной, «Дальше» открывается только когда пул исчерпан.
+ * Подпись картинки — caption из банка («Кот на улице») + честное объяснение. */
 function trapsFeed(ctx, step, phase) {
   const pool = step.images_from_role ? shuffledRole(ctx, step.images_from_role) : shuffledRole(ctx, 'trap');
   const added = new Set(ctx.payload.traps);
   const rest = pool.filter(i => !added.has(i.id));
-  const lkey = 'trapptr_' + step.id;
-  const ptr = ctx.local[lkey] || 0;
-  const current = rest.length ? rest[ptr % rest.length] : null;
+  const current = rest.length ? rest[0] : null;
 
   const input = [];
   if (current) {
-    input.push(h('div', { class: 'feedcount' }, 'добавлено ловушек: ' + added.size));
+    input.push(h('div', { class: 'feedcount' }, 'добавлено ' + added.size + ' из ' + pool.length));
     input.push(imgCard(ctx.assetsBase + current.src, { big: true, id: 'img_current' }));
-    input.push(kidText(classLabel(ctx, current.class) + ' — но необычная. Возьмём?', { small: true }));
+    input.push(kidText((current.caption ? current.caption + '. ' : '') +
+      'Коробка таких ещё не видела', { small: true }));
   } else {
-    input.push(kidText('Ловушки кончились — все в коробке!'));
+    input.push(kidText('Все ' + pool.length + ' ловушек в коробке!'));
   }
   const controls = h('div', { class: 'row' });
   if (hasEl(phase, 'btn_pick') && current)
-    controls.append(bigBtn('Эту — в коробку!', () => {
+    controls.append(bigBtn('Добавить в обучение', () => {
       ctx.j('trap_add', { img: current.id });
       ctx.tele.push('trap_added', { img: current.id });
-      ctx.local[lkey] = 0;
       ctx.render();
     }, { id: 'btn_pick' }));
   if (hasEl(phase, 'btn_undo'))
@@ -272,12 +296,8 @@ function trapsFeed(ctx, step, phase) {
       ctx.tele.push('basket_undo', { step: step.id });
       ctx.render();
     }, { kind: 'ghost', id: 'btn_undo', disabled: !ctx.payload.traps.length }));
-  if (hasEl(phase, 'btn_next'))
-    controls.append(bigBtn(current ? 'Другую' : 'Дальше', () => {
-      if (current) { ctx.local[lkey] = ptr + 1; ctx.render(); }
-      else ctx.advancePhase();
-    }, { kind: current ? 'secondary' : 'primary', id: 'btn_next',
-         disabled: !current && !added.size && rest.length > 0 }));
+  if (hasEl(phase, 'btn_next') && !current)
+    controls.append(bigBtn('Дальше', () => ctx.advancePhase(), { id: 'btn_next' }));
   input.push(controls);
 
   return zones(ctx, step, {
@@ -287,21 +307,48 @@ function trapsFeed(ctx, step, phase) {
   });
 }
 
+/** Подписи ошибок замера: «на картинке кот — коробка сказала „собака“» (план-правок п.3). */
+function measureErrors(ctx, m) {
+  return (m.details || []).filter(d => !d.ok).map(d => {
+    const img = ctx.bankIndex.byId.get(d.img);
+    return 'на картинке ' + (img ? classOne(ctx, img.class) : '?') +
+      ' — коробка сказала «' + (d.label ? classOne(ctx, d.label) : '?') + '»';
+  });
+}
+
+/** Честный итог замера по факту (план-правок п.3/п.6): лучше / держит идеал / без
+ * изменений / хуже. beforeValid=false → сравнивать не с чем (stale-«Было»). */
+function measureOutcome(before, after, beforeValid) {
+  if (!after) return null;
+  if (!before || !beforeValid) return null;
+  if (after.score > before.score) return 'Коробка починилась!';
+  if (after.score === before.score && after.score === after.of) return 'Держит идеал — все ответы верные!';
+  if (after.score === before.score) return 'Пока без изменений — можно добрать картинок';
+  return 'Стало хуже — так бывает, можно добрать картинок';
+}
+
 function measurePhase(ctx, step, phase) {
   const m = ctx.payload.measures;
   const out = [];
   if (m.after) {
-    if (m.before) out.push(scoreCard(m.before.score, m.before.of, 'Было'));
-    out.push(scoreCard(m.after.score, m.after.of, 'Стало'));
-    out.push(kidText(m.after.score > (m.before ? m.before.score : 0)
-      ? 'Коробка починилась!' : 'Хм, не выросло — можно добрать картинок', { small: true }));
+    // stale-«Было»: раскладка корзин менялась после замера «до» (restore/переразметка) —
+    // старый счёт сделан ДРУГОЙ моделью, сравнивать нечестно (Codex D1–D2)
+    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx));
+    if (m.before && beforeValid) out.push(scoreCard(m.before.score, m.before.of, 'Было'));
+    if (m.before && !beforeValid)
+      out.push(kidText('Раскладка менялась — старый замер не в счёт', { small: true }));
+    out.push(scoreCard(m.after.score, m.after.of, 'Стало', { errors: measureErrors(ctx, m.after) }));
+    const outcome = measureOutcome(m.before, m.after, beforeValid);
+    if (outcome) out.push(kidText(outcome, { small: true }));
     out.push(bigBtn('Дальше', () => ctx.advancePhase(), { id: 'btn_check' }));
   } else {
     if (m.before) out.push(scoreCard(m.before.score, m.before.of, 'Было до ловушек'));
     const btn = bigBtn('Проверить коробку', () => {
       const r = ctx.classifier.measure(step.measure.holdout);
-      ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of });
-      ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of });
+      const mi = ctx.classifier.modelInfo();
+      ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of, details: r.details,
+                                model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
+      ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of, model_sig: mi.sig });
       ctx.render();
     }, { id: 'btn_check' });
     ctx.modelGate(btn);
@@ -475,9 +522,10 @@ function forecastRun(ctx, step, phase) {
   const img = ctx.bankIndex.byId.get(f.img);
   const done = ctx.payload.probes[f.img];
   const out = [];
+  ctx.local.reactionOk = !!done;   // «Получилось!» — только после фактического результата
   if (img) out.push(imgCard(ctx.assetsBase + img.src, { id: 'img_current' }));
   if (done) {
-    out.push(verdictCard('Это ' + classLabel(ctx, done.label) + '!', done.conf));
+    out.push(verdictCard('Это ' + classLabel(ctx, done.label) + '!', done.conf, { margin: done.margin }));
     const matchPredict = ctx.local['fr_match_' + step.id];
     if (matchPredict != null)
       out.push(kidText(matchPredict ? 'Твой прогноз сбылся!' : 'Коробка ответила иначе — интересно почему?'));
@@ -487,7 +535,7 @@ function forecastRun(ctx, step, phase) {
     const btn = bigBtn('Проверяем!', () => {
       const v = ctx.classifier.classify(f.img);
       if (!v) return;
-      ctx.j('probe_result', { img: f.img, label: v.label, conf: v.conf });
+      ctx.j('probe_result', { img: f.img, label: v.label, conf: v.conf, margin: v.margin });
       const predictedClass = f.expected && ctx.payload.forecast.predict === f.expected.predict;
       // совпадение прогноза: выбранная опция predict → класс. Опции — данные; сопоставление
       // делаем по индексу против фактической метки через expected (валидатор гарантирует поля).
@@ -639,15 +687,22 @@ function finalPhase(ctx, step, phase) {
     const m = ctx.payload.measures;
     const rstep = findRevealStep(ctx);
     const assisted = ctx.overlays.assisted();
+    // итог ПО ФАКТУ, не безусловный успех (план-правок п.6): лучше / держит идеал /
+    // без изменений / хуже; stale-«Было» — сравнения нет
+    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx));
+    const outcome = measureOutcome(m.before, m.after, beforeValid);
+    const mistakes = (ctx.payload.mistakes || []).length;
     return h('div', { class: 'taskcard finalcard' },
       h('div', { class: 'reveal-title', 'data-kid': '1' }, 'Карточка дела №1'),
       h('div', { class: 'factrow' }, 'Точность коробки: ',
-        h('b', {}, (m.before ? m.before.score : '—') + ' → ' + (m.after ? m.after.score : '—') +
-          (m.after ? ' из ' + m.after.of : ''))),
+        h('b', {}, ((m.before && beforeValid) ? m.before.score : '—') + ' → ' +
+          (m.after ? m.after.score : '—') + (m.after ? ' из ' + m.after.of : ''))),
+      outcome ? h('div', { class: 'factrow' }, 'Итог: ', h('b', {}, outcome)) : null,
       rstep ? h('div', { class: 'factrow' }, 'Твоя версия: ', h('b', {}, versionSentence(ctx, rstep))) : null,
       ctx.payload.version.free_text ? h('div', { class: 'factrow' }, '«' + ctx.payload.version.free_text + '»') : null,
       rstep && rstep.reveal.text ? h('div', { class: 'factrow' }, 'Разгадка: ', h('b', {}, rstep.reveal.text)) : null,
       h('div', { class: 'factrow' }, 'Ловушек добавил: ', h('b', {}, String(ctx.payload.traps.length))),
+      mistakes ? h('div', { class: 'factrow' }, 'Ты заметил ошибок коробки: ', h('b', {}, String(mistakes))) : null,
       assisted ? h('div', { class: 'factrow assisted' }, 'Прошёл с помощью — можно повторить чисто!') : null,
       bigBtn('Дальше', () => ctx.advancePhase(), { id: 'btn_next' }));
   }
@@ -663,6 +718,9 @@ function finalPhase(ctx, step, phase) {
     const img = ctx.bankIndex.byId.get(traps[ptr]);
     return h('div', { class: 'taskcard' },
       h('div', { class: 'quiz-title', 'data-kid': '1' }, 'Отметь свою лучшую ловушку'),
+      // критерий выбора + «зачем» (план-правок п.6): выбор осмысленный, не слепой
+      kidText('Какая лучше всего запутывала старую коробку?', { small: true }),
+      kidText('Лучшая ловушка попадёт в карточку дела — её увидят родители', { small: true }),
       h('div', { class: 'feedcount' }, 'ловушка ' + (ptr + 1) + ' из ' + traps.length),
       img ? imgCard(ctx.assetsBase + img.src, { big: true, id: 'img_current' }) : null,
       h('div', { class: 'row' },
@@ -673,11 +731,14 @@ function finalPhase(ctx, step, phase) {
         }, { id: 'btn_pick' }),
         bigBtn('Дальше', () => { ctx.local[lkey] = ptr + 1; ctx.render(); }, { kind: 'secondary', id: 'btn_next' })));
   }
-  // next_block: «что дальше» — контент, не прайс
+  // next_block: «что дальше» — контент, не прайс; у каждой карточки — подпись из манифеста
   const cards = (step.next_block && step.next_block.cards) || [];
+  const captions = (step.next_block && step.next_block.captions) || [];
   return h('div', { class: 'taskcard' },
     h('div', { class: 'quiz-title', 'data-kid': '1' }, 'Что дальше'),
-    ...cards.map(c => imgCard(ctx.assetsBase + c)),
+    ...cards.map((c, i) => h('div', { class: 'nextcard' },
+      imgCard(ctx.assetsBase + c),
+      captions[i] ? kidText(captions[i], { small: true }) : null)),
     bigBtn('Закрыть дело №1', () => ctx.finishFinal(), { id: 'btn_next' }));
 }
 
@@ -687,6 +748,9 @@ export function renderPhase(ctx) {
   const step = ctx.machine.step();
   const phase = ctx.machine.phase();
   if (!step || !phase) return null;
+  // «Получилось!» не безусловна: такты с отложенным результатом (пробы, прогноз)
+  // перезаписывают флаг — оверлей появляется только при фактическом результате
+  ctx.local.reactionOk = true;
 
   if (step.type === 'cards_quiz') return quizCard(ctx, step, phase);
   if (step.type === 'talk_chat') return talkPhase(ctx, step, phase);

@@ -132,11 +132,13 @@ async function zStartLesson() {
 </script>"""
 
     if state is None:
+        # ЕДИНСТВЕННАЯ явная кнопка старта занятия (план-правок п.8): старая «▶ Старт
+        # занятия» воркшопа переподписана в «Старт воркшопа» и убрана под спойлер (tele.py)
         return (js + '<h2>🎓 Занятие (демка З1)</h2>'
                 '<div class="lesson-start">Запуск занятия создаст чистый run '
                 '(репетиция утром → урок вечером = разные run, §4.1): '
                 '<input id="zlesson" value="z1-kot" style="width:140px"> '
-                '<button onclick="zStartLesson()">▶ Запустить занятие</button></div>')
+                '<button class="lesson-startbtn" onclick="zStartLesson()">▶ ЗАПУСТИТЬ ЗАНЯТИЕ</button></div>')
 
     now = _now_ms()
     steps_meta = state.get('steps_meta') or []
@@ -227,9 +229,17 @@ async function zStartLesson() {
         gid = s['id']
         g = (state.get('gates') or {}).get(gid) or {}
         arrived = g.get('arrived') or []
+        # счётчик — ТОЛЬКО по ростеру: тест-вкладка/чужое место не даёт «6 из 5» (план-правок п.8);
+        # места вне ростера показываем отдельным хвостом, не в дроби
+        if names:
+            in_roster = [a for a in arrived if str(a) in names]
+            extra_n = len(arrived) - len(in_roster)
+        else:
+            in_roster, extra_n = arrived, 0
+        extra_txt = ' (+%d вне списка)' % extra_n if extra_n else ''
         code = g.get('code')
         grows.append('<div class="lesson-gate"><b>' + esc(gid) + '</b> (' + esc(s.get('gate')) + '): ' +
-                     '<b>' + str(len(arrived)) + ' из ' + str(roster_n) + '</b> перешли' +
+                     '<b>' + str(len(in_roster)) + ' из ' + str(roster_n) + '</b> перешли' + extra_txt +
                      (' · код: <b class="gatecode">' + esc(code) + '</b>' if code is not None else '') +
                      ' <input id="gcode_' + esc(gid) + '" placeholder="код" style="width:70px">' +
                      '<button onclick="zGateCode(\'' + esc(gid) + '\')">задать</button>' +
@@ -327,7 +337,10 @@ async function zStartLesson() {
             '.lesson-panel button{font-size:13px;padding:4px 10px;border-radius:8px;'
             'border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer}'
             '.lesson-panel button:disabled{opacity:.45;cursor:default}'
-            '.lesson-start{font-size:16px}</style>')
+            '.lesson-start{font-size:16px}'
+            '.lesson-panel .lesson-startbtn{font-size:17px !important;font-weight:900;'
+            'padding:10px 22px !important;background:#2557d6 !important;color:#fff !important}'
+            '</style>')
 
 
 def _version_cell_safe(vcell):

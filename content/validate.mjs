@@ -138,6 +138,11 @@ function checkManifestDir(dir) {
     if (step.type === 'final_card' && step.action === 'mark_best_trap'
         && step.presentation !== 'one_by_one')
       err(`${step.id}: final_card mark_best_trap обязан объявлять presentation: one_by_one`);
+
+    // — подписи «Что дальше» синхронны карточкам (план-правок п.6)
+    if (step.next_block && step.next_block.captions
+        && step.next_block.captions.length !== step.next_block.cards.length)
+      warn(`${step.id}: next_block.captions (${step.next_block.captions.length}) ≠ cards (${step.next_block.cards.length}) — часть карточек без подписи`);
   }
 
   // — инвариант 5: catchup у каждого шага (двойная страховка к схеме) + тексты ≤120

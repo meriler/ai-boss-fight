@@ -305,22 +305,28 @@ def next_free_seat(used):
 
 
 def render_session(date):
-    """Строка-пульт «▶ старт / ⏹ финиш» под баннером: маркеры окна занятия для резки отчётов."""
+    """Пульт меток ВОРКШОП-демки v5 (не занятия З1!). Разведение двух кнопок старта
+    (план-правок 17.07 п.8): прогон показал, что «▶ Старт занятия» путалась с «▶ Запустить
+    занятие» панели З1 — здесь кнопка переподписана в «Старт воркшопа» и убрана под
+    спойлер; занятие З1 стартует ТОЛЬКО из панели «🎓 Занятие»."""
     start, stop, auto = load_session(date)
     hm = lambda t: t.astimezone(MSK).strftime('%H:%M')
     frm = ('<form method="post" style="display:inline;margin-left:10px">'
            '<input type="hidden" name="date" value="' + esc(date) + '">')
     if not start:
-        body = ('занятие не начато' + frm +
-                '<button name="act" value="sess_start">▶ Старт занятия</button></form>')
+        body = ('воркшоп не начат' + frm +
+                '<button name="act" value="sess_start">▶ Старт воркшопа (демка v5)</button></form>')
     elif not stop:
-        body = ('🟢 занятие идёт с <b>' + hm(start) + '</b> (автофиниш через 2 ч)' + frm +
-                '<button name="act" value="sess_stop" onclick="return confirm(\'Завершить занятие? Маркер попадёт в отчёт.\')">⏹ Финиш</button></form>')
+        body = ('🟢 воркшоп идёт с <b>' + hm(start) + '</b> (автофиниш через 2 ч)' + frm +
+                '<button name="act" value="sess_stop" onclick="return confirm(\'Завершить воркшоп? Маркер попадёт в отчёт.\')">⏹ Финиш</button></form>')
     else:
-        body = ('⏹ занятие: <b>' + hm(start) + '–' + hm(stop) + '</b>' + (' (автофиниш)' if auto else '') + frm +
-                '<button name="act" value="sess_start" onclick="return confirm(\'Начать НОВОЕ окно занятия? Прежние метки затрутся.\')">▶ Старт заново</button></form>')
-    return ('<div class="sess">🎬 ' + body +
-            '<span class="note" style="margin-left:8px">метки старт/финиш — для резки отчёта по времени урока</span></div>')
+        body = ('⏹ воркшоп: <b>' + hm(start) + '–' + hm(stop) + '</b>' + (' (автофиниш)' if auto else '') + frm +
+                '<button name="act" value="sess_start" onclick="return confirm(\'Начать НОВОЕ окно воркшопа? Прежние метки затрутся.\')">▶ Старт заново</button></form>')
+    summary_state = ('🟢 идёт' if start and not stop else ('⏹ окончен' if stop else 'не начат'))
+    return ('<details class="sess"><summary>🎬 Воркшоп-демка v5 (старая) — метки старт/финиш: '
+            + summary_state + '</summary><div style="margin-top:6px">' + body +
+            '<span class="note" style="margin-left:8px">метки — для резки отчёта воркшопа; '
+            'занятие З1 запускается в панели «🎓 Занятие» ниже</span></div></details>')
 
 
 def render_admin(date, kids_s):

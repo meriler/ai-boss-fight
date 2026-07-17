@@ -127,7 +127,7 @@ export function createOverlays(ctx) {
               const cl = ctx.bankIndex.classById.get(v.label);
               ctx.tele.push('buffer_result', { img: next.id, match: v.label === c.id });
               out = h('div', {},
-                verdictCard('Коробка: ' + (cl ? cl.label : v.label), v.conf),
+                verdictCard('Коробка: ' + (cl ? cl.label : v.label), v.conf, { margin: v.margin }),
                 kidText(v.label === c.id ? 'Ты угадал!' : 'А коробка думает иначе!', { small: true }));
             }
             const slot = box.querySelector('.row');
@@ -194,7 +194,9 @@ export function createOverlays(ctx) {
     const over = (phase && phase.overlays) || [];
     const parts = [];
     if (over.includes('buffer')) parts.push(renderBuffer());
-    if (over.includes('reaction')) parts.push(renderReaction());
+    // реакция не безусловна: такт с отложенным результатом (пробы/прогноз) выставляет
+    // reactionOk=false, пока результата нет — «Получилось!» появляется по факту
+    if (over.includes('reaction') && ctx.local.reactionOk !== false) parts.push(renderReaction());
     if (over.includes('chat')) parts.push(renderChat());
     bar.replaceChildren(...parts);
     bar.classList.toggle('empty', parts.length === 0);

@@ -82,7 +82,9 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
           if (!img) { errors.push(`probe_set: ${pid} нет в банке`); continue; }
           j('probe_result', { img: pid,
             label: img.expected_flip ? otherClass(img.class) : img.class,
-            conf: 88 });
+            conf: 88, margin: 0.05 });
+          // ребёнок замечает уверенный флип — отметка «она ошиблась!» (план-правок п.4)
+          if (img.expected_flip) j('mistake_mark', { img: pid });
         }
       }
 
@@ -125,10 +127,13 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
       if (els.includes('btn_check') && !p.probe_set) {
         const forecastDone = acked.some(a => a.type === 'forecast' && a.step === step.id);
         if (step.measure && !payload.measures.after)
-          j('measure_result', { phase: 'after', score: 3, of: step.measure.holdout.length });
+          j('measure_result', { phase: 'after', score: 3, of: step.measure.holdout.length,
+            details: step.measure.holdout.map((hid, i) => ({ img: hid, label: null, conf: null, ok: i < 3 })),
+            model_n: payload.baskets.length + payload.traps.length,
+            model_sig: 'walk', baskets_sig: 'walk' });
         else if (step.forecast && forecastDone) {
           const img = bankIndex.byId.get(step.forecast.img);
-          if (img) j('probe_result', { img: img.id, label: img.class, conf: 91 });
+          if (img) j('probe_result', { img: img.id, label: img.class, conf: 91, margin: 0.05 });
         }
       }
 

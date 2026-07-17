@@ -23,7 +23,7 @@ import { createTele } from '../core/tele.js';
 import { createClassifier } from '../engine/classifier.js';
 import { h, bigBtn, kidText } from './dom.js';
 import { createOverlays } from './overlays.js';
-import { renderPhase, trainExamples } from './phases.js';
+import { renderPhase, trainExamples, basketsSig } from './phases.js';
 
 const QP = new URLSearchParams(location.search);
 const screen = document.getElementById('screen');
@@ -208,8 +208,11 @@ function maybeAutoMeasureBefore() {
   ctx.classifier.whenReady().then(() => {
     if (ctx.payload.measures.before || !ctx.classifier.exampleCount()) return;
     const r = ctx.classifier.measure(step.measure.holdout);
-    ctx.j('measure_result', { phase: 'before', score: r.score, of: r.of });
-    ctx.tele.push('measure', { phase: 'before', score: r.score, of: r.of });
+    const mi = ctx.classifier.modelInfo();
+    // версия состава с замером: stale-«Было» после переразметки/restore инвалидируется (п.3)
+    ctx.j('measure_result', { phase: 'before', score: r.score, of: r.of, details: r.details,
+                              model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
+    ctx.tele.push('measure', { phase: 'before', score: r.score, of: r.of, model_sig: mi.sig });
     render();
   });
 }

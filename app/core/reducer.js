@@ -21,8 +21,9 @@ export function initialPayload() {
     forecast: { predict: null, reason: null },
     buffer: [],                     // прогнозы буфера: [{img, predict}]
     best_trap: null,
-    probes: {},                     // показанные вердикты: {img: {label, conf}} — F5 не перепоказывает
-    measures: { before: null, after: null },   // показанные счёты замеров
+    probes: {},                     // показанные вердикты: {img: {label, conf, margin}} — F5 не перепоказывает
+    measures: { before: null, after: null },   // показанные счёты замеров (+версия состава, детали)
+    mistakes: [],                   // пробы, где ребёнок отметил «она ошиблась!» (наблюдение, модель не меняет)
   };
 }
 
@@ -70,10 +71,21 @@ export function reduce(payload, action) {
       payload.best_trap = args.img;
       break;
     case 'probe_result':
-      payload.probes[args.img] = { label: args.label, conf: args.conf };
+      payload.probes[args.img] = { label: args.label, conf: args.conf, margin: args.margin };
       break;
+    case 'mistake_mark': {
+      // страховка от старых снапшотов: mistakes появился позже initialPayload
+      const list = payload.mistakes || (payload.mistakes = []);
+      if (!list.includes(args.img)) list.push(args.img);
+      break;
+    }
     case 'measure_result':
-      payload.measures[args.phase] = { score: args.score, of: args.of };
+      payload.measures[args.phase] = {
+        score: args.score, of: args.of,
+        details: args.details || null,                       // подписи каждой ошибки
+        model_n: args.model_n, model_sig: args.model_sig,    // версия состава модели
+        baskets_sig: args.baskets_sig,                       // раскладка на момент замера (stale-чек «Было»)
+      };
       break;
     default:
       throw new Error('неизвестный тип действия журнала: ' + type +

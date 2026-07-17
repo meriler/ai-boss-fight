@@ -18,7 +18,8 @@
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-          "label": { "type": "string", "maxLength": 30 }
+          "label": { "type": "string", "maxLength": 30 },
+          "label_one": { "type": "string", "maxLength": 30, "description": "ед. число для подписей ошибок замера («кот», «собака»); нет — берётся label" }
         }
       },
       "description": "Фаза 0: ровно 2 класса (нода ImageClassifier среза — бинарная)"
@@ -82,7 +83,8 @@
           },
           "bg": { "type": "string", "description": "значение измерения подвоха (напр. дом/улица)" },
           "src": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор" },
-          "expected_flip": { "type": "boolean", "description": "для probe: ждём ошибку коробки (пилотный порог)" }
+          "expected_flip": { "type": "boolean", "description": "для probe: ждём ошибку коробки (пилотный порог)" },
+          "caption": { "type": "string", "maxLength": 80, "description": "честная подпись подачи (ловушки: «Кот на улице» — план-правок п.5)" }
         }
       }
     }

@@ -3,11 +3,13 @@
   "classes": [
     {
       "id": "cat",
-      "label": "Коты"
+      "label": "Коты",
+      "label_one": "Кот"
     },
     {
       "id": "dog",
-      "label": "Собаки"
+      "label": "Собаки",
+      "label_one": "Собака"
     }
   ],
   "spurious": "фон: помещение/улица",
@@ -176,56 +178,64 @@
       "class": "cat",
       "role": "trap",
       "bg": "улица",
-      "src": "traps/tr1.jpg"
+      "src": "traps/tr1.jpg",
+      "caption": "Кот на улице"
     },
     {
       "id": "tr2",
       "class": "cat",
       "role": "trap",
       "bg": "улица",
-      "src": "traps/tr2.jpg"
+      "src": "traps/tr2.jpg",
+      "caption": "Кот на улице"
     },
     {
       "id": "tr3",
       "class": "cat",
       "role": "trap",
       "bg": "улица",
-      "src": "traps/tr3.jpg"
+      "src": "traps/tr3.jpg",
+      "caption": "Кот на улице"
     },
     {
       "id": "tr4",
       "class": "cat",
       "role": "trap",
       "bg": "улица",
-      "src": "traps/tr4.jpg"
+      "src": "traps/tr4.jpg",
+      "caption": "Кот на улице"
     },
     {
       "id": "tr5",
       "class": "dog",
       "role": "trap",
       "bg": "дом",
-      "src": "traps/tr5.jpg"
+      "src": "traps/tr5.jpg",
+      "caption": "Собака дома"
     },
     {
       "id": "tr6",
       "class": "dog",
       "role": "trap",
       "bg": "дом",
-      "src": "traps/tr6.jpg"
+      "src": "traps/tr6.jpg",
+      "caption": "Собака дома"
     },
     {
       "id": "tr7",
       "class": "dog",
       "role": "trap",
       "bg": "дом",
-      "src": "traps/tr7.jpg"
+      "src": "traps/tr7.jpg",
+      "caption": "Собака дома"
     },
     {
       "id": "tr8",
       "class": "dog",
       "role": "trap",
       "bg": "дом",
-      "src": "traps/tr8.jpg"
+      "src": "traps/tr8.jpg",
+      "caption": "Собака дома"
     },
     {
       "id": "h1",

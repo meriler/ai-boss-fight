@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ws.meriler.cc/content/schema/journal.schema.json",
-  "title": "Журнал действий restore (локальный буфер seat-save) — словарь ЗАКРЫТ 2026-07-17",
-  "description": "ТЗ §1.1: restore = серверная база (/restore) + replay записей с rev > серверного через ТОТ ЖЕ редьюсер, что применяет действия вживую. Принцип включения в словарь: локальная мутация payload, обязанная пережить F5 и НЕ являющаяся acked-действием. Acked (вне журнала, ходят /commit): version, choice, forecast, captcha, gate_enter, step_enter. Не в журнале (сервер — источник правды): chat, react; hints — телеметрия. Новый тип действия = правка этой схемы + аннекса, не рефлекс.",
+  "title": "Журнал действий restore (локальный буфер seat-save) — словарь ЗАКРЫТ 2026-07-17 (+mistake_mark 2026-07-17, план-правок п.4)",
+  "description": "ТЗ §1.1: restore = серверная база (/restore) + replay записей с rev > серверного через ТОТ ЖЕ редьюсер, что применяет действия вживую. Принцип включения в словарь: локальная мутация payload, обязанная пережить F5 и НЕ являющаяся acked-действием. Acked (вне журнала, ходят /commit): version, choice, forecast, captcha, gate_enter, step_enter. Не в журнале (сервер — источник правды): chat, react; hints — телеметрия. Новый тип действия = правка этой схемы + аннекса, не рефлекс. Осознанное расширение 2026-07-17 (quick-пакет по прогону): mistake_mark (отметка ребёнка «она ошиблась!» — переживает F5, попадает в карточку дела); probe_result получил margin (сырая d̄-маржа — уверенность на экране словами); measure_result получил details (подписи каждой ошибки) и версию состава model_n/model_sig/baskets_sig (stale-«Было» инвалидируется).",
   "type": "object",
   "required": ["type", "args", "rev", "ts"],
   "additionalProperties": false,
@@ -17,7 +17,7 @@
         "forecast_pick",
         "buffer_predict",
         "best_trap_pick",
-        "probe_result", "measure_result"
+        "probe_result", "mistake_mark", "measure_result"
       ]
     },
     "args": { "type": "object" },
@@ -50,9 +50,18 @@
     { "if": { "properties": { "type": { "const": "best_trap_pick" } } },
       "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } } } },
     { "if": { "properties": { "type": { "const": "probe_result" } } },
-      "then": { "properties": { "args": { "required": ["img", "label", "conf"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": "string" }, "conf": { "type": "number", "minimum": 0, "maximum": 100 } } } },
+      "then": { "properties": { "args": { "required": ["img", "label", "conf"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": "string" }, "conf": { "type": "number", "minimum": 0, "maximum": 100 }, "margin": { "type": "number", "description": "сырая d̄-маржа проигравший−победитель — источник словесной шкалы уверенности" } } } },
         "description": "Показанный вердикт — фиксируется, чтобы F5 не пересчитывал/не перепоказывал (DoD п.3)" } },
+    { "if": { "properties": { "type": { "const": "mistake_mark" } } },
+      "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } },
+        "description": "Наблюдение ребёнка «она ошиблась!» на пробе — модель НЕ меняет, идёт в телеметрию и карточку дела" } },
     { "if": { "properties": { "type": { "const": "measure_result" } } },
-      "then": { "properties": { "args": { "required": ["phase", "score", "of"], "additionalProperties": false, "properties": { "phase": { "enum": ["before", "after"] }, "score": { "type": "integer", "minimum": 0 }, "of": { "type": "integer", "minimum": 1 } } } } } }
+      "then": { "properties": { "args": { "required": ["phase", "score", "of"], "additionalProperties": false, "properties": {
+        "phase": { "enum": ["before", "after"] }, "score": { "type": "integer", "minimum": 0 }, "of": { "type": "integer", "minimum": 1 },
+        "details": { "type": "array", "items": { "type": "object", "required": ["img", "ok"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": ["string", "null"] }, "conf": { "type": ["number", "null"] }, "ok": { "type": "boolean" } } }, "description": "по-картиночный итог — подписи каждой ошибки на экране замера" },
+        "model_n": { "type": "integer", "minimum": 0, "description": "число примеров обученной модели на момент замера" },
+        "model_sig": { "type": "string", "description": "подпись состава модели (compositionSig) — версия состава" },
+        "baskets_sig": { "type": "string", "description": "подпись раскладки корзин на момент замера — stale-чек «Было»" }
+      } } } } }
   ]
 }

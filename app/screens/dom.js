@@ -39,23 +39,38 @@ export function kidText(text, { small = false } = {}) {
   return h('div', { class: 'kidtext' + (small ? ' kidtext-small' : ''), 'data-kid': '1' }, text || '');
 }
 
-/** Вердикт коробки: метка класса + живой процент уверенности (полоска). */
-export function verdictCard(labelText, conf) {
+/** Уверенность СЛОВАМИ (план-правок 17.07 п.2): маржи насыщают sigmoid при T=0.03 —
+ * проценты дают ложную точность (медиана ≈97%). До перекалибровки — три ступени по маржам:
+ * <0.033 (пилотный порог conf 75) «сомневается» · <0.12 «уверена» · дальше «очень уверена».
+ * Старые записи журнала без margin — фолбэк по conf теми же порогами (75 / 98 ≙ 0.033 / 0.115). */
+export function confWord(conf, margin) {
+  const level = margin != null
+    ? (margin < 0.033 ? 1 : margin < 0.12 ? 2 : 3)
+    : (conf < 75 ? 1 : conf < 98 ? 2 : 3);
+  return { level, word: ['сомневается', 'уверена', 'очень уверена'][level - 1] };
+}
+
+/** Вердикт коробки: метка класса + уверенность словами (полоска — по ступени, не процент). */
+export function verdictCard(labelText, conf, { margin } = {}) {
+  const { level, word } = confWord(conf, margin);
   return h('div', { class: 'verdict' },
     h('div', { class: 'verdict-label', 'data-kid': '1' }, labelText),
     h('div', { class: 'confbar' },
-      h('div', { class: 'confbar-fill', style: 'width:' + Math.max(4, conf) + '%' })),
-    h('div', { class: 'verdict-conf' }, 'уверена на ' + conf + '%'));
+      h('div', { class: 'confbar-fill', style: 'width:' + [33, 66, 100][level - 1] + '%' })),
+    h('div', { class: 'verdict-conf' }, 'коробка ' + word));
 }
 
-/** Счёт замера «X из Y» крупно + наглядный ряд ячеек ✓/✗ (по одной на картинку набора). */
-export function scoreCard(score, of, caption) {
+/** Счёт замера «X из Y» крупно + наглядный ряд ячеек ✓/✗ (по одной на картинку набора).
+ * errors — подписи конкретных ошибок под ячейками («на картинке кот — сказала „собака“»). */
+export function scoreCard(score, of, caption, { errors = [] } = {}) {
   const cells = Array.from({ length: of }, (_, i) =>
     h('span', { class: 'scorecell ' + (i < score ? 'ok' : 'bad') }, i < score ? '✓' : '✗'));
   return h('div', { class: 'scorecard' },
     caption ? h('div', { class: 'score-cap', 'data-kid': '1' }, caption) : null,
     h('div', { class: 'scorecells' }, ...cells),
-    h('div', { class: 'score-big' }, score + ' из ' + of));
+    h('div', { class: 'score-big' }, score + ' из ' + of),
+    errors.length ? h('div', { class: 'score-errors' },
+      ...errors.map(t => h('div', { class: 'score-err', 'data-kid': '1' }, '✗ ' + t))) : null);
 }
 
 /** Вытащить «фразу-кнопку» из текста такта: 'Готов? Жми «Моя версия!»' → 'Моя версия!'.

@@ -3,7 +3,10 @@
  * эмбеддер MediaPipe ImageEmbedder (models/mobilenet_v3_small_embedder.tflite),
  * комбинированное расстояние 0.65·(1−cosE)+0.35·(1−cosP) (ветки как v5.html:597–660),
  * k — двухступенчатое правило {small, large, min_class_size_for_large},
- * уверенность — живая: conf = 100·sigmoid((d̄_проигравшего − d̄_победителя)/T).
+ * метка — ГОЛОСОВАНИЕМ top-k (как пилот run_pilot.knn / v5) — пороги пилота считались
+ * голосованием, argmin d̄ на тех же данных даёт другие замеры (план-правок 17.07 п.1);
+ * уверенность — живая: conf = 100·sigmoid((d̄_проигравшего − d̄_победителя)/T),
+ * сверка с пилотом на реальных фичах — pilot/dump_parity.py + parity.test.mjs.
  *
  * Два режима:
  *  - real: эмбеддинг+пиксели из картинок банка (assets/), эмбеддер грузится в warmup()
@@ -20,6 +23,55 @@ const DEF = {
 };
 
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
+
+/* ---------- чистый kNN голосованием (зеркало pilot/run_pilot.py knn) ---------- */
+
+/** Вердикт по фичам f против примеров [{class, f}] — БЕЗ DOM/состояния (parity-тест
+ * гоняет её на реальных фичах пилота). Метка: голосование top-k общего списка расстояний
+ * (ничья достаётся классу ближайшего соседа — как порядок вставки dict в пилоте);
+ * уверенность: d̄-маржа проигравший−победитель, conf = 100·sigmoid(margin/T). */
+export function knnClassify(f, examples, { classIds, K, W, T }) {
+  const counts = {};
+  for (const ex of examples) counts[ex.class] = (counts[ex.class] || 0) + 1;
+  const present = classIds.filter(c => counts[c]);
+  if (present.length < 2) {
+    // один класс в примерах — честный ответ без сравнения (крайний случай, в занятии не бывает)
+    return { label: present[0], conf: 50, margin: 0, dists: {} };
+  }
+  const minClass = Math.min(...present.map(c => counts[c]));
+  const kBase = typeof K === 'number' ? K
+    : (minClass >= K.min_class_size_for_large ? K.large : K.small);
+  const all = examples.map(ex => ({
+    cls: ex.class,
+    d: W.embed * (1 - dot(f.emb, ex.f.emb)) + W.pixel * (1 - dot(f.pix, ex.f.pix)),
+  }));
+  all.sort((a, b) => a.d - b.d);
+  const top = all.slice(0, Math.min(kBase, all.length));
+  const votes = new Map();   // порядок вставки = порядок соседей по близости (как dict пилота)
+  for (const x of top) votes.set(x.cls, (votes.get(x.cls) || 0) + 1);
+  let label = null, best = -1;
+  for (const [cls, n] of votes) if (n > best) { best = n; label = cls; }
+  const dists = {};   // class -> d̄ до k ближайших примеров ЭТОГО класса (для уверенности)
+  for (const cls of present) {
+    const ds = all.filter(x => x.cls === cls).map(x => x.d);   // уже по возрастанию
+    const k = Math.min(kBase, ds.length);
+    dists[cls] = ds.slice(0, k).reduce((s, d) => s + d, 0) / k;
+  }
+  const loser = present.filter(c => c !== label).sort((a, b) => dists[a] - dists[b])[0];
+  const margin = dists[loser] - dists[label];
+  const conf = Math.round(100 / (1 + Math.exp(-margin / T)));
+  return { label, conf, margin, dists };
+}
+
+/** Подпись состава (версии) модели/раскладки: FNV-1a по отсортированным парам img:class.
+ * Замер обязан хранить, НА ЧЁМ он сделан — stale-«Было» после переразметки/restore
+ * инвалидируется сравнением подписей (план-правок 17.07 п.3, Codex D1–D2). */
+export function compositionSig(pairs) {
+  const s = pairs.map(p => p.img + ':' + p.class).sort().join('|');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+}
 
 /* ---------- demo-фичи: детерминированный синтез из метаданных ---------- */
 
@@ -156,8 +208,6 @@ export function createClassifier({ bankIndex, assetsBase = '', demo = false, ven
     return f;
   }
 
-  const combined = (a, b) => W.embed * (1 - dot(a.emb, b.emb)) + W.pixel * (1 - dot(a.pix, b.pix));
-
   return {
     get ready() { return ready; },
     get error() { return warmErr; },
@@ -173,35 +223,21 @@ export function createClassifier({ bankIndex, assetsBase = '', demo = false, ven
     },
     exampleCount: () => examples.length,
 
-    /** Вердикт {label, conf, dists} по замороженной формуле уверенности (§6). */
-    classify(imgId) {
-      if (!examples.length) return null;
-      const f = featureOf(imgId);
-      const counts = {};
-      for (const ex of examples) counts[ex.class] = (counts[ex.class] || 0) + 1;
-      const classIds = bankIndex.classIds.filter(c => counts[c]);
-      if (classIds.length < 2) {
-        // один класс в примерах — честный ответ без сравнения (крайний случай, в занятии не бывает)
-        return { label: classIds[0], conf: 50, dists: {} };
-      }
-      const minClass = Math.min(...classIds.map(c => counts[c]));
-      // k из frozen_params: либо двухступенчатое правило-объект, либо фикс-число (тест-вариант)
-      const kBase = typeof K === 'number' ? K
-        : (minClass >= K.min_class_size_for_large ? K.large : K.small);
-      const dists = {};   // class -> d̄ до k ближайших примеров ЭТОГО класса
-      for (const cls of classIds) {
-        const ds = examples.filter(ex => ex.class === cls)
-          .map(ex => combined(f, ex.f)).sort((a, b) => a - b);
-        const k = Math.min(kBase, ds.length);
-        dists[cls] = ds.slice(0, k).reduce((s, d) => s + d, 0) / k;
-      }
-      const sorted = classIds.slice().sort((a, b) => dists[a] - dists[b]);
-      const win = sorted[0], lose = sorted[1];
-      const conf = Math.round(100 / (1 + Math.exp(-(dists[lose] - dists[win]) / T)));
-      return { label: win, conf, dists };
+    /** Версия состава обученной модели: {n, sig} — уходит в журнал с каждым замером. */
+    modelInfo() {
+      return { n: examples.length, sig: compositionSig(examples) };
     },
 
-    /** Замер на наборе ids: сколько вердиктов совпало с классом банка. */
+    /** Вердикт {label, conf, margin, dists}: метка — голосованием top-k (как пилот),
+     * уверенность — по d̄-маржам замороженной формулы (§6). */
+    classify(imgId) {
+      if (!examples.length) return null;
+      return knnClassify(featureOf(imgId), examples,
+                         { classIds: bankIndex.classIds, K, W, T });
+    },
+
+    /** Замер на наборе ids: сколько вердиктов совпало с классом банка.
+     * details — подписи КАЖДОЙ ошибки для честного экрана замера (план-правок п.3). */
     measure(ids) {
       let score = 0;
       const details = [];

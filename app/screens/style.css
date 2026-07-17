@@ -203,7 +203,8 @@ body {
 .kinput:focus { outline: none; border-color: var(--c-primary); }
 
 /* ---------- оверлеи ---------- */
-#overlaybar { position: sticky; bottom: 74px; display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+/* в потоке, НЕ sticky: прилипшая плашка-реакция перекрывала кнопки такта (Codex, скрин пробы) */
+#overlaybar { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 #overlaybar.empty { display: none; }
 .buffer {
   background: #fffbeb; border: 3px solid var(--c-secondary); border-radius: var(--r);
@@ -267,6 +268,9 @@ body {
 .box-album-more { font-size: 15px; font-weight: 800; color: var(--c-muted); }
 
 /* наглядный замер: ряд ячеек по числу картинок отложенного набора */
+.score-errors { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.score-err { font-size: 15px; font-weight: 700; color: #b83232; }
+.nextcard { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
 .scorecells { display: flex; gap: 8px; justify-content: center; margin: 6px 0; }
 .scorecell {
   width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center;

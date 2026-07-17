@@ -203,7 +203,12 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
       await clickIf(p, '#btn_train');
       await waitState(p, s2 => s2.phase !== st.phase, 15000, 'после train');
     } else if (phase.probe_set) {
-      if (!await clickIf(p, '#btn_check')) await clickIf(p, '#btn_next');
+      // на показанном вердикте — отметка «она ошиблась!» (наблюдение ребёнка, п.4 плана),
+      // потом «Дальше»; кнопка есть только при вердикте, clickIf безопасен
+      if (!await clickIf(p, '#btn_check')) {
+        await clickIf(p, '#btn_mistake');
+        await clickIf(p, '#btn_next');
+      }
     } else if (els.some(e => /^frag[1-9]$/.test(e))) {
       await clickIf(p, '#frag1');
       await waitState(p, s2 => s2.phase !== st.phase, 10000, 'после frag');
@@ -408,11 +413,14 @@ const jsonl = readdirSync(dataDir).filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test
   .flatMap(f => readFileSync(path.join(dataDir, f), 'utf-8').trim().split('\n'))
   .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
 const evTypes = new Set(jsonl.flatMap(r => (r.data.events || []).map(e => e.type)));
-for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 'version_committed',
+for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 'mistake_marked',
+                 'version_committed',
                  'version_choice', 'reveal_seen', 'captcha_commit', 'trap_added', 'retrained',
                  'measure', 'forecast_committed', 'forecast_result', 'hint', 'stuck_pressed',
                  'buffer_forecast', 'chat_msg', 'card_opened', 'best_trap_marked', 'artifact_saved'])
   ok('телеметрия: событие ' + t + ' в JSONL', evTypes.has(t));
+const measureEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'measure'));
+ok('телеметрия: замер несёт версию состава (model_sig)', measureEvents.some(e => e.model_sig));
 const gateEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'gate_enter'));
 ok('телеметрия: gate_enter с ok:false (неверный код)', gateEvents.some(e => e.ok === false));
 const hintEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'hint'));

@@ -41,6 +41,25 @@ test('редьюсер: undo снимает последнюю раскладк�
   assert.throws(() => reduce(p, { type: 'левый_тип', args: {} }), /словарь закрыт/);
 });
 
+test('редьюсер: mistake_mark дедупится, measure_result хранит версию состава и детали', () => {
+  const p = initialPayload();
+  reduce(p, { type: 'mistake_mark', args: { img: 'p1' } });
+  reduce(p, { type: 'mistake_mark', args: { img: 'p1' } });
+  reduce(p, { type: 'mistake_mark', args: { img: 'p3' } });
+  assert.deepEqual(p.mistakes, ['p1', 'p3']);
+  reduce(p, { type: 'measure_result', args: { phase: 'before', score: 1, of: 4,
+    details: [{ img: 'h1', label: 'dog', conf: 90, ok: false }],
+    model_n: 16, model_sig: 'abc', baskets_sig: 'xyz' } });
+  assert.equal(p.measures.before.model_sig, 'abc');
+  assert.equal(p.measures.before.baskets_sig, 'xyz');
+  assert.equal(p.measures.before.details.length, 1);
+  // старый снапшот без mistakes (до расширения словаря) — replay не падает
+  const old = initialPayload();
+  delete old.mistakes;
+  reduce(old, { type: 'mistake_mark', args: { img: 'p2' } });
+  assert.deepEqual(old.mistakes, ['p2']);
+});
+
 test('журнал: стартовый rev нового инстанса = max(server_rev, local_rev) + 1', () => {
   const j = createJournal({ storage: memStorage() });
   j.append('basket_assign', { img: 't1', basket: 'cat' });   // local rev 1

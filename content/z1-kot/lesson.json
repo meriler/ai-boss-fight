@@ -96,9 +96,7 @@
             "elements": [
               "btn_train"
             ],
-            "overlays": [
-              "reaction"
-            ]
+            "overlays": []
           },
           {
             "id": "probe",
@@ -261,7 +259,15 @@
         "phases": [
           {
             "id": "intro",
-            "text": "Коробка попалась — она смотрела на фон, а не на животное! Почини её: добавь картинки-ловушки",
+            "text": "Коробка попалась — она смотрела на фон, а не на животное! Почини её ловушками",
+            "elements": [
+              "btn_next"
+            ],
+            "overlays": []
+          },
+          {
+            "id": "intro_def",
+            "text": "Ловушка — картинка, которая проверяет, на что смотрит коробка. Добавь все 8!",
             "elements": [
               "btn_next"
             ],
@@ -269,7 +275,7 @@
           },
           {
             "id": "traps",
-            "text": "Добавь картинки-ловушки — по одной",
+            "text": "Добавь все 8 ловушек — по одной",
             "elements": [
               "img_current",
               "btn_pick",
@@ -284,9 +290,7 @@
             "elements": [
               "btn_train"
             ],
-            "overlays": [
-              "reaction"
-            ]
+            "overlays": []
           },
           {
             "id": "measure_after",
@@ -386,6 +390,10 @@
           "cards": [
             "next/put-detektiva.png",
             "next/pasport-preview.png"
+          ],
+          "captions": [
+            "Путь детектива: какие дела ждут дальше",
+            "Паспорт детектива: сюда лягут твои находки"
           ]
         }
       }
@@ -446,9 +454,7 @@
             "elements": [
               "btn_train"
             ],
-            "overlays": [
-              "reaction"
-            ]
+            "overlays": []
           },
           {
             "id": "boost_measure",
@@ -490,7 +496,7 @@
       },
       "s6.traps": {
         "l1": "Каких котов коробка ещё не видела?",
-        "l2": "Добавь кота НА УЛИЦЕ в корзину «Коты»",
+        "l2": "Жми «Добавить в обучение» — и так со всеми восемью",
         "restore_to": "s6.retrain"
       },
       "s6.forecast_predict": {
