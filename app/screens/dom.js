@@ -48,10 +48,13 @@ export function verdictCard(labelText, conf) {
     h('div', { class: 'verdict-conf' }, 'уверена на ' + conf + '%'));
 }
 
-/** Счёт замера «X из Y» крупно. */
+/** Счёт замера «X из Y» крупно + наглядный ряд ячеек ✓/✗ (по одной на картинку набора). */
 export function scoreCard(score, of, caption) {
+  const cells = Array.from({ length: of }, (_, i) =>
+    h('span', { class: 'scorecell ' + (i < score ? 'ok' : 'bad') }, i < score ? '✓' : '✗'));
   return h('div', { class: 'scorecard' },
     caption ? h('div', { class: 'score-cap', 'data-kid': '1' }, caption) : null,
+    h('div', { class: 'scorecells' }, ...cells),
     h('div', { class: 'score-big' }, score + ' из ' + of));
 }
 

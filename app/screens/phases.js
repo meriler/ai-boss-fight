@@ -479,8 +479,13 @@ function quizCard(ctx, step, phase) {
       setTimeout(() => ctx.advancePhase() || ctx.finishStep(), ctx.demo ? 250 : 900);
     }, { kind, id: 'quizopt' + i });
   })));
-  if (answered != null)
+  if (answered != null) {
     body.push(kidText(answered === card.correct ? 'Верно!' : 'Правильный ответ подсвечен', { small: true }));
+    // ручной выход с уже отвеченной карточки: авто-переход по setTimeout живёт только
+    // в момент клика — после F5 или повторного входа в резерв без этой кнопки тупик
+    body.push(bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(),
+      { id: 'btn_next', kind: 'secondary' }));
+  }
   return h('div', { class: 'taskcard quizcard' }, ...body);
 }
 
@@ -529,6 +534,7 @@ function talkPhase(ctx, step, phase) {
   const thinkSec = ctx.demo ? Math.min(2, step.think_sec || 30) : (step.think_sec || 30);
   const body = [h('div', { class: 'quiz-title', 'data-kid': '1' }, step.prompt || '')];
   if (!started) {
+    body.push(kidText('Сначала подумай молча — потом откроется чат, куда напечатать', { small: true }));
     body.push(bigBtn('Начать думать (' + (step.think_sec || 30) + ' сек)', () => {
       ctx.local[key] = Date.now();
       ctx.render();
