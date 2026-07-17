@@ -77,7 +77,7 @@
       "required": ["id", "type", "catchup"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_]*$" },
-        "type": { "enum": ["gate", "cards_quiz", "trainer_act", "break", "talk_chat", "final_card"] },
+        "type": { "enum": ["gate", "cards_quiz", "trainer_act", "talk_chat", "final_card"] },
         "timebox_min": { "type": "number", "minimum": 0.5, "description": "Данные, не код: правится после репетиции" },
         "catchup": { "$ref": "#/$defs/childText", "description": "Карточка догоняющему — обязательна у КАЖДОГО шага (§1.1)" },
         "gate": { "$ref": "#/$defs/gateSpec", "description": "Входной гейт шага (допустим у любого типа, напр. trainer_act s6)" },
@@ -208,10 +208,6 @@
                 "forecast": { "$ref": "#/$defs/forecastSpec" }
               },
               "required": ["mode", "phases"]
-            },
-            {
-              "properties": { "type": { "const": "break" }, "text": { "$ref": "#/$defs/childText" } },
-              "required": ["text"]
             },
             {
               "properties": {

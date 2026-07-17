@@ -4,7 +4,7 @@
  *
  * Нормализация: у КАЖДОГО шага появляется steps[i].phases[] (такты — сущность манифеста):
  *  - trainer_act несёт явные phases[] (требование схемы);
- *  - шаги-«один такт» (gate, break, talk_chat, final_card) и cards_quiz разворачиваются
+ *  - шаги-«один такт» (gate, talk_chat, final_card) и cards_quiz разворачиваются
  *    в derived-такты по типовым формулам аннекса (ТЗ-демка-з1-схема-манифеста §1.4);
  *  - у каждого такта проставлен limitCount = len(elements)+len(overlays) (или формула
  *    для derived) — первый рубеж лимита ≤5 конституции, считает валидатор. */
@@ -35,8 +35,6 @@ export function derivePhases(step) {
   switch (step.type) {
     case 'gate':
       return [{ id: 'gate', elements: [], overlays: [], derived: true, limitCount: 1 }];
-    case 'break':
-      return [{ id: 'main', elements: [], overlays: [], derived: true, limitCount: 0 }];
     case 'cards_quiz':
       return (step.cards || []).map(card => ({
         id: 'card_' + card.id, card, elements: [], overlays: [],

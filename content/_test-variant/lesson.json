@@ -57,12 +57,8 @@
           "show_anon_versions": true
         } },
 
-      { "id": "pauza", "type": "break", "timebox_min": 4,
-        "catchup": "Короткий перерыв — встань от экрана",
-        "text": "Перерыв 4 минуты — разомнись!" },
-
       { "id": "q1", "type": "cards_quiz", "timebox_min": 4,
-        "catchup": "Квиз после перерыва: где тут работает ИИ?",
+        "catchup": "Квиз: где тут работает ИИ?",
         "cards": [
           { "id": "vc1", "img": "quiz/perevodchik.png", "title": "Переводчик в телефоне",
             "options": ["ИИ", "не ИИ"], "correct": 0 },

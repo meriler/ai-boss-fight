@@ -73,13 +73,6 @@
           "show_anon_versions": true
         } },
 
-      { "id": "s3", "type": "break", "timebox_min": 5,
-        "catchup": "Сейчас перерыв 5 минут — встань от экрана",
-        "text": "Перерыв 5 минут — встань от экрана" },
-
-      { "id": "s4", "type": "gate", "gate": { "kind": "code" }, "timebox_min": 2,
-        "catchup": "Перерыв кончился. Введи код с голоса ведущего" },
-
       { "id": "s5", "type": "cards_quiz", "timebox_min": 5,
         "catchup": "Реши капчу: выбери все светофоры и подтверди",
         "private_commit": true,

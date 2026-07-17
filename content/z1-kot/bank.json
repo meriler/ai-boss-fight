@@ -1,51 +1,311 @@
 {
   "id": "z1-cats-dogs",
   "classes": [
-    { "id": "cat", "label": "Коты" },
-    { "id": "dog", "label": "Собаки" }
+    {
+      "id": "cat",
+      "label": "Коты"
+    },
+    {
+      "id": "dog",
+      "label": "Собаки"
+    }
   ],
   "spurious": "фон: помещение/улица",
-  "pilot_status": "pending",
+  "pilot_status": "frozen",
+  "frozen_params": {
+    "frozen_at": "2026-07-17",
+    "embedder": "mobilenet_v3_small_embedder.tflite (MediaPipe ImageEmbedder, models/)",
+    "k": 3,
+    "weights": {
+      "embed": 0.65,
+      "pixel": 0.35
+    },
+    "confidence_map": "conf = 100·sigmoid((d̄_проигравшего − d̄_победителя)/T), T=0.03; d̄ класса — среднее комбинированное расстояние до k ближайших примеров класса; k=3 при min(примеров на класс)<10, k=5 при ≥10 (правило v5); расстояние = 0.65·(1−cosE)+0.35·(1−cosP), ветки как в v5 (эмбеддинг L2-норм; 32×32 grayscale, минус среднее, L2-норм)"
+  },
   "images": [
-    { "id": "t1",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t1.png" },
-    { "id": "t2",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t2.png" },
-    { "id": "t3",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t3.png" },
-    { "id": "t4",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t4.png" },
-    { "id": "t5",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t5.png" },
-    { "id": "t6",  "class": "cat", "role": "train_core", "bg": "дом",   "src": "cats/t6.png" },
-    { "id": "t7",  "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t7.png" },
-    { "id": "t8",  "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t8.png" },
-    { "id": "t9",  "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t9.png" },
-    { "id": "t10", "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t10.png" },
-    { "id": "t11", "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t11.png" },
-    { "id": "t12", "class": "dog", "role": "train_core", "bg": "улица", "src": "dogs/t12.png" },
-
-    { "id": "p1", "class": "cat", "role": "probe", "bg": "улица", "src": "probe/p1.png", "expected_flip": true },
-    { "id": "p2", "class": "dog", "role": "probe", "bg": "дом",   "src": "probe/p2.png", "expected_flip": true },
-    { "id": "p3", "class": "cat", "role": "probe", "bg": "дом",   "src": "probe/p3.png" },
-    { "id": "p4", "class": "dog", "role": "probe", "bg": "улица", "src": "probe/p4.png" },
-
-    { "id": "tr1", "class": "cat", "role": "trap", "bg": "улица", "src": "traps/tr1.png" },
-    { "id": "tr2", "class": "cat", "role": "trap", "bg": "улица", "src": "traps/tr2.png" },
-    { "id": "tr3", "class": "cat", "role": "trap", "bg": "улица", "src": "traps/tr3.png" },
-    { "id": "tr4", "class": "dog", "role": "trap", "bg": "дом",   "src": "traps/tr4.png" },
-    { "id": "tr5", "class": "dog", "role": "trap", "bg": "дом",   "src": "traps/tr5.png" },
-    { "id": "tr6", "class": "dog", "role": "trap", "bg": "дом",   "src": "traps/tr6.png" },
-
-    { "id": "h1", "class": "cat", "role": "holdout", "bg": "улица", "src": "holdout/h1.png" },
-    { "id": "h2", "class": "dog", "role": "holdout", "bg": "дом",   "src": "holdout/h2.png" },
-    { "id": "h3", "class": "cat", "role": "holdout", "bg": "улица", "src": "holdout/h3.png" },
-    { "id": "h4", "class": "dog", "role": "holdout", "bg": "дом",   "src": "holdout/h4.png" },
-
-    { "id": "f1", "class": "cat", "role": "forecast", "bg": "дом", "src": "forecast/f1.png" },
-
-    { "id": "b1", "class": "dog", "role": "buffer", "bg": "дом",   "src": "buffer/b1.png" },
-    { "id": "b2", "class": "cat", "role": "buffer", "bg": "улица", "src": "buffer/b2.png" },
-    { "id": "b3", "class": "dog", "role": "buffer", "bg": "улица", "src": "buffer/b3.png" },
-
-    { "id": "r1", "class": "cat", "role": "reserve", "bg": "улица", "src": "reserve/r1.png" },
-    { "id": "r2", "class": "cat", "role": "reserve", "bg": "улица", "src": "reserve/r2.png" },
-    { "id": "r3", "class": "dog", "role": "reserve", "bg": "дом",   "src": "reserve/r3.png" },
-    { "id": "r4", "class": "dog", "role": "reserve", "bg": "дом",   "src": "reserve/r4.png" }
+    {
+      "id": "t1",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t1.jpg"
+    },
+    {
+      "id": "t2",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t2.jpg"
+    },
+    {
+      "id": "t3",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t3.jpg"
+    },
+    {
+      "id": "t4",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t4.jpg"
+    },
+    {
+      "id": "t5",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t5.jpg"
+    },
+    {
+      "id": "t6",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t6.jpg"
+    },
+    {
+      "id": "t7",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t7.jpg"
+    },
+    {
+      "id": "t8",
+      "class": "cat",
+      "role": "train_core",
+      "bg": "дом",
+      "src": "cats/t8.jpg"
+    },
+    {
+      "id": "t9",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t9.jpg"
+    },
+    {
+      "id": "t10",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t10.jpg"
+    },
+    {
+      "id": "t11",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t11.jpg"
+    },
+    {
+      "id": "t12",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t12.jpg"
+    },
+    {
+      "id": "t13",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t13.jpg"
+    },
+    {
+      "id": "t14",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t14.jpg"
+    },
+    {
+      "id": "t15",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t15.jpg"
+    },
+    {
+      "id": "t16",
+      "class": "dog",
+      "role": "train_core",
+      "bg": "улица",
+      "src": "dogs/t16.jpg"
+    },
+    {
+      "id": "p1",
+      "class": "cat",
+      "role": "probe",
+      "bg": "улица",
+      "src": "probe/p1.jpg",
+      "expected_flip": true
+    },
+    {
+      "id": "p2",
+      "class": "dog",
+      "role": "probe",
+      "bg": "дом",
+      "src": "probe/p2.jpg",
+      "expected_flip": true
+    },
+    {
+      "id": "p3",
+      "class": "cat",
+      "role": "probe",
+      "bg": "дом",
+      "src": "probe/p3.jpg",
+      "expected_flip": false
+    },
+    {
+      "id": "p4",
+      "class": "dog",
+      "role": "probe",
+      "bg": "улица",
+      "src": "probe/p4.jpg",
+      "expected_flip": false
+    },
+    {
+      "id": "tr1",
+      "class": "cat",
+      "role": "trap",
+      "bg": "улица",
+      "src": "traps/tr1.jpg"
+    },
+    {
+      "id": "tr2",
+      "class": "cat",
+      "role": "trap",
+      "bg": "улица",
+      "src": "traps/tr2.jpg"
+    },
+    {
+      "id": "tr3",
+      "class": "cat",
+      "role": "trap",
+      "bg": "улица",
+      "src": "traps/tr3.jpg"
+    },
+    {
+      "id": "tr4",
+      "class": "cat",
+      "role": "trap",
+      "bg": "улица",
+      "src": "traps/tr4.jpg"
+    },
+    {
+      "id": "tr5",
+      "class": "dog",
+      "role": "trap",
+      "bg": "дом",
+      "src": "traps/tr5.jpg"
+    },
+    {
+      "id": "tr6",
+      "class": "dog",
+      "role": "trap",
+      "bg": "дом",
+      "src": "traps/tr6.jpg"
+    },
+    {
+      "id": "tr7",
+      "class": "dog",
+      "role": "trap",
+      "bg": "дом",
+      "src": "traps/tr7.jpg"
+    },
+    {
+      "id": "tr8",
+      "class": "dog",
+      "role": "trap",
+      "bg": "дом",
+      "src": "traps/tr8.jpg"
+    },
+    {
+      "id": "h1",
+      "class": "cat",
+      "role": "holdout",
+      "bg": "улица",
+      "src": "holdout/h1.jpg"
+    },
+    {
+      "id": "h2",
+      "class": "dog",
+      "role": "holdout",
+      "bg": "дом",
+      "src": "holdout/h2.jpg"
+    },
+    {
+      "id": "h3",
+      "class": "cat",
+      "role": "holdout",
+      "bg": "улица",
+      "src": "holdout/h3.jpg"
+    },
+    {
+      "id": "h4",
+      "class": "dog",
+      "role": "holdout",
+      "bg": "дом",
+      "src": "holdout/h4.jpg"
+    },
+    {
+      "id": "f1",
+      "class": "cat",
+      "role": "forecast",
+      "bg": "дом",
+      "src": "forecast/f1.jpg"
+    },
+    {
+      "id": "b1",
+      "class": "dog",
+      "role": "buffer",
+      "bg": "дом",
+      "src": "buffer/b1.jpg"
+    },
+    {
+      "id": "b2",
+      "class": "cat",
+      "role": "buffer",
+      "bg": "улица",
+      "src": "buffer/b2.jpg"
+    },
+    {
+      "id": "b3",
+      "class": "dog",
+      "role": "buffer",
+      "bg": "улица",
+      "src": "buffer/b3.jpg"
+    },
+    {
+      "id": "r1",
+      "class": "cat",
+      "role": "reserve",
+      "bg": "улица",
+      "src": "reserve/r1.jpg"
+    },
+    {
+      "id": "r2",
+      "class": "cat",
+      "role": "reserve",
+      "bg": "улица",
+      "src": "reserve/r2.jpg"
+    },
+    {
+      "id": "r3",
+      "class": "dog",
+      "role": "reserve",
+      "bg": "дом",
+      "src": "reserve/r3.jpg"
+    },
+    {
+      "id": "r4",
+      "class": "dog",
+      "role": "reserve",
+      "bg": "дом",
+      "src": "reserve/r4.jpg"
+    }
   ]
 }
