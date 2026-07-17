@@ -444,7 +444,10 @@ async function boot() {
                           demo: ctx.demo, ws: QP.has('ws') }).attach();
   ctx.tele.cleanup();
   ctx.tele.resend();
-  ctx.classifier = createClassifier({ bankIndex, assetsBase: ctx.assetsBase, demo: ctx.demo });
+  // vendorBase — АБСОЛЮТНАЯ база от URL страницы: внутри classifier.js идёт dynamic import,
+  // а относительный/голый спецификатор там резолвится от модуля (или падает сразу), не от страницы
+  ctx.classifier = createClassifier({ bankIndex, assetsBase: ctx.assetsBase, demo: ctx.demo,
+                                      vendorBase: new URL('.', location.href).href });
   ctx.overlays = createOverlays(ctx);
 
   // /restore: занятие могло ещё не начаться (no_run) — ждём старта ведущего
