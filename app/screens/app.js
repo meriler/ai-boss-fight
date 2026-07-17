@@ -74,8 +74,11 @@ function render() {
   if (ctx.machine.done) { renderDone(); return; }
   const content = renderPhase(ctx);
   const phase = ctx.machine.phase();
+  // интро-такты («только btn_next») несут текст в самой карточке — шапка дублировала бы его
+  const introOnly = phase && (phase.elements || []).length &&
+    (phase.elements || []).every(e => e === 'btn_next');
   screen.replaceChildren(
-    phase && phase.text ? h('div', { class: 'phasetext', 'data-kid': '1' }, phase.text) : '',
+    phase && phase.text && !introOnly ? h('div', { class: 'phasetext', 'data-kid': '1' }, phase.text) : '',
     content || '');
   ctx.overlays.refreshOverlays();
 }

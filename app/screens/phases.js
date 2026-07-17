@@ -51,10 +51,46 @@ function zones(ctx, step, { input, box, output }) {
     h('section', { class: 'zone zone-' + name + (active ? ' zone-active' : ''), 'data-zone': name },
       h('div', { class: 'zone-title' }, title),
       h('div', { class: 'zone-body' }, ...[content].flat().filter(Boolean)));
+  // зона коробки — не пустая полка: маскот (коробку ВИДНО, а не только слово)
+  // + альбом, ЧЕМ она научена (миниатюры корзин — обучение видимо и правдоподобно)
+  const boxBody = [boxMascot(), ...[box.content].flat().filter(Boolean), boxAlbum(ctx)];
   return h('div', { class: 'zones' },
     zone('in', 'Картинки — вход', input.content, input.active),
-    zone('box', 'Коробка — учится', box.content, box.active),
+    zone('box', 'Коробка — учится', boxBody, box.active),
     zone('out', 'Ответ — выход', output.content, output.active));
+}
+
+function boxMascot({ big = false } = {}) {
+  return h('img', { class: 'box-mascot' + (big ? ' box-mascot-big' : ''),
+                    src: 'assets/box-mascot.png', alt: 'обучаемая коробка' });
+}
+
+/** Альбом обучения: чем наполнены корзины (раскладка + ловушки), сгруппировано по классам. */
+function boxAlbum(ctx) {
+  const groups = new Map();
+  const add = (classId, imgId) => {
+    if (!groups.has(classId)) groups.set(classId, []);
+    groups.get(classId).push(imgId);
+  };
+  for (const b of ctx.payload.baskets) add(b.basket, b.img);
+  for (const imgId of ctx.payload.traps || []) {
+    const img = ctx.bankIndex.byId.get(imgId);
+    if (img) add(img.class, imgId);
+  }
+  if (!groups.size) return null;
+  const MAXTHUMBS = 8;
+  const rows = [];
+  for (const [classId, imgs] of groups) {
+    const cls = ctx.bankIndex.classById.get(classId);
+    rows.push(h('div', { class: 'box-album-row' },
+      h('span', { class: 'box-album-label' }, (cls ? cls.label : classId) + ' · ' + imgs.length),
+      ...imgs.slice(-MAXTHUMBS).map(id => {
+        const img = ctx.bankIndex.byId.get(id);
+        return img ? h('img', { class: 'box-album-thumb', src: ctx.assetsBase + img.src, alt: '' }) : null;
+      }).filter(Boolean),
+      imgs.length > MAXTHUMBS ? h('span', { class: 'box-album-more' }, '+' + (imgs.length - MAXTHUMBS)) : null));
+  }
+  return h('div', { class: 'box-album' }, ...rows);
 }
 
 function boxStatus(ctx) {
@@ -667,9 +703,11 @@ export function renderPhase(ctx) {
     // такт разгадки — структурно: последний такт шага с reveal (id — свободные данные)
     if (step.reveal && step.phases[step.phases.length - 1].id === phase.id)
       return revealPhase(ctx, step, phase);
-    // генерик «карточка текста + Дальше» — интро и связки, объявленные данными манифеста
+    // генерик «карточка текста + Дальше» — интро и связки, объявленные данными манифеста;
+    // с маскотом: коробку в интро ВИДНО, а не только называем словом
     if ((phase.elements || []).length && (phase.elements || []).every(e => e === 'btn_next'))
-      return h('div', { class: 'taskcard' },
+      return h('div', { class: 'taskcard introcard' },
+        boxMascot({ big: true }),
         kidText(phase.text || ''),
         bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(), { id: 'btn_next' }));
     if (hasEl(phase, 'btn_check') && step.forecast &&

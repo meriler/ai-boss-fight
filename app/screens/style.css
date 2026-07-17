@@ -256,6 +256,16 @@ body {
 }
 .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
+/* маскот-коробка и альбом обучения (зона «Коробка — учится» — не пустая полка) */
+.box-mascot { width: 64px; height: 64px; border-radius: 14px; }
+.box-mascot-big { width: 180px; height: 180px; border-radius: 20px; }
+.introcard { align-items: center; text-align: center; gap: 12px; }
+.box-album { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.box-album-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: center; }
+.box-album-label { font-size: 15px; font-weight: 800; color: var(--c-muted); margin-right: 4px; }
+.box-album-thumb { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; border: 2px solid var(--c-border); }
+.box-album-more { font-size: 15px; font-weight: 800; color: var(--c-muted); }
+
 /* наглядный замер: ряд ячеек по числу картинок отложенного набора */
 .scorecells { display: flex; gap: 8px; justify-content: center; margin: 6px 0; }
 .scorecell {

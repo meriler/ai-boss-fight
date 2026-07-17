@@ -75,7 +75,16 @@ const clickIf = async (p, sel) => {
   if (!el) return false;
   const usable = await el.evaluate(e => !e.disabled && !e.closest('[inert]') && e.getClientRects().length > 0);
   if (!usable) return false;
-  await el.click();
+  // рендер (поллинг/авто-замер) может заменить узел между захватом и кликом — перезахват до 3 раз
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const target = attempt === 0 ? el : await p.$(sel);
+    if (!target) return false;
+    try { await target.click({ timeout: 5000 }); return true; }
+    catch (e) {
+      if (attempt === 2) throw new Error('clickIf(' + sel + '): ' + e.message.split('\n')[0]);
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
   return true;
 };
 
