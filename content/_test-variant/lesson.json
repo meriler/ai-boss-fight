@@ -1,0 +1,159 @@
+{
+  "manifest_schema_version": 1,
+  "lesson": {
+    "id": "tv-frukty",
+    "title": "Тест-вариант: дело о зелёном яблоке",
+    "duration_min": 60,
+    "bank": "tv-apples-pears",
+    "steps": [
+      { "id": "g1", "type": "gate", "gate": { "kind": "code" }, "timebox_min": 2,
+        "catchup": "Тест-занятие началось. Введи код ведущего" },
+
+      { "id": "act1", "type": "trainer_act", "mode": "rails", "timebox_min": 18,
+        "catchup": "Учим коробку отличать яблоки от груш. Разложи по корзинам",
+        "phases": [
+          { "id": "sort", "text": "Разложи фрукты: яблоки — сюда, груши — сюда",
+            "elements": ["img_current", "basket_apple", "basket_pear", "btn_next", "btn_undo"], "overlays": [] },
+          { "id": "teach", "text": "Жми «Научить»!",
+            "elements": ["btn_train"], "overlays": ["reaction"] },
+          { "id": "check", "text": "Проверь коробку на новых фруктах",
+            "probe_set": ["vp1", "vp2", "vp3"], "microcycle_reaction": true,
+            "elements": ["img_current", "btn_check", "btn_next"], "overlays": ["reaction"] },
+          { "id": "guess_a", "text": "Что выучила коробка?",
+            "slot": 1, "elements": ["frag1", "frag2", "frag3"], "overlays": [] },
+          { "id": "guess_b", "text": "Почему так вышло?",
+            "slot": 2, "elements": ["frag1", "frag2"], "overlays": [] },
+          { "id": "guess_send", "text": "Жми «Моя догадка!»",
+            "elements": ["btn_commit"], "overlays": [] },
+          { "id": "guess_pick", "text": "Выбери причину из вариантов",
+            "elements": ["opt1", "opt2", "opt3"], "overlays": [] },
+          { "id": "lobby", "text": "Догадка принята — ждём остальных",
+            "elements": [], "overlays": ["buffer"] },
+          { "id": "secret", "text": "Секрет раскрыт!",
+            "elements": ["btn_next"], "overlays": ["reaction", "chat"] }
+        ],
+        "version": {
+          "template": {
+            "lead": "Коробка выучила ___, потому что ___",
+            "slots": [
+              ["форму", "цвет", "хвостик"],
+              ["яблоки красные, груши зелёные", "фруктов мало"]
+            ],
+            "free_text": false
+          },
+          "choice": {
+            "options": [
+              "Она смотрит на форму фрукта",
+              "Она выучила цвет: красный или зелёный",
+              "Она подбрасывает монетку"
+            ],
+            "correct": 1
+          },
+          "reveal_lock": true
+        },
+        "reveal": {
+          "cards": ["reveal/tsvet-sekret.png"],
+          "text": "Тайная примета — цвет, а не форма фрукта!",
+          "show_anon_versions": true
+        } },
+
+      { "id": "pauza", "type": "break", "timebox_min": 4,
+        "catchup": "Короткий перерыв — встань от экрана",
+        "text": "Перерыв 4 минуты — разомнись!" },
+
+      { "id": "q1", "type": "cards_quiz", "timebox_min": 4,
+        "catchup": "Квиз после перерыва: где тут работает ИИ?",
+        "cards": [
+          { "id": "vc1", "img": "quiz/perevodchik.png", "title": "Переводчик в телефоне",
+            "options": ["ИИ", "не ИИ"], "correct": 0 },
+          { "id": "vc2", "img": "quiz/lineyka.png", "title": "Линейка",
+            "options": ["ИИ", "не ИИ"], "correct": 1 }
+        ] },
+
+      { "id": "g2", "type": "gate", "gate": { "kind": "checkin" }, "timebox_min": 1,
+        "catchup": "Собираемся дальше: нажми «я тут»" },
+
+      { "id": "act2", "type": "trainer_act", "mode": "fix", "timebox_min": 16,
+        "catchup": "Чиним коробку: добавь фрукты-ловушки и научи заново",
+        "traps_from_bank": true,
+        "phases": [
+          { "id": "add_traps", "text": "Добавь фрукты-ловушки — по одному",
+            "elements": ["img_current", "btn_pick", "btn_next", "btn_undo"], "overlays": [] },
+          { "id": "reteach", "text": "Научи коробку заново!",
+            "elements": ["btn_train"], "overlays": ["reaction"] },
+          { "id": "score_after", "text": "Считаем: сколько из четырёх?",
+            "elements": ["btn_check"], "overlays": [] },
+          { "id": "bet", "text": "Что скажет коробка про этот фрукт?",
+            "elements": ["img_current", "opt1", "opt2"], "overlays": [] },
+          { "id": "bet_why", "text": "Почему ты так решил?",
+            "elements": ["opt1", "opt2", "opt3"], "overlays": [] },
+          { "id": "bet_send", "text": "Жми «Мой прогноз!»",
+            "elements": ["btn_commit"], "overlays": [] },
+          { "id": "bet_run", "text": "Проверяем прогноз!",
+            "elements": ["btn_check", "btn_next"], "overlays": ["reaction"] }
+        ],
+        "measure": { "holdout": ["vh1", "vh2", "vh3", "vh4"], "pass": "3/4",
+          "before": "auto", "after": "on_retrain" },
+        "forecast": { "img": "vf1",
+          "predict_options": ["скажет «яблоко»", "скажет «груша»"],
+          "reason_options": ["теперь она смотрит на форму",
+            "она всё ещё смотрит на цвет", "она угадывает"],
+          "expected": { "predict": 0, "reason": 0 } } },
+
+      { "id": "fin", "type": "final_card", "timebox_min": 4,
+        "catchup": "Открой карточку дела и отметь лучшую ловушку",
+        "action": "mark_best_trap",
+        "presentation": "one_by_one",
+        "next_block": { "cards": ["next/dalshe-preview.png"] } },
+
+      { "id": "talk", "type": "talk_chat", "timebox_min": 5, "gate": { "kind": "checkin" },
+        "catchup": "Финальный разговор: может ли коробка ошибаться уверенно?",
+        "prompt": "Коробка ошибалась УВЕРЕННО. Как так? 20 сек подумай — напечатай",
+        "think_sec": 20 }
+    ],
+
+    "reserve_steps": [
+      { "id": "vr1", "kind": "talk", "type": "cards_quiz",
+        "title": "Резерв: угадай, что посоветует лента",
+        "catchup": "Резервный квиз: что посоветует лента рекомендаций",
+        "cards": [
+          { "id": "vrq1", "img": "reserve/lenta-sport.png", "title": "Смотрел только футбол. Что дальше?",
+            "options": ["ещё футбол", "балет"], "correct": 0 }
+        ] },
+      { "id": "vr2", "kind": "trainer", "type": "trainer_act", "mode": "boost",
+        "title": "Добор: 4 из 4",
+        "catchup": "Добираем точность: вот фрукты, которых коробке не хватало",
+        "images_from_role": "reserve",
+        "phases": [
+          { "id": "more_add", "text": "Добавь недостающие фрукты — по одному",
+            "elements": ["img_current", "btn_pick", "btn_next", "btn_undo"], "overlays": [] },
+          { "id": "more_train", "text": "Научи заново!",
+            "elements": ["btn_train"], "overlays": ["reaction"] },
+          { "id": "more_score", "text": "Финальный счёт!",
+            "elements": ["btn_check"], "overlays": [] }
+        ],
+        "measure": { "holdout": ["vh1", "vh2", "vh3", "vh4"], "pass": "4/4",
+          "before": "auto", "after": "on_retrain" } }
+    ],
+
+    "hints": {
+      "act1.sort": { "l1": "Круглое или с хвостиком-грушей?",
+        "l2": "Перетащи ЭТОТ фрукт в корзину «Яблоки»", "restore_to": "act1.teach" },
+      "act2.add_traps": { "l1": "Каких яблок коробка ещё не видела?",
+        "l2": "Добавь ЗЕЛЁНОЕ яблоко в корзину «Яблоки»", "restore_to": "act2.reteach" }
+    },
+
+    "ui_texts": {
+      "buffer_btn": "Спорим?",
+      "stuck_btn": "Застрял",
+      "reaction_btn": "Ура!",
+      "waiting": "Догадка принята — ждём остальных",
+      "sending": "Отправляю…",
+      "offline_retry": "Нет связи — повторю сам",
+      "other_tab": "Открыто в другой вкладке",
+      "continue_here": "Продолжить здесь",
+      "restoring": "Коробка вспоминает…",
+      "catchup_title": "Что уже было"
+    }
+  }
+}

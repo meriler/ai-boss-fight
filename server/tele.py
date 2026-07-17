@@ -8,7 +8,11 @@ GET  /dash  — дашборд для Алексея/Насти (за nginx basi
 локальный маппинг /var/lib/ws-tele/seats.json (кладёт генератор персональных ссылок).
 Дизайн дашборда: ревью Codex 10.07 — действие важнее статуса, красные вверх, легенда свёрнута.
 
-Деплой: scp server/{tele.py,telemetry_model.py} aeza:/opt/ws-tele/ && ssh aeza systemctl restart ws-tele
+Стейтфул-контур занятия фазы 0 (ТЗ-демка-з1 §4.1) — lesson_state.py: /save /restore /commit
+/sync /chat /react /host/* (маршрутизация ниже, вся логика и файлы состояния — в модуле;
+контракты /tele, /dash, sess_start/sess_stop НЕ меняются, DoD п.10).
+
+Деплой: scp server/{tele.py,telemetry_model.py,lesson_state.py} aeza:/opt/ws-tele/ && ssh aeza systemctl restart ws-tele
 Данные: /var/lib/ws-tele/YYYY-MM-DD.jsonl (owner bots, TTL 45д через tmpfiles.d)."""
 import html, json, os, re, threading, time
 from datetime import datetime, timezone, timedelta
@@ -16,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from telemetry_model import (parse_lines, dedupe, build_children, fmt_r, cut, stage_label,
                              roster_child, fmt_stages, fmt_hw)
+import lesson_state
 
 DIR = os.environ.get('WS_TELE_DIR', '/var/lib/ws-tele')   # env — для локального теста
 MAX = 262144
@@ -25,6 +30,7 @@ _lock = threading.Lock()  # append из потоков — сериализуе�
 # WS_DEMO_URL) — сервисы разные (/opt/ws-tele на Aeza vs бот), импортировать неоткуда. При смене
 # демки (v5→v6) править В ОБОИХ местах. Параметры ?ws=1&seat=N обязательны (телеметрия по seat).
 WS_DEMO_URL = 'https://ws.meriler.cc/v5.html?ws=1&seat={seat}'
+LESSON_STORE = lesson_state.LessonStore(DIR)   # стейтфул-контур занятия (§4.1), файлы в DIR
 
 
 def valid(d):
@@ -44,6 +50,8 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path.rstrip('/') == '/dash':          # админ-действия дашборда (за nginx basic auth)
             return self._admin()
+        if u.path in lesson_state.POST_HANDLERS:   # стейтфул-контур занятия (§4.1)
+            return self._lesson_post(u)
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0 or n > MAX:
             self.send_response(413); self.end_headers(); return
@@ -59,6 +67,31 @@ class H(BaseHTTPRequestHandler):
         with _lock, open(fn, 'a', encoding='utf-8') as f:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')
         self.send_response(204); self.end_headers()
+
+    def _lesson_post(self, u):
+        """POST-ручки контура занятия. /host/* — за nginx basic auth, плюс тот же дешёвый
+        CSRF-гард по Referer, что у _admin (вызовы идут со страницы дашборда)."""
+        if u.path.startswith('/host/') and '/dash' not in (self.headers.get('Referer') or ''):
+            return self._json(403, {'ok': False, 'error': 'forbidden'})
+        n = int(self.headers.get('Content-Length') or 0)
+        if n <= 0 or n > MAX:
+            return self._json(413, {'ok': False, 'error': 'too_large'})
+        try:
+            body = json.loads(self.rfile.read(n))
+            assert isinstance(body, dict)
+        except Exception:
+            return self._json(400, {'ok': False, 'error': 'bad_json'})
+        status, resp = lesson_state.handle_post(LESSON_STORE, u.path, body)
+        return self._json(status, resp)
+
+    def _json(self, status, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _admin(self):
         """Управление с дашборда (запрос Алексея 10.07): сброс данных дня (в архив, не удаление),
@@ -168,6 +201,9 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path in ('/restore', '/sync'):        # контур занятия (§4.1): чтение по seat
+            status, resp = lesson_state.handle_get(LESSON_STORE, u.path, parse_qs(u.query))
+            return self._json(status, resp)
         if u.path.rstrip('/') != '/dash':          # /tele — только POST; наружу торчит лишь /dash (за basic auth)
             self.send_response(404); self.end_headers(); return
         q = parse_qs(u.query)

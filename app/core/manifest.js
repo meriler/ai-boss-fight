@@ -1,0 +1,102 @@
+/* Манифест-интерпретатор, часть 1: загрузка и нормализация (ТЗ-демка-з1 §1.1, §3).
+ * Чистый модуль без DOM — им же пользуются валидатор и эталонная проходимость в CI (Node).
+ * Идентичность занятия движок не знает: всё занятие — данные lesson.json/bank.json.
+ *
+ * Нормализация: у КАЖДОГО шага появляется steps[i].phases[] (такты — сущность манифеста):
+ *  - trainer_act несёт явные phases[] (требование схемы);
+ *  - шаги-«один такт» (gate, break, talk_chat, final_card) и cards_quiz разворачиваются
+ *    в derived-такты по типовым формулам аннекса (ТЗ-демка-з1-схема-манифеста §1.4);
+ *  - у каждого такта проставлен limitCount = len(elements)+len(overlays) (или формула
+ *    для derived) — первый рубеж лимита ≤5 конституции, считает валидатор. */
+
+/** Типовые формулы limitCount для derived-тактов (аннекс §1.4). */
+function quizCardLimit(step, card) {
+  const base = card.multi ? card.cells : (card.options ? card.options.length : 0);
+  return base + (step.private_commit ? 1 : 0);
+}
+
+/** Развернуть шаг в такты. Возвращает массив phases (explicit или derived). */
+export function derivePhases(step) {
+  if (Array.isArray(step.phases) && step.phases.length) {
+    return step.phases.map(p => ({
+      ...p,
+      elements: p.elements || [],
+      overlays: p.overlays || [],
+      derived: false,
+      limitCount: (p.elements || []).length + (p.overlays || []).length,
+    }));
+  }
+  // сахар одного такта: elements/overlays объявлены на верхнем уровне шага
+  if (Array.isArray(step.elements) || Array.isArray(step.overlays)) {
+    const elements = step.elements || [], overlays = step.overlays || [];
+    return [{ id: 'main', elements, overlays, derived: true,
+              limitCount: elements.length + overlays.length }];
+  }
+  switch (step.type) {
+    case 'gate':
+      return [{ id: 'gate', elements: [], overlays: [], derived: true, limitCount: 1 }];
+    case 'break':
+      return [{ id: 'main', elements: [], overlays: [], derived: true, limitCount: 0 }];
+    case 'cards_quiz':
+      return (step.cards || []).map(card => ({
+        id: 'card_' + card.id, card, elements: [], overlays: [],
+        derived: true, limitCount: quizCardLimit(step, card),
+      }));
+    case 'talk_chat':
+      // панель чата (разворачивается в talk_chat — §1.1) + поле ввода
+      return [{ id: 'main', elements: ['free_text'], overlays: ['chat'],
+                derived: true, limitCount: 2 }];
+    case 'final_card':
+      // карточка дела → «лучшая ловушка» по одной (3 интерактива, аннекс) → блок «что дальше»
+      return [
+        { id: 'card_view', elements: ['btn_next'], overlays: [], derived: true, limitCount: 1 },
+        { id: 'best_trap', elements: ['img_current', 'btn_pick', 'btn_next'], overlays: [],
+          derived: true, limitCount: 3 },
+        { id: 'next_block', elements: ['btn_next'], overlays: [], derived: true, limitCount: 1 },
+      ];
+    default:
+      return [{ id: 'main', elements: [], overlays: [], derived: true, limitCount: 0 }];
+  }
+}
+
+/** Нормализованное занятие: {lesson, steps, stepById, phaseIndex} — вход движка. */
+export function normalizeLesson(rawManifest) {
+  const lesson = rawManifest.lesson;
+  if (!lesson || !Array.isArray(lesson.steps)) throw new Error('манифест без lesson.steps');
+  const norm = steps => steps.map(s => ({ ...s, phases: derivePhases(s) }));
+  const steps = norm(lesson.steps);
+  const reserve = norm(lesson.reserve_steps || []);
+  const stepById = new Map();
+  for (const s of [...steps, ...reserve]) {
+    if (stepById.has(s.id)) throw new Error('дубль id шага: ' + s.id);
+    stepById.set(s.id, s);
+  }
+  return { lesson, steps, reserve, stepById,
+           ui: lesson.ui_texts || {}, hints: lesson.hints || {} };
+}
+
+/** Индекс банка: картинки по id и по роли, классы. */
+export function indexBank(bank) {
+  const byId = new Map(), byRole = new Map();
+  for (const img of bank.images || []) {
+    byId.set(img.id, img);
+    if (!byRole.has(img.role)) byRole.set(img.role, []);
+    byRole.get(img.role).push(img);
+  }
+  return { bank, byId, byRole,
+           classIds: (bank.classes || []).map(c => c.id),
+           classById: new Map((bank.classes || []).map(c => [c.id, c])) };
+}
+
+/** Загрузка манифеста занятия по базовому URL каталога (браузер и Node 18+: fetch). */
+export async function loadManifest(baseUrl) {
+  const get = async name => {
+    const r = await fetch(baseUrl.replace(/\/$/, '') + '/' + name);
+    if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
+    return r.json();
+  };
+  const [manifest, bank] = await Promise.all([get('lesson.json'), get('bank.json')]);
+  if (manifest.lesson.bank !== bank.id)
+    throw new Error(`lesson.bank=${manifest.lesson.bank} ≠ bank.id=${bank.id}`);
+  return { normalized: normalizeLesson(manifest), bankIndex: indexBank(bank), manifest, bank };
+}

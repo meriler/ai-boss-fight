@@ -1,0 +1,26 @@
+# Контент-CI (ТЗ-демка-з1 §3 «Проверка критерия фазы 0», §9 «Контент-CI», риск 3):
+# на каждый коммит — валидатор ОБОИХ манифестов (все инварианты аннекса, включая ≤5 на
+# такт) + эталонная проходимость (без браузера, тем же кодом машины/редьюсера, что клиент)
+# + тесты клиент-ядра + тесты серверного контура §4.1. Полный браузерный e2e тест-варианта
+# в CI НЕ гоняется — это разовая демонстрация диффа при приёмке (DoD п.2).
+name: content-ci
+on:
+  push:
+    paths: ['content/**', 'app/**', 'server/**', '.github/workflows/content-ci.yml']
+  pull_request:
+    paths: ['content/**', 'app/**', 'server/**', '.github/workflows/content-ci.yml']
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Зависимости валидатора (ajv)
+        run: cd content && npm ci --no-audit --no-fund
+      - name: Валидатор + эталонная проходимость (оба манифеста)
+        run: node content/validate.mjs
+      - name: Тесты клиент-ядра (журнал/редьюсер/restore/машина/acked)
+        run: node --test 'app/**/*.test.mjs'
+      - name: Тесты серверного контура §4.1 (tele.py + lesson_state.py)
+        run: python3 -m unittest discover -s server -v

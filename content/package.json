@@ -1,0 +1,10 @@
+{
+  "name": "ai-school-workshop-content",
+  "private": true,
+  "description": "Зависимости валидатора манифестов (content/validate.mjs)",
+  "type": "module",
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

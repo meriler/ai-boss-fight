@@ -1,0 +1,46 @@
+{
+  "id": "tv-apples-pears",
+  "classes": [
+    { "id": "apple", "label": "Яблоки" },
+    { "id": "pear", "label": "Груши" }
+  ],
+  "spurious": "цвет: красный/зелёный",
+  "pilot_status": "frozen",
+  "frozen_params": {
+    "frozen_at": "2026-07-17",
+    "embedder": "demo-fixed-embeddings",
+    "k": 3,
+    "weights": { "embed": 1.0, "pixel": 0.0 },
+    "confidence_map": "demo: conf = 100 * (1 - d_win / (d_win + d_lose))"
+  },
+  "images": [
+    { "id": "vt1", "class": "apple", "role": "train_core", "bg": "красный", "src": "apples/vt1.png" },
+    { "id": "vt2", "class": "apple", "role": "train_core", "bg": "красный", "src": "apples/vt2.png" },
+    { "id": "vt3", "class": "apple", "role": "train_core", "bg": "красный", "src": "apples/vt3.png" },
+    { "id": "vt4", "class": "pear",  "role": "train_core", "bg": "зелёный", "src": "pears/vt4.png" },
+    { "id": "vt5", "class": "pear",  "role": "train_core", "bg": "зелёный", "src": "pears/vt5.png" },
+    { "id": "vt6", "class": "pear",  "role": "train_core", "bg": "зелёный", "src": "pears/vt6.png" },
+
+    { "id": "vp1", "class": "apple", "role": "probe", "bg": "зелёный", "src": "probe/vp1.png", "expected_flip": true },
+    { "id": "vp2", "class": "pear",  "role": "probe", "bg": "красный", "src": "probe/vp2.png", "expected_flip": true },
+    { "id": "vp3", "class": "apple", "role": "probe", "bg": "красный", "src": "probe/vp3.png" },
+
+    { "id": "vtr1", "class": "apple", "role": "trap", "bg": "зелёный", "src": "traps/vtr1.png" },
+    { "id": "vtr2", "class": "apple", "role": "trap", "bg": "зелёный", "src": "traps/vtr2.png" },
+    { "id": "vtr3", "class": "pear",  "role": "trap", "bg": "красный", "src": "traps/vtr3.png" },
+    { "id": "vtr4", "class": "pear",  "role": "trap", "bg": "красный", "src": "traps/vtr4.png" },
+
+    { "id": "vh1", "class": "apple", "role": "holdout", "bg": "зелёный", "src": "holdout/vh1.png" },
+    { "id": "vh2", "class": "pear",  "role": "holdout", "bg": "красный", "src": "holdout/vh2.png" },
+    { "id": "vh3", "class": "apple", "role": "holdout", "bg": "красный", "src": "holdout/vh3.png" },
+    { "id": "vh4", "class": "pear",  "role": "holdout", "bg": "зелёный", "src": "holdout/vh4.png" },
+
+    { "id": "vf1", "class": "apple", "role": "forecast", "bg": "красный", "src": "forecast/vf1.png" },
+
+    { "id": "vb1", "class": "pear",  "role": "buffer", "bg": "красный", "src": "buffer/vb1.png" },
+    { "id": "vb2", "class": "apple", "role": "buffer", "bg": "зелёный", "src": "buffer/vb2.png" },
+
+    { "id": "vr1", "class": "apple", "role": "reserve", "bg": "зелёный", "src": "reserve/vr1.png" },
+    { "id": "vr2", "class": "pear",  "role": "reserve", "bg": "красный", "src": "reserve/vr2.png" }
+  ]
+}
