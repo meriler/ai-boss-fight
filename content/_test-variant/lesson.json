@@ -36,9 +36,10 @@
           },
           {
             "id": "teach",
-            "text": "Жми «Научить»!",
+            "text": "Жми «Научить»! Или разложи заново",
             "elements": [
-              "btn_train"
+              "btn_train",
+              "btn_relayout"
             ],
             "overlays": [
               "reaction"
@@ -156,6 +157,16 @@
         }
       },
       {
+        "id": "sl1",
+        "type": "slide",
+        "timebox_min": 1,
+        "catchup": "Слайд для разговора: где ИИ сортирует фрукты по-настоящему",
+        "title": "А в жизни так бывает?",
+        "img": "quiz/perevodchik.png",
+        "text": "Поговорим: где машины сортируют картинки по-настоящему",
+        "caption": "Дальше — квиз"
+      },
+      {
         "id": "q1",
         "type": "cards_quiz",
         "timebox_min": 4,
@@ -202,10 +213,11 @@
         "phases": [
           {
             "id": "add_traps",
-            "text": "Добавь фрукты-ловушки — по одному",
+            "text": "Выбирай фрукты-ловушки по одному. Хватит — проверяем",
             "elements": [
               "img_current",
               "btn_pick",
+              "btn_skip",
               "btn_next",
               "btn_undo"
             ],

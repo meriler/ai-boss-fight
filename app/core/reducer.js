@@ -1,5 +1,10 @@
-/* ЕДИНЫЙ редьюсер журнала действий (ТЗ-демка-з1 §1.1, словарь ЗАКРЫТ на 14 типах —
+/* ЕДИНЫЙ редьюсер журнала действий (ТЗ-демка-з1 §1.1, словарь ЗАКРЫТ на 19 типах —
  * аннекс ТЗ-демка-з1-схема-манифеста §2, машинная форма content/schema/journal.schema.json).
+ * Осознанное расширение фазы 0.5 (план-правок 17.07): baskets_clear («разложить заново»),
+ * train_commit (версия состава обучения v1/v2/... с историей — обучение стало журнальным
+ * фактом, восстановление модели после F5 идёт из composition, не из эвристики позиции),
+ * experiment_start («проверить другую раскладку» после reveal), trap_skip (настоящий
+ * выбор ловушек — пропущенная не добавляется, но остаётся доступной в цикле добора).
  *
  * Одна функция — два входа: живое применение действий ребёнка И replay журнала при restore.
  * Отдельной merge-машинерии нет by design. Payload мутируется копией (структурное шарение
@@ -24,6 +29,10 @@ export function initialPayload() {
     probes: {},                     // показанные вердикты: {img: {label, conf, margin}} — F5 не перепоказывает
     measures: { before: null, after: null },   // показанные счёты замеров (+версия состава, детали)
     mistakes: [],                   // пробы, где ребёнок отметил «она ошиблась!» (наблюдение, модель не меняет)
+    trap_skips: [],                 // ловушки, отложенные «Пропустить» (доступны в цикле добора)
+    model: null,                    // текущая версия состава обучения: {version, sig, n, composition}
+    model_history: [],              // история версий: [{version, sig, n}] — карточка дела, телеметрия
+    experiments: {},                // {stepId: true} — «проверить другую раскладку» после reveal
   };
 }
 
@@ -40,12 +49,40 @@ export function reduce(payload, action) {
     case 'basket_undo':
       payload.baskets.pop();
       break;
+    case 'baskets_clear':
+      // «разложить заново» (до первого обучения) и старт эксперимента: раскладка с нуля
+      payload.baskets = [];
+      break;
     case 'trap_add':
       payload.traps.push(args.img);
       break;
     case 'trap_undo':
       payload.traps.pop();
       break;
+    case 'trap_skip': {
+      const skips = payload.trap_skips || (payload.trap_skips = []);
+      if (!skips.includes(args.img)) skips.push(args.img);
+      break;
+    }
+    case 'train_commit': {
+      // «Научить» — журнальный факт: версия состава обучения замораживается (v1, v2, …);
+      // restore после F5 переобучает модель из composition ПОСЛЕДНЕЙ версии, не из эвристик
+      payload.model = { version: args.version, sig: args.sig, n: args.n,
+                        composition: args.composition || [] };
+      const hist = payload.model_history || (payload.model_history = []);
+      hist.push({ version: args.version, sig: args.sig, n: args.n });
+      break;
+    }
+    case 'experiment_start': {
+      // «проверить другую раскладку» после reveal: замок открыт (version/choice закоммичены),
+      // эксперимент настоящий — раскладка и показанные вердикты проб обнуляются, модель
+      // остаётся прежней версии до нового «Научить»
+      const ex = payload.experiments || (payload.experiments = {});
+      ex[args.step] = true;
+      payload.baskets = [];
+      payload.probes = {};
+      break;
+    }
     case 'frag_pick':
       payload.version.slots[args.slot] = args.frag;
       break;

@@ -152,6 +152,12 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     }
     if (!step) { await new Promise(r => setTimeout(r, 150)); continue; }
 
+    if (step.type === 'slide') {                       // слайд «для поговорить» (фаза 0.5)
+      await clickIf(p, '#btn_next');
+      await new Promise(r => setTimeout(r, 150));
+      continue;
+    }
+
     if (step.type === 'cards_quiz') {
       const card = (step.cards || []).find(c => 'card_' + c.id === st.phase);
       if (card && card.multi) {
@@ -290,12 +296,22 @@ ok('дашборд: гейт показывает 1 из 2 перешли', (awa
 
 // --- A: полный tap-проход с брейками ---
 let f5basketsDone = false, f5commitDone = false, f5measureDone = false, bufferChecked = false;
-let overlayEmptyOnTask = null;
+let overlayEmptyOnTask = null, relayoutDone = false;
 
 const versionStep = man.lesson.steps.find(s => s.version);
 await driveLesson(A, man, {
   code: '4712',
   hook: async (st, p) => {
+    // «Разложить заново» (фаза 0.5): на такте «Научить» вернуться к пустым корзинам
+    if (!relayoutDone && !st.entry && st.step === versionStep.id && st.phase === 'train') {
+      relayoutDone = true;
+      await p.click('#btn_relayout');
+      await waitState(p, s2 => s2.phase === 'baskets', 8000, 'relayout → корзины');
+      const counts = await p.evaluate(() =>
+        [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
+      ok('«Разложить заново»: корзины пусты, лента с 1-й картинки', counts === 0, 'counts=' + counts);
+      // дальше generic-драйвер раскладывает заново и снова доходит до «Научить»
+    }
     // F5-точка 1: посреди раскладки корзин (3 разложено)
     if (!f5basketsDone && !st.entry && man.stepById[st.step] &&
         (man.stepById[st.step].phases || []).some(ph => ph.id === st.phase && (ph.elements || []).some(e => e.startsWith('basket_')))) {
@@ -382,6 +398,61 @@ ok('A: анонимная подборка версий группы видна 
 await domCheck(A, 'z1-kot:reveal');
 await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
 
+/* --- A: «проверить другую раскладку» (фаза 0.5) — эксперимент после reveal,
+ *     F5 МЕЖДУ версиями состава (v1 заморожена, v2 ещё нет), возврат к разгадке --- */
+{
+  await A.click('#btn_experiment');
+  await waitState(A, s => s.step === versionStep.id && s.phase === 'baskets', 8000, 'эксперимент → корзины');
+  let counts = await A.evaluate(() =>
+    [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
+  ok('эксперимент: раскладка с нуля (замок открыт, version/choice не трогаются)', counts === 0);
+  // разложить 5 картинок и F5: позиция и модель v1 должны пережить перезагрузку
+  for (let i = 0; i < 5; i++) {
+    const imgId = await A.$eval('#img_current', el => el.dataset.img);
+    const img = man.byRole.train_core.find(x => x.id === imgId);
+    await A.click('#basket_' + img.class);
+    await new Promise(r => setTimeout(r, 60));
+  }
+  await f5restore(A, 'между версиями (эксперимент)', '.basket');
+  const st = await state(A);
+  ok('F5 в эксперименте: вернулись в корзины, вперёд не клампит (acked-коммиты есть, но эксперимент законен)',
+     st.step === versionStep.id && st.phase === 'baskets', JSON.stringify(st));
+  counts = await A.evaluate(() =>
+    [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
+  ok('F5 в эксперименте: 5 разложенных целы', counts === 5, 'counts=' + counts);
+  const known = await A.evaluate(() => document.querySelector('.zone-box .kidtext')?.textContent || '');
+  ok('F5 в эксперименте: модель осталась версии v1 (знает 16 картинок)', /16/.test(known), known);
+  // доразложить, «Научить» (v2), прогнать пробы заново, вернуться к разгадке
+  for (let guard = 0; guard < 40; guard++) {
+    const cur = await A.$eval('#img_current', el => el.dataset.img).catch(() => null);
+    if (!cur) break;
+    const img = man.byRole.train_core.find(x => x.id === cur);
+    await A.click('#basket_' + img.class);
+    await new Promise(r => setTimeout(r, 60));
+  }
+  await clickIf(A, '#btn_next');
+  await waitState(A, s => s.phase === 'train', 8000, 'эксперимент → научить');
+  await A.click('#btn_train');
+  await waitState(A, s => s.phase === 'probe', 10000, 'эксперимент → пробы');
+  for (let i = 0; i < 4; i++) {
+    await clickIf(A, '#btn_check');
+    await A.waitForSelector('.verdict', { timeout: 8000 });
+    await clickIf(A, '#btn_next');
+    await new Promise(r => setTimeout(r, 120));
+  }
+  await clickIf(A, '#btn_next');   // «все проверки пройдены» → возврат к разгадке
+  await waitState(A, s => s.phase === lastPhase, 8000, 'эксперимент → назад к разгадке');
+  ok('эксперимент: после проб вернулись к разгадке (такты версии не перепоказаны)', true);
+  // версия состава — в серверном снапшоте seat-save (журнал localStorage подрезается после /save)
+  await new Promise(r => setTimeout(r, 700));
+  const snap1 = readdirSync(dataDir).filter(f => /^lesson-save-.*-seat1\.json$/.test(f))
+    .map(f => JSON.parse(readFileSync(path.join(dataDir, f), 'utf-8'))).pop();
+  const mdl = snap1 && snap1.payload && snap1.payload.model;
+  ok('эксперимент: «Научить» дал версию состава v2 (payload.model в снапшоте)',
+     !!mdl && mdl.version === 2 && (snap1.payload.model_history || []).length === 2,
+     JSON.stringify(mdl && { v: mdl.version, hist: (snap1.payload.model_history || []).length }));
+}
+
 // --- A: продолжение до конца занятия, F5-точка 3 после R2 внутри hook ---
 await driveLesson(A, man, {
   code: '4712',
@@ -407,6 +478,56 @@ await driveLesson(A, man, {
 ok('A: занятие пройдено целиком до «Дело закрыто»', (await state(A)).done);
 ok('оверлеи: на активном такте раскладки буфер НЕ висел', overlayEmptyOnTask === true);
 
+/* --- B: настоящий выбор ловушек + цикл добора (фаза 0.5) ---
+ * подмножество (2 кота) → «Хватит, проверяем» → слабый замер 2/4 → «Добрать ловушки» →
+ * честная инвалидация старого замера после переобучения → добор до 8 → 4/4 */
+{
+  const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
+  await driveLesson(B, man, {
+    code: '4712',
+    stopWhen: (st) => !st.entry && st.step === fixStep.id && st.phase === 'traps',
+  });
+  let cats = 0;
+  for (let guard = 0; guard < 40 && cats < 2; guard++) {
+    const cur = await B.$eval('#img_current', el => el.dataset.img);
+    const img = man.byId[cur];
+    if (img.class === 'cat') { await B.click('#btn_pick'); cats += 1; }
+    else await B.click('#btn_skip');
+    await new Promise(r => setTimeout(r, 80));
+  }
+  const fc = await B.$eval('.feedcount', e => e.textContent);
+  ok('выбор ловушек: подмножество 2 из 8 (пропуски не наказуемы)', /2 из 8/.test(fc), fc);
+  await B.click('#btn_next');                                   // «Хватит, проверяем»
+  await waitState(B, s => s.phase === 'retrain', 8000, 'B → научить заново');
+  await B.click('#btn_train');
+  await waitState(B, s => s.phase === 'measure_after', 10000, 'B → замер');
+  await clickIf(B, '#btn_check');                               // «Проверить коробку»
+  await B.waitForSelector('.score-big', { timeout: 8000 });
+  let score = await B.evaluate(() => [...document.querySelectorAll('.score-big')].pop().textContent);
+  ok('слабый замер на подмножестве: 2 из 4', score.includes('2 из 4'), score);
+  const more = await B.$('#btn_more_traps');
+  ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
+  await B.click('#btn_more_traps');
+  await waitState(B, s => s.phase === 'traps', 8000, 'B → добор ловушек');
+  for (let guard = 0; guard < 20; guard++) {
+    if (!await clickIf(B, '#btn_pick')) break;                  // пропущенные вернулись в очередь
+    await new Promise(r => setTimeout(r, 80));
+  }
+  await clickIf(B, '#btn_next');                                // «Дальше» (пул исчерпан)
+  await waitState(B, s => s.phase === 'retrain', 8000, 'B → повторное обучение');
+  await B.click('#btn_train');
+  await waitState(B, s => s.phase === 'measure_after', 10000, 'B → повторный замер');
+  const staleNote = await B.evaluate(() => document.body.textContent.includes('Состав обучения менялся'));
+  ok('честная инвалидация: старый замер не показан после смены состава', staleNote);
+  await clickIf(B, '#btn_check');
+  await B.waitForSelector('.score-big', { timeout: 8000 });
+  score = await B.evaluate(() => [...document.querySelectorAll('.score-big')].pop().textContent);
+  ok('добор починил коробку: 4 из 4', score.includes('4 из 4'), score);
+  ok('после сильного замера кнопки добора нет', !(await B.$('#btn_more_traps')));
+  await driveLesson(B, man, { code: '4712' });                  // добить занятие до конца
+  ok('B: занятие пройдено до конца после цикла добора', (await state(B)).done);
+}
+
 // --- телеметрия: связки в JSONL реального прогона (DoD п.6) ---
 await A.evaluate(() => new Promise(r => setTimeout(r, 800)));   // добежали дампы
 const jsonl = readdirSync(dataDir).filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
@@ -417,7 +538,8 @@ for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 
                  'version_committed',
                  'version_choice', 'reveal_seen', 'captcha_commit', 'trap_added', 'retrained',
                  'measure', 'forecast_committed', 'forecast_result', 'hint', 'stuck_pressed',
-                 'buffer_forecast', 'chat_msg', 'card_opened', 'best_trap_marked', 'artifact_saved'])
+                 'buffer_forecast', 'chat_msg', 'card_opened', 'best_trap_marked', 'artifact_saved',
+                 'baskets_cleared', 'experiment_start', 'trap_skipped', 'traps_done', 'traps_more'])
   ok('телеметрия: событие ' + t + ' в JSONL', evTypes.has(t));
 const measureEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'measure'));
 ok('телеметрия: замер несёт версию состава (model_sig)', measureEvents.some(e => e.model_sig));

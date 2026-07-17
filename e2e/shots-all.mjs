@@ -85,6 +85,12 @@ async function drive(p, { stopWhen, tag = '' } = {}) {
     }
     if (!step) { await new Promise(r => setTimeout(r, 150)); continue; }
 
+    if (step.type === 'slide') {
+      await clickIf(p, '#btn_next');
+      await new Promise(r => setTimeout(r, 300));
+      continue;
+    }
+
     if (step.type === 'cards_quiz') {
       const card = (step.cards || []).find(c => 'card_' + c.id === st.phase);
       if (card && card.multi) {

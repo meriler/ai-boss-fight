@@ -37,6 +37,17 @@ test('parity: клиентский kNN повторяет пилот на все
   }
 });
 
+test('parity: legacy-порог пилота — сырая маржа всех флипов ≥ T·ln3 (не экранный процент)', () => {
+  // перекалибровка (фаза 0.5) поменяла ЭКРАННЫЙ процент; пилотный критерий «флип ≥75%»
+  // остаётся проверкой сырой d̄-маржи: margin ≥ T·ln3 ⇔ сигмоидный conf ≥ 75
+  const LEG = FX.params.T * Math.log(3);
+  const flips = FX.cases.filter(c => c.model === 'R1' && c.role === 'conflict');
+  assert.equal(flips.length, 8);
+  for (const c of flips)
+    assert.ok(c.margin >= LEG,
+      `${c.img}: маржа флипа ${c.margin.toFixed(4)} ниже legacy-порога ${LEG.toFixed(4)}`);
+});
+
 test('parity: пилотная драматургия — флипы conflict R1, чистые normal, holdout R2', () => {
   const byCase = (model, role) => FX.cases.filter(c => c.model === model && c.role === role);
   const flips = byCase('R1', 'conflict')

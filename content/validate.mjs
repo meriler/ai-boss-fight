@@ -139,6 +139,11 @@ function checkManifestDir(dir) {
         && step.presentation !== 'one_by_one')
       err(`${step.id}: final_card mark_best_trap обязан объявлять presentation: one_by_one`);
 
+    // — инвариант 12 (фаза 0.5): btn_relayout осмыслен только рядом с корзинами того же шага
+    if (step.phases.some(p => (p.elements || []).includes('btn_relayout'))
+        && !step.phases.some(p => (p.elements || []).some(e => e.startsWith('basket_'))))
+      err(`${step.id}: btn_relayout без такта с корзинами в том же шаге — раскладку нечего перекладывать`);
+
     // — подписи «Что дальше» синхронны карточкам (план-правок п.6)
     if (step.next_block && step.next_block.captions
         && step.next_block.captions.length !== step.next_block.cards.length)
@@ -159,6 +164,7 @@ function checkManifestDir(dir) {
   const assets = [];
   for (const step of allSteps) {
     for (const card of step.cards || []) assets.push([card.img, `${step.id}.cards.${card.id}`]);
+    if (step.type === 'slide' && step.img) assets.push([step.img, `${step.id}.img`]);
     if (step.reveal) for (const c of step.reveal.cards) assets.push([c, `${step.id}.reveal`]);
     if (step.next_block) for (const c of step.next_block.cards) assets.push([c, `${step.id}.next_block`]);
   }

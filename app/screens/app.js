@@ -23,7 +23,7 @@ import { createTele } from '../core/tele.js';
 import { createClassifier } from '../engine/classifier.js';
 import { h, bigBtn, kidText } from './dom.js';
 import { createOverlays } from './overlays.js';
-import { renderPhase, trainExamples, basketsSig } from './phases.js';
+import { renderPhase, basketsSig } from './phases.js';
 
 const QP = new URLSearchParams(location.search);
 const screen = document.getElementById('screen');
@@ -178,6 +178,16 @@ function advancePhase() {
 }
 ctx.advancePhase = advancePhase;
 
+/** Журнальный прыжок на такт ВНУТРИ текущего шага (фаза 0.5): «разложить заново»,
+ * «проверить другую раскладку», цикл добора ловушек. Позиция переживает F5 через
+ * phase_enter в журнале — тем же механизмом, что обычные переходы тактов. */
+ctx.jumpToPhase = (stepId, phaseId) => {
+  ctx.machine.jumpTo(stepId, phaseId);
+  ctx.j('phase_enter', { phase: phaseId });
+  ctx.seatSave.flushNow();
+  render();
+};
+
 /* Колбэк, привязанный к месту планирования: сработает, только если ребёнок всё ещё
  * на том же шаге/такте ТОЙ ЖЕ машины. Закрывает гонки: двойной тап по вариантам,
  * поздний ответ сети, авто-таймер после ручного «Дальше», вход в резерв при
@@ -232,49 +242,18 @@ ctx.modelGate = (btn) => {
   return btn;
 };
 
-/** Тихо восстановить обученность после F5: если позиция уже ЗА первым тактом «Научить»
- * (ребёнок жал кнопку до перезагрузки) — переобучить модель из payload, не заставляя жать снова. */
+/** Тихо восстановить обученность после F5: «Научить» — журнальный факт (train_commit,
+ * фаза 0.5), поэтому восстановление модели идёт ИЗ COMPOSITION последней версии состава,
+ * а не из эвристик позиции. Раскладка могла уже уехать дальше (переразметка, добор) —
+ * модель честно остаётся той версии, которую ребёнок реально заморозил кнопкой. */
 function rebuildModelIfTrained() {
-  if (!ctx.payload.baskets.length) return;
-  const pos = ctx.machine.position();
-  if (pos.done) return;
-  let trainedAlready = false;
-  outer:
-  for (let si = 0; si < ctx.normalized.steps.length; si++) {
-    const phases = ctx.normalized.steps[si].phases;
-    for (let pi = 0; pi < phases.length; pi++) {
-      if ((phases[pi].elements || []).includes('btn_train')) {
-        trainedAlready = (si < pos.stepIndex) || (si === pos.stepIndex && pi < pos.phaseIndex);
-        break outer;
-      }
-    }
-  }
-  if (!trainedAlready) return;
+  const model = ctx.payload.model;
+  if (!model || !(model.composition || []).length) return;
   ctx.classifier.whenReady().then(() => {
-    // переобучаем ТЕКУЩИМ составом (корзины + ловушки только если ребёнок уже прошёл retrain)
-    const pastRetrain = pastSecondTrain();
-    const ex = trainExamples(ctx);
-    const base = pastRetrain ? ex : ex.filter(e => ctx.payload.baskets.some(b => b.img === e.img));
-    ctx.classifier.train(base);
+    ctx.classifier.train(model.composition);
     maybeAutoMeasureBefore();
     render();
   });
-}
-
-function pastSecondTrain() {
-  const pos = ctx.machine.position();
-  let seen = 0;
-  for (let si = 0; si < ctx.normalized.steps.length; si++) {
-    const phases = ctx.normalized.steps[si].phases;
-    for (let pi = 0; pi < phases.length; pi++) {
-      if ((phases[pi].elements || []).includes('btn_train')) {
-        seen += 1;
-        if (seen === 2)
-          return (si < pos.stepIndex) || (si === pos.stepIndex && pi < pos.phaseIndex);
-      }
-    }
-  }
-  return false;
 }
 
 /* ---------- контрольные точки подсказки уровня 3 ---------- */
@@ -424,6 +403,9 @@ function exitReserve() {
 function clampToAcked() {
   const step = ctx.machine.step();
   if (!step) return;
+  // эксперимент «проверить другую раскладку» (фаза 0.5): позиция ЗАКОННО раньше
+  // закоммиченных version/choice — вперёд не клампим, F5 возвращает в эксперимент
+  if ((ctx.payload.experiments || {})[step.id]) return;
   const acked = ctx.ackedCommits[step.id] || {};
   const idx = (pred) => step.phases.findIndex(pred);
   const cur = ctx.machine.position().phaseIndex;

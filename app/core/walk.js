@@ -29,6 +29,7 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
     ? [...normalized.steps, ...normalized.reserve]
     : normalized.steps;
   const machine = createMachine({ ...normalized, steps }, { onJournal: j });
+  let trainVersion = 0;   // версии состава обучения (train_commit, фаза 0.5)
 
   const otherClass = cls => bankIndex.classIds.find(c => c !== cls);
   const role = r => bankIndex.byRole.get(r) || [];
@@ -88,13 +89,28 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
         }
       }
 
-      if (els.includes('btn_pick') && step.type === 'trainer_act') {   // ловушки/добор по одной
+      if (els.includes('btn_pick') && step.type === 'trainer_act') {   // ловушки: настоящий выбор
         const pool = step.images_from_role ? role(step.images_from_role) : role('trap');
         if (!pool.length) errors.push(step.id + ': пустой пул для btn_pick');
         pool.forEach((img, i) => {
+          if (i === 0 && pool.length > 1) j('trap_skip', { img: img.id });   // «Пропустить» не наказуем
           j('trap_add', { img: img.id });
           if (i === 0) { j('trap_undo', {}); j('trap_add', { img: img.id }); }
         });
+      }
+
+      if (els.includes('btn_train')) {
+        // «Научить» — журнальный факт (фаза 0.5): версия состава обучения
+        trainVersion += 1;
+        const composition = [
+          ...payload.baskets.map(b => ({ img: b.img, class: b.basket })),
+          ...payload.traps.map(t => {
+            const img = bankIndex.byId.get(t);
+            return { img: t, class: img ? img.class : '?' };
+          }),
+        ];
+        j('train_commit', { version: trainVersion, sig: 'walk-v' + trainVersion,
+                            n: composition.length, composition });
       }
 
       if (els.some(e => /^frag[1-9]$/.test(e))) {
@@ -179,6 +195,11 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
   if (hasMeasure) need(payload.measures.before && payload.measures.after,
                        'замеры before/after не записаны');
   if (hasFinal) need(payload.best_trap !== null, 'лучшая ловушка не отмечена');
+  const trainTacts = steps.reduce((s, st) =>
+    s + st.phases.filter(p => (p.elements || []).includes('btn_train')).length, 0);
+  if (trainTacts) need(payload.model && payload.model.version === trainTacts &&
+                       (payload.model_history || []).length === trainTacts,
+                       'версии состава обучения (train_commit) не сошлись с числом тактов «Научить»');
   need(acked.filter(a => a.ack === 'gate_enter').length ===
        steps.filter(s => s.gate).length, 'не все гейты пройдены acked gate_enter');
 

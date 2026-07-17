@@ -60,6 +60,38 @@ test('редьюсер: mistake_mark дедупится, measure_result хран
   assert.deepEqual(old.mistakes, ['p2']);
 });
 
+test('редьюсер фазы 0.5: baskets_clear, train_commit (версии), experiment_start, trap_skip', () => {
+  const p = initialPayload();
+  reduce(p, { type: 'basket_assign', args: { img: 't1', basket: 'cat' } });
+  reduce(p, { type: 'basket_assign', args: { img: 't2', basket: 'dog' } });
+  reduce(p, { type: 'baskets_clear', args: {} });
+  assert.deepEqual(p.baskets, [], '«разложить заново» очищает раскладку');
+  reduce(p, { type: 'basket_assign', args: { img: 't1', basket: 'dog' } });
+  reduce(p, { type: 'train_commit', args: { version: 1, sig: 'aaa', n: 1,
+    composition: [{ img: 't1', class: 'dog' }] } });
+  reduce(p, { type: 'train_commit', args: { version: 2, sig: 'bbb', n: 2,
+    composition: [{ img: 't1', class: 'dog' }, { img: 'tr1', class: 'cat' }] } });
+  assert.equal(p.model.version, 2, 'текущая версия состава — последняя');
+  assert.equal(p.model.composition.length, 2);
+  assert.deepEqual(p.model_history.map(h => h.sig), ['aaa', 'bbb'], 'история версий копится');
+  reduce(p, { type: 'probe_result', args: { img: 'p1', label: 'dog', conf: 88, margin: 0.05 } });
+  reduce(p, { type: 'experiment_start', args: { step: 's2' } });
+  assert.deepEqual(p.baskets, [], 'эксперимент начинает раскладку с нуля');
+  assert.deepEqual(p.probes, {}, 'показанные пробы обнулены — новая модель проверяется честно');
+  assert.equal(p.model.version, 2, 'модель остаётся прежней версии до нового «Научить»');
+  assert.ok(p.experiments.s2, 'флаг эксперимента переживает F5 (в payload)');
+  reduce(p, { type: 'trap_skip', args: { img: 'tr2' } });
+  reduce(p, { type: 'trap_skip', args: { img: 'tr2' } });
+  assert.deepEqual(p.trap_skips, ['tr2'], 'пропуск ловушки дедупится');
+  // старый снапшот без полей фазы 0.5 — replay не падает
+  const old = initialPayload();
+  delete old.trap_skips; delete old.model_history; delete old.experiments;
+  reduce(old, { type: 'trap_skip', args: { img: 'tr1' } });
+  reduce(old, { type: 'train_commit', args: { version: 1, sig: 'x', n: 0, composition: [] } });
+  reduce(old, { type: 'experiment_start', args: { step: 's2' } });
+  assert.ok(old.trap_skips.length === 1 && old.model_history.length === 1 && old.experiments.s2);
+});
+
 test('журнал: стартовый rev нового инстанса = max(server_rev, local_rev) + 1', () => {
   const j = createJournal({ storage: memStorage() });
   j.append('basket_assign', { img: 't1', basket: 'cat' });   // local rev 1

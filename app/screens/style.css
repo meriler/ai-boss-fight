@@ -191,6 +191,15 @@ body {
 /* ---------- финал ---------- */
 .factrow { font-size: 17px; font-weight: 600; }
 .factrow.assisted { color: var(--c-secondary); font-weight: 800; }
+.facterr { font-size: 15px; font-weight: 600; color: var(--c-danger); }
+
+/* ---------- слайд «для поговорить» (тип slide, фаза 0.5) ---------- */
+.slidecard { align-items: center; text-align: center; gap: 12px; }
+.slide-title { font-size: 26px; font-weight: 900; }
+.slide-pic .imgcard {   /* рамка «скриншота»: слайд показывает пример из внешнего мира */
+  border: 3px solid var(--c-border, #c9d3e0); border-radius: 14px;
+  box-shadow: 0 10px 26px rgba(20, 40, 90, .18); overflow: hidden;
+}
 .donecard { align-items: center; text-align: center; }
 .gate-error { color: var(--c-danger); font-weight: 800; }
 

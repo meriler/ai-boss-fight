@@ -35,6 +35,9 @@ export function derivePhases(step) {
   switch (step.type) {
     case 'gate':
       return [{ id: 'gate', elements: [], overlays: [], derived: true, limitCount: 1 }];
+    case 'slide':
+      // слайд «для поговорить» (фаза 0.5): title/text/img/caption + одна кнопка
+      return [{ id: 'main', elements: ['btn_next'], overlays: [], derived: true, limitCount: 1 }];
     case 'cards_quiz':
       return (step.cards || []).map(card => ({
         id: 'card_' + card.id, card, elements: [], overlays: [],

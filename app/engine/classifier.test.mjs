@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { indexBank } from '../core/manifest.js';
-import { createClassifier } from './classifier.js';
+import { createClassifier, scaleConf } from './classifier.js';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const read = p => JSON.parse(fs.readFileSync(path.join(HERE, '../../content', p), 'utf-8'));
@@ -21,6 +21,37 @@ function trainedOn(bank, roles) {
   cls.train(list);
   return { bi, cls };
 }
+
+test('scaleConf: опорные точки, интерполяция, потолок, зеркало отрицательных', () => {
+  const A = [[0, 50], [0.033, 75], [0.06, 85], [0.2, 95]];
+  assert.equal(scaleConf(0, A), 50);
+  assert.equal(scaleConf(0.033, A), 75);
+  assert.equal(scaleConf(0.06, A), 85);
+  assert.equal(scaleConf(0.2, A), 95);
+  assert.equal(scaleConf(0.0465, A), 80, 'середина сегмента 0.033–0.06 → 80');
+  assert.equal(scaleConf(9, A), 95, 'за последней точкой — потолок');
+  assert.equal(scaleConf(-0.033, A), 25, 'отрицательная маржа — зеркально ниже 50');
+  let prev = -1;
+  for (let m = -0.3; m <= 0.5; m += 0.007) {
+    const c = scaleConf(m, A);
+    assert.ok(c >= prev, `монотонность нарушена на m=${m}`);
+    prev = c;
+  }
+});
+
+test('z1-kot: classify отдаёт КАЛИБРОВАННЫЙ процент (шкала банка, потолок 95)', () => {
+  const bank = read('z1-kot/bank.json');
+  assert.ok(bank.frozen_params.confidence_scale, 'банк несёт confidence_scale');
+  const bi = indexBank(bank);
+  const cls = createClassifier({ bankIndex: bi, demo: true });
+  cls.train([...bi.byRole.get('train_core')].map(i => ({ img: i.id, class: i.class })));
+  for (const p of bi.byRole.get('probe')) {
+    const v = cls.classify(p.id);
+    assert.ok(v.conf <= 95, `${p.id}: conf ${v.conf} выше потолка 95`);
+    assert.equal(v.conf, scaleConf(v.margin, bank.frozen_params.confidence_scale.anchors),
+      `${p.id}: экранный conf обязан идти через шкалу банка`);
+  }
+});
 
 for (const dir of ['z1-kot', '_test-variant']) {
   const bank = read(dir + '/bank.json');

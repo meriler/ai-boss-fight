@@ -63,7 +63,32 @@
         },
         "confidence_map": {
           "type": "string",
-          "description": "Формула/параметры маппинга расстояние→процент уверенности (фиксируется пилотом ДО заморозки, §6 п.3)"
+          "description": "Формула/параметры маппинга расстояние→процент уверенности (фиксируется пилотом ДО заморозки, §6 п.3). С фазы 0.5 сигмоида — legacy-порог сырой маржи; экранный процент задаёт confidence_scale"
+        },
+        "confidence_scale": {
+          "type": "object",
+          "required": ["anchors"],
+          "additionalProperties": false,
+          "properties": {
+            "calibrated_at": { "type": "string", "format": "date" },
+            "anchors": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 4,
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  { "type": "number", "minimum": 0 },
+                  { "type": "number", "minimum": 0, "maximum": 100 }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "description": "Опорные точки [margin, conf%] кусочно-линейной монотонной шкалы (3–4 точки, план-правок фаза 0.5); последняя точка — потолок (95). Монотонность и спектр проверяет pilot/calibrate_scale.mjs"
+            },
+            "note": { "type": "string" }
+          },
+          "description": "Калиброванная шкала экранного процента уверенности (фаза 0.5): выведена из маржей пилота, отчёт pilot/calibration-report.md"
         }
       }
     },

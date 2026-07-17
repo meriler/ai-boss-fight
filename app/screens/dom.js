@@ -39,25 +39,24 @@ export function kidText(text, { small = false } = {}) {
   return h('div', { class: 'kidtext' + (small ? ' kidtext-small' : ''), 'data-kid': '1' }, text || '');
 }
 
-/** Уверенность СЛОВАМИ (план-правок 17.07 п.2): маржи насыщают sigmoid при T=0.03 —
- * проценты дают ложную точность (медиана ≈97%). До перекалибровки — три ступени по маржам:
- * <0.033 (пилотный порог conf 75) «сомневается» · <0.12 «уверена» · дальше «очень уверена».
- * Старые записи журнала без margin — фолбэк по conf теми же порогами (75 / 98 ≙ 0.033 / 0.115). */
-export function confWord(conf, margin) {
-  const level = margin != null
-    ? (margin < 0.033 ? 1 : margin < 0.12 ? 2 : 3)
-    : (conf < 75 ? 1 : conf < 98 ? 2 : 3);
+/** Уверенность словами поверх КАЛИБРОВАННОГО процента (фаза 0.5): conf уже прошёл
+ * кусочно-линейную шкалу банка (scaleConf) — чистые 85–95, спорные 55–75, потолок 95.
+ * Ступени по калиброванному проценту: <75 «сомневается» (ниже пилотного порога флипа) ·
+ * <90 «уверена» · дальше «очень уверена». Слово остаётся главным (детский экран),
+ * процент — уточнение без ложной точности сигмоиды. */
+export function confWord(conf) {
+  const level = conf < 75 ? 1 : conf < 90 ? 2 : 3;
   return { level, word: ['сомневается', 'уверена', 'очень уверена'][level - 1] };
 }
 
-/** Вердикт коробки: метка класса + уверенность словами (полоска — по ступени, не процент). */
+/** Вердикт коробки: метка класса + слово + калиброванный процент (полоска = процент). */
 export function verdictCard(labelText, conf, { margin } = {}) {
-  const { level, word } = confWord(conf, margin);
+  const { word } = confWord(conf);
   return h('div', { class: 'verdict' },
     h('div', { class: 'verdict-label', 'data-kid': '1' }, labelText),
     h('div', { class: 'confbar' },
-      h('div', { class: 'confbar-fill', style: 'width:' + [33, 66, 100][level - 1] + '%' })),
-    h('div', { class: 'verdict-conf' }, 'коробка ' + word));
+      h('div', { class: 'confbar-fill', style: 'width:' + Math.max(0, Math.min(100, conf)) + '%' })),
+    h('div', { class: 'verdict-conf' }, 'коробка ' + word + ' — ' + Math.round(conf) + '%'));
 }
 
 /** Счёт замера «X из Y» крупно + наглядный ряд ячеек ✓/✗ (по одной на картинку набора).

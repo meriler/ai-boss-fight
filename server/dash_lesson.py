@@ -121,7 +121,7 @@ async function zStartLesson() {
   let steps = [];
   try {
     const m = await (await fetch('/content/' + lesson + '/lesson.json')).json();
-    const L = {gate: 'гейт', cards_quiz: 'квиз', trainer_act: 'коробка',
+    const L = {gate: 'гейт', slide: 'слайд', cards_quiz: 'квиз', trainer_act: 'коробка',
                talk_chat: 'разговор', final_card: 'карточка дела'};
     steps = m.lesson.steps.map(s => ({id: s.id, type: s.type,
       label: (L[s.type] || s.type) + (s.mode ? ' · ' + s.mode : ''),

@@ -48,8 +48,8 @@
     },
     "elementId": {
       "type": "string",
-      "pattern": "^(img_current|btn_next|btn_undo|btn_train|btn_check|btn_commit|btn_skip|btn_pick|free_text|basket_[a-z0-9_-]+|frag[1-9]|opt[1-9])$",
-      "description": "Грамматика id ЗАКРЫТА. Параметризованные: basket_<classId> (classId из bank.classes), frag<n> (фрагмент n слота такта — такт обязан нести slot), opt<n> (вариант n version.choice.options). Ссылочную целостность проверяет валидатор"
+      "pattern": "^(img_current|btn_next|btn_undo|btn_train|btn_check|btn_commit|btn_skip|btn_pick|btn_relayout|free_text|basket_[a-z0-9_-]+|frag[1-9]|opt[1-9])$",
+      "description": "Грамматика id ЗАКРЫТА (btn_relayout добавлен осознанным расширением фазы 0.5: «разложить заново» на такте «Научить» — валидатор требует такт с корзинами в том же шаге). Параметризованные: basket_<classId> (classId из bank.classes), frag<n> (фрагмент n слота такта — такт обязан нести slot), opt<n> (вариант n version.choice.options). Ссылочную целостность проверяет валидатор"
     },
     "phase": {
       "type": "object",
@@ -77,7 +77,7 @@
       "required": ["id", "type", "catchup"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_]*$" },
-        "type": { "enum": ["gate", "cards_quiz", "trainer_act", "talk_chat", "final_card"] },
+        "type": { "enum": ["gate", "slide", "cards_quiz", "trainer_act", "talk_chat", "final_card"] },
         "timebox_min": { "type": "number", "minimum": 0.5, "description": "Данные, не код: правится после репетиции" },
         "catchup": { "$ref": "#/$defs/childText", "description": "Карточка догоняющему — обязательна у КАЖДОГО шага (§1.1)" },
         "gate": { "$ref": "#/$defs/gateSpec", "description": "Входной гейт шага (допустим у любого типа, напр. trainer_act s6)" },
@@ -186,6 +186,18 @@
             {
               "properties": { "type": { "const": "gate" }, "gate": { "$ref": "#/$defs/gateSpec" } },
               "required": ["gate"]
+            },
+            {
+              "properties": {
+                "type": { "const": "slide" },
+                "title": { "$ref": "#/$defs/childText" },
+                "text": { "$ref": "#/$defs/childText" },
+                "img": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор; стилизацию (пример капчи) несёт сам ассет" },
+                "caption": { "$ref": "#/$defs/childText" }
+              },
+              "required": ["type"],
+              "anyOf": [{ "required": ["img"] }, { "required": ["text"] }],
+              "description": "Слайд «для поговорить» (осознанное расширение реестра, фаза 0.5): title/text/img/caption + одна кнопка «Дальше». Пустой слайд (без img и text) запрещён"
             },
             {
               "properties": {

@@ -24,13 +24,32 @@ const DEF = {
 
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 
+/** Калиброванная уверенность (фаза 0.5): кусочно-линейная монотонная шкала по опорным
+ * точкам [[margin, conf%], ...] банка (frozen_params.confidence_scale.anchors, выведены
+ * из маржей пилота — pilot/calibrate_scale.mjs). Сигмоида T=0.03 насыщалась (медиана ≈97%);
+ * шкала держит спектр: чистые 85–95, спорные 55–75, потолок = последняя точка (95).
+ * Отрицательная маржа (голоса против d̄) — зеркально ниже 50. Сырая маржа остаётся
+ * в вердикте: legacy-порог пилота «флип ≥75%» проверяется ПО НЕЙ, не по проценту. */
+export function scaleConf(margin, anchors) {
+  if (margin < 0) return 100 - scaleConf(-margin, anchors);
+  let [pm, pc] = anchors[0];
+  if (margin <= pm) return pc;
+  for (let i = 1; i < anchors.length; i++) {
+    const [m, c] = anchors[i];
+    if (margin <= m) return Math.round(pc + (c - pc) * (margin - pm) / (m - pm));
+    [pm, pc] = [m, c];
+  }
+  return pc;   // за последней точкой — потолок
+}
+
 /* ---------- чистый kNN голосованием (зеркало pilot/run_pilot.py knn) ---------- */
 
 /** Вердикт по фичам f против примеров [{class, f}] — БЕЗ DOM/состояния (parity-тест
  * гоняет её на реальных фичах пилота). Метка: голосование top-k общего списка расстояний
  * (ничья достаётся классу ближайшего соседа — как порядок вставки dict в пилоте);
- * уверенность: d̄-маржа проигравший−победитель, conf = 100·sigmoid(margin/T). */
-export function knnClassify(f, examples, { classIds, K, W, T }) {
+ * уверенность: d̄-маржа проигравший−победитель; conf — калиброванная шкала scale
+ * (anchors), без неё — пилотная сигмоида 100·sigmoid(margin/T) (parity-сверка). */
+export function knnClassify(f, examples, { classIds, K, W, T, scale }) {
   const counts = {};
   for (const ex of examples) counts[ex.class] = (counts[ex.class] || 0) + 1;
   const present = classIds.filter(c => counts[c]);
@@ -59,7 +78,8 @@ export function knnClassify(f, examples, { classIds, K, W, T }) {
   }
   const loser = present.filter(c => c !== label).sort((a, b) => dists[a] - dists[b])[0];
   const margin = dists[loser] - dists[label];
-  const conf = Math.round(100 / (1 + Math.exp(-margin / T)));
+  const conf = scale ? scaleConf(margin, scale)
+                     : Math.round(100 / (1 + Math.exp(-margin / T)));
   return { label, conf, margin, dists };
 }
 
@@ -156,6 +176,8 @@ export function createClassifier({ bankIndex, assetsBase = '', demo = false, ven
   const K = frozen.k || DEF.k;
   const W = frozen.weights || DEF.weights;
   const T = DEF.T;   // T зафиксирован строкой confidence_map (§6): числом не дублируется в банке
+  // калиброванная шкала экранного процента (фаза 0.5); без неё — сигмоида T (легаси)
+  const SCALE = (frozen.confidence_scale && frozen.confidence_scale.anchors) || null;
 
   const features = new Map();   // imgId -> {emb, pix}
   let examples = [];            // [{img, class, f}]
@@ -229,11 +251,11 @@ export function createClassifier({ bankIndex, assetsBase = '', demo = false, ven
     },
 
     /** Вердикт {label, conf, margin, dists}: метка — голосованием top-k (как пилот),
-     * уверенность — по d̄-маржам замороженной формулы (§6). */
+     * conf — калиброванная шкала банка по d̄-марже (сырая маржа тоже в вердикте). */
     classify(imgId) {
       if (!examples.length) return null;
       return knnClassify(featureOf(imgId), examples,
-                         { classIds: bankIndex.classIds, K, W, T });
+                         { classIds: bankIndex.classIds, K, W, T, scale: SCALE });
     },
 
     /** Замер на наборе ids: сколько вердиктов совпало с классом банка.
