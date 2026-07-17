@@ -182,10 +182,10 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     const els = phase.elements || [];
 
     if (els.some(e => e.startsWith('basket_'))) {
-      const fc = await p.$eval('.feedcount', e => e.textContent).catch(() => null);
-      const m = fc && /(\d+) из (\d+)/.exec(fc);
-      if (m) {
-        const img = (man.byRole.train_core || [])[+m[1] - 1];
+      // порядок подачи перемешан per-seat — текущую картинку читаем из DOM, не по индексу банка
+      const imgId = await p.$eval('#img_current', el => el.dataset.img).catch(() => null);
+      const img = imgId && (man.byRole.train_core || []).find(i => i.id === imgId);
+      if (img) {
         await clickIf(p, '#basket_' + img.class);
       } else await clickIf(p, '#btn_next');
     } else if (els.includes('btn_pick')) {
@@ -223,7 +223,7 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     }
     await new Promise(r => setTimeout(r, 120));
   }
-  throw new Error('driveLesson: не дошли до done за лимит шагов');
+  throw new Error('driveLesson: не дошли до done за лимит шагов; застряли на ' + lastKey);
 }
 
 /* ---------- F5-проверка: reload → restore ≤3 c до интерактивного экрана ---------- */

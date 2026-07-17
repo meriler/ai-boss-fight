@@ -10,6 +10,22 @@
 import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom } from './dom.js';
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
+
+/* Детерминированная перемешка подачи (сид = seat + роль): банк хранит картинки
+ * классами подряд — без перемешки ребёнок жмёт одну корзину 8 раз не глядя.
+ * Свой порядок на seat (не спишешь у соседа), стабильный между рендерами и F5. */
+function shuffledRole(ctx, r) {
+  const list = [...role(ctx, r)];
+  let s = 2166136261 >>> 0;
+  const seed = String(ctx.seat) + ':' + r;
+  for (let i = 0; i < seed.length; i++) s = ((s ^ seed.charCodeAt(i)) * 16777619) >>> 0;
+  for (let i = list.length - 1; i > 0; i--) {
+    s = (s * 1103515245 + 12345) >>> 0;
+    const j = s % (i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
 const classLabel = (ctx, id) => {
   const c = ctx.bankIndex.classById.get(id);
   return c ? c.label : id;
@@ -50,7 +66,7 @@ function boxStatus(ctx) {
 /* ---------- ленты подачи по одной ---------- */
 
 function basketsFeed(ctx, step, phase) {
-  const list = role(ctx, 'train_core');
+  const list = shuffledRole(ctx, 'train_core');
   const assigned = {};
   for (const b of ctx.payload.baskets) assigned[b.img] = b.basket;
   const current = list.find(i => !(i.id in assigned));
@@ -69,6 +85,7 @@ function basketsFeed(ctx, step, phase) {
   if (current) {
     input.push(h('div', { class: 'feedcount' }, 'картинка ' + (doneN + 1) + ' из ' + list.length));
     const card = imgCard(ctx.assetsBase + current.src, { big: true, draggable: true, id: 'img_current' });
+    card.dataset.img = current.id;   // e2e/дебаг: какая картинка сейчас в подаче (порядок перемешан)
     card.querySelector('img').addEventListener('dragstart', ev => {
       ev.dataTransfer.setData('text/plain', current.id);
       ev.dataTransfer.effectAllowed = 'move';
@@ -189,7 +206,7 @@ function probeFeed(ctx, step, phase) {
 }
 
 function trapsFeed(ctx, step, phase) {
-  const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
+  const pool = step.images_from_role ? shuffledRole(ctx, step.images_from_role) : shuffledRole(ctx, 'trap');
   const added = new Set(ctx.payload.traps);
   const rest = pool.filter(i => !added.has(i.id));
   const lkey = 'trapptr_' + step.id;
@@ -650,6 +667,11 @@ export function renderPhase(ctx) {
     // такт разгадки — структурно: последний такт шага с reveal (id — свободные данные)
     if (step.reveal && step.phases[step.phases.length - 1].id === phase.id)
       return revealPhase(ctx, step, phase);
+    // генерик «карточка текста + Дальше» — интро и связки, объявленные данными манифеста
+    if ((phase.elements || []).length && (phase.elements || []).every(e => e === 'btn_next'))
+      return h('div', { class: 'taskcard' },
+        kidText(phase.text || ''),
+        bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(), { id: 'btn_next' }));
     if (hasEl(phase, 'btn_check') && step.forecast &&
         step.phases.filter(p => (p.elements || []).includes('btn_commit')).length &&
         ctx.commitDone('forecast', step.id)) return forecastRun(ctx, step, phase);
