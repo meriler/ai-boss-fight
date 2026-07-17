@@ -31,7 +31,8 @@ const ok = (name, cond, extra = '') => {
 const dataDir = mkdtempSync(path.join(tmpdir(), 'z1e2e-'));
 writeFileSync(path.join(dataDir, 'seats.json'), JSON.stringify({ 1: 'Тест-А', 2: 'Тест-Б' }));
 const server = spawn('python3', [path.join(ROOT, 'server/tele.py')], {
-  env: { ...process.env, WS_TELE_DIR: dataDir, WS_TELE_PORT: String(PORT), WS_STATIC_DIR: ROOT },
+  // LESSON_DB=1 — SQLite-тень M1 (dual-write): после прогона сверяем тень с файлами
+  env: { ...process.env, WS_TELE_DIR: dataDir, WS_TELE_PORT: String(PORT), WS_STATIC_DIR: ROOT, LESSON_DB: '1' },
   stdio: 'ignore',
 });
 for (let i = 0; ; i++) {
@@ -739,8 +740,21 @@ for (const [tag, list] of domViolations) {
 ok('DOM-чеки конституции: экранов проверено ' + domViolations.size + ', нарушений ' + domFails, domFails === 0);
 
 /* ---------- финал ---------- */
+await browser.close();   // сперва гасим браузер и сервер: доезжающий debounce-/save
+server.kill();           // не должен дать ложный транзиент в parity-сверке ниже
+await new Promise(r => setTimeout(r, 300));
+
+/* ---------- M1: parity «тень против файлов» на ПОЛНОМ прогоне e2e ---------- */
+{
+  const { execFileSync } = await import('node:child_process');
+  let out = '', code = 0;
+  try {
+    out = execFileSync('python3', [path.join(ROOT, 'server/check_db_parity.py'), dataDir],
+      { encoding: 'utf8' });
+  } catch (e) { out = (e.stdout || '') + (e.stderr || ''); code = e.status ?? 1; }
+  ok('M1 SQLite-тень: parity после полного e2e — ' + out.trim().split('\n')[0], code === 0);
+}
+
 console.log(log.join('\n'));
 console.log(`\n${log.filter(l => l.startsWith('PASS')).length} PASS · ${fails} FAIL`);
-await browser.close();
-server.kill();
 process.exit(fails ? 1 : 0);

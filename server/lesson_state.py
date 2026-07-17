@@ -30,6 +30,8 @@ import random
 import threading
 import time
 
+import lesson_db   # SQLite-тень M1 (ТЗ-платформа-v3 §4.2): dual-write, чтение — из файлов
+
 MAX_CHAT_LEN = 500
 MAX_OPS = 5000          # ledger дедупа: страховка от распухания (занятие — сотни коммитов)
 
@@ -82,10 +84,17 @@ def _ev(state):
 class LessonStore:
     """Хранилище состояния занятия. Все мутации — через with_state() под глобальным локом."""
 
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, db_path=None):
         self.dir = data_dir
         self.lock = threading.Lock()
         self._cache = {}          # run_id -> state (в памяти; файл — durability)
+        # SQLite-тень M1: dual-write на мутациях, ЧТЕНИЕ ОСТАЁТСЯ ИЗ ФАЙЛОВ (M2 — отдельно).
+        # Флага нет → тень выключена, поведение фазы 0 байт-в-байт. Ошибки тени глотаются.
+        self._pend_snaps = []     # снапшоты текущей мутации → одна транзакция с state
+        path = db_path if db_path is not None else lesson_db.db_path_from_env(data_dir)
+        self.shadow = lesson_db.open_shadow(path) if path else None
+        if self.shadow:
+            self.shadow.backfill(data_dir, current_run=self.current_run())
 
     # ---- файлы ----
     def _cur_path(self):
@@ -144,6 +153,8 @@ class LessonStore:
             self._cache[run_id] = st
             self._write_atomic(self._state_path(run_id), st)
             self._write_atomic(self._cur_path(), {'run_id': run_id})
+            if self.shadow:
+                self.shadow.mirror_mutation(st, set_current=run_id)
             return run_id
 
     def with_state(self, run_id, fn):
@@ -159,10 +170,24 @@ class LessonStore:
             st = self._load_state(rid)
             if st is None:
                 return 409, {'ok': False, 'error': 'no_run'}
-            status, resp, dirty = fn(st)
+            try:
+                status, resp, dirty = fn(st)
+            except BaseException:
+                self._shadow_flush(None)   # снапшоты, записанные в файлы до исключения
+                raise
             if dirty:
                 self._write_atomic(self._state_path(rid), st)
+            # тень зеркалит РОВНО то, что ушло в файлы: state — только при dirty
+            # (иначе память впереди файла — например last_sync — и parity бы «плыл»)
+            self._shadow_flush(st if dirty else None)
             return status, resp
+
+    def _shadow_flush(self, state):
+        """Одна транзакция тени на мутацию: state (если файл переписан) + снапшоты,
+        накопленные write_snapshot этой же мутации. Вызывается под self.lock."""
+        snaps, self._pend_snaps = self._pend_snaps, []
+        if self.shadow and (state is not None or snaps):
+            self.shadow.mirror_mutation(state, snaps)
 
     # ---- снапшоты /save ----
     def view(self):
@@ -184,6 +209,8 @@ class LessonStore:
 
     def write_snapshot(self, run_id, seat, snap):
         self._write_atomic(self._save_path(run_id, seat), snap)
+        if self.shadow:   # в тень — вместе со state этой мутации (см. _shadow_flush)
+            self._pend_snaps.append((run_id, str(seat), snap))
 
 
 # ==================== single-writer / epoch ====================

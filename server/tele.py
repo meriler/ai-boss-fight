@@ -12,7 +12,8 @@ GET  /dash  — дашборд для Алексея/Насти (за nginx basi
 /sync /chat /react /host/* (маршрутизация ниже, вся логика и файлы состояния — в модуле;
 контракты /tele, /dash, sess_start/sess_stop НЕ меняются, DoD п.10).
 
-Деплой: scp server/{tele.py,telemetry_model.py,lesson_state.py,dash_lesson.py} aeza:/opt/ws-tele/ && ssh aeza systemctl restart ws-tele
+Деплой: ./deploy-server.sh из корня репо (M0: ворота-тесты, проверка занятости,
+pre-deploy tar data-dir, смоук; env LESSON_DB=1 — SQLite-тень M1, см. lesson_db.py).
 Данные: /var/lib/ws-tele/YYYY-MM-DD.jsonl (owner bots, TTL 45д через tmpfiles.d)."""
 import html, json, mimetypes, os, re, threading, time
 from datetime import datetime, timezone, timedelta
