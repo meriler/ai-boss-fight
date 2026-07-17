@@ -35,7 +35,22 @@
       "properties": {
         "frozen_at": { "type": "string", "format": "date" },
         "embedder": { "type": "string", "description": "точная модель, напр. mobilenet_v3_small_embedder.tflite" },
-        "k": { "type": "integer", "minimum": 1 },
+        "k": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            {
+              "type": "object",
+              "required": ["small", "large", "min_class_size_for_large"],
+              "additionalProperties": false,
+              "properties": {
+                "small": { "type": "integer", "minimum": 1 },
+                "large": { "type": "integer", "minimum": 1 },
+                "min_class_size_for_large": { "type": "integer", "minimum": 2 }
+              },
+              "description": "Двухступенчатое правило v5: k=small пока min(примеров на класс) < min_class_size_for_large, иначе k=large"
+            }
+          ]
+        },
         "weights": {
           "type": "object",
           "required": ["embed", "pixel"],
