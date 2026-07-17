@@ -48,11 +48,14 @@ const host = (p, body) => fetch(BASE + p, {
 
 /* ---------- браузер ---------- */
 const browser = await chromium.launch({ executablePath: EXE, headless: true });
+// ENGINE=head node e2e-z1.mjs — та же матрица на другом движке (флаг ?engine=, §2.2);
+// без переменной — дефолт занятия (kNN), как у детей
+const ENGINE = process.env.ENGINE ? `&engine=${process.env.ENGINE}` : '';
 const mkChild = async (seat, variant) => {
   const c = await browser.newContext({ viewport: { width: 640, height: 760 } });   // узкая половина 13"
   const p = await c.newPage();
   p.setDefaultTimeout(30000);
-  await p.goto(`${BASE}/z1.html?ws=1&demo=1&seat=${seat}` + (variant ? `&variant=${variant}` : ''));
+  await p.goto(`${BASE}/z1.html?ws=1&demo=1&seat=${seat}` + (variant ? `&variant=${variant}` : '') + ENGINE);
   return p;
 };
 
@@ -570,26 +573,36 @@ ok('оверлеи: на активном такте раскладки буфе
   await clickIf(B, '#btn_check');                               // «Проверить коробку»
   await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
   let score = (await scoresOf(B)).pop() || '';
-  ok('слабый замер на подмножестве: 2 из 4', score.includes('2 из 4'), score);
   const more = await B.$('#btn_more_traps');
-  ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
-  await B.click('#btn_more_traps');
-  await waitState(B, s => s.phase === 'traps', 8000, 'B → добор ловушек');
-  for (let guard = 0; guard < 20; guard++) {
-    if (!await clickIf(B, '#btn_pick')) break;                  // пропущенные вернулись в очередь
-    await new Promise(r => setTimeout(r, 80));
+  if (ENGINE !== '&engine=head') {
+    // kNN (demo-синтез калиброван под него): подмножество ловушек чинит слабо → цикл добора
+    ok('слабый замер на подмножестве: 2 из 4', score.includes('2 из 4'), score);
+    ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
+    await B.click('#btn_more_traps');
+    await waitState(B, s => s.phase === 'traps', 8000, 'B → добор ловушек');
+    for (let guard = 0; guard < 20; guard++) {
+      if (!await clickIf(B, '#btn_pick')) break;                // пропущенные вернулись в очередь
+      await new Promise(r => setTimeout(r, 80));
+    }
+    await clickIf(B, '#btn_next');                              // «Дальше» (пул исчерпан)
+    await waitState(B, s => s.phase === 'retrain', 8000, 'B → повторное обучение');
+    await B.click('#btn_train');
+    await waitState(B, s => s.phase === 'measure_after', 10000, 'B → повторный замер');
+    const staleNote = await B.evaluate(() => document.body.textContent.includes('Состав обучения менялся'));
+    ok('честная инвалидация: старый замер не показан после смены состава', staleNote);
+    await clickIf(B, '#btn_check');
+    await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
+    score = (await scoresOf(B)).pop() || '';
+    ok('добор починил коробку: 4 из 4', score.includes('4 из 4'), score);
+    ok('после сильного замера кнопки добора нет', !(await B.$('#btn_more_traps')));
+  } else {
+    // head на demo-фичах генерализует с односторонних ловушек (ТЗ v3 §2.2: коэффициенты
+    // demo-синтеза подбирались под kNN — для head подвижка честная, реальный банк даёт
+    // слабый замер 1/4 и добор; см. pilot/head-pilot-report.md). Проверяем честность UI:
+    // сильный замер → кнопки добора нет
+    ok('head: подмножество ловушек уже чинит демо-коробку (4 из 4), добор честно не предлагается',
+       score.includes('4 из 4') && !more, score + (more ? ' + кнопка добора' : ''));
   }
-  await clickIf(B, '#btn_next');                                // «Дальше» (пул исчерпан)
-  await waitState(B, s => s.phase === 'retrain', 8000, 'B → повторное обучение');
-  await B.click('#btn_train');
-  await waitState(B, s => s.phase === 'measure_after', 10000, 'B → повторный замер');
-  const staleNote = await B.evaluate(() => document.body.textContent.includes('Состав обучения менялся'));
-  ok('честная инвалидация: старый замер не показан после смены состава', staleNote);
-  await clickIf(B, '#btn_check');
-  await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
-  score = (await scoresOf(B)).pop() || '';
-  ok('добор починил коробку: 4 из 4', score.includes('4 из 4'), score);
-  ok('после сильного замера кнопки добора нет', !(await B.$('#btn_more_traps')));
   // В-5: рост ячейками — два ряда одних holdout-миниатюр, стрелки на изменившихся,
   // счёт — подписью (число не заголовком: .score-big в growth-режиме отсутствует)
   const growth = await B.evaluate(() => ({
@@ -618,7 +631,9 @@ for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 
                  'version_choice', 'reveal_seen', 'captcha_commit', 'trap_added', 'retrained',
                  'measure', 'forecast_committed', 'forecast_result', 'hint', 'stuck_pressed',
                  'buffer_forecast', 'chat_msg', 'card_opened', 'best_trap_marked', 'artifact_saved',
-                 'baskets_cleared', 'experiment_start', 'trap_skipped', 'traps_done', 'traps_more'])
+                 'baskets_cleared', 'experiment_start', 'trap_skipped', 'traps_done',
+                 // traps_more шлётся только в цикле добора — на head-прогоне demo его нет (см. выше)
+                 ...(ENGINE === '&engine=head' ? [] : ['traps_more'])])
   ok('телеметрия: событие ' + t + ' в JSONL', evTypes.has(t));
 const measureEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'measure'));
 ok('телеметрия: замер несёт версию состава (model_sig)', measureEvents.some(e => e.model_sig));
@@ -711,7 +726,7 @@ await V1.close(); await V2.close();
   const c = await browser.newContext({ viewport: { width: 1512, height: 950 } });
   const W = await c.newPage();
   W.setDefaultTimeout(30000);
-  await W.goto(`${BASE}/z1.html?ws=1&demo=1&seat=9`);
+  await W.goto(`${BASE}/z1.html?ws=1&demo=1&seat=9` + ENGINE);
   const zoomVal = await W.evaluate(() => getComputedStyle(document.body).zoom);
   ok('широкий экран: zoom-ветка активна (' + zoomVal + ')', parseFloat(zoomVal) === 1.5);
   const trainer = man.lesson.steps.find(s => s.type === 'trainer_act').id;

@@ -20,7 +20,7 @@ import { fetchRestore, applyRestore, createSeatSave, newInstanceId } from '../co
 import { createAcked } from '../core/acked.js';
 import { createPoll } from '../core/poll.js';
 import { createTele } from '../core/tele.js';
-import { createClassifier } from '../engine/classifier.js';
+import { createClassifier, allowedEngines } from '../engine/classifier.js';
 import { h, bigBtn, kidText } from './dom.js';
 import { createOverlays } from './overlays.js';
 import { renderPhase, basketsSig } from './phases.js';
@@ -449,10 +449,18 @@ async function boot() {
                           demo: ctx.demo, ws: QP.has('ws') }).attach();
   ctx.tele.cleanup();
   ctx.tele.resend();
+  // Движок (ТЗ-платформа-v3 §2.2): флаг ?engine= перекрывает манифест, дефолт — kNN.
+  // Детям — только движки, пилотированные на ЭТОМ банке (frozen_params.engines + knn);
+  // непилотированный движок честно откатывается на kNN, не ломая занятие
+  const wantEngine = QP.get('engine') || normalized.lesson.engine || 'knn';
+  ctx.engineId = allowedEngines(bankIndex.bank).includes(wantEngine) ? wantEngine : 'knn';
+  if (ctx.engineId !== wantEngine)
+    console.warn('движок «' + wantEngine + '» не пилотирован на банке — работаем на knn');
   // vendorBase — АБСОЛЮТНАЯ база от URL страницы: внутри classifier.js идёт dynamic import,
   // а относительный/голый спецификатор там резолвится от модуля (или падает сразу), не от страницы
   ctx.classifier = createClassifier({ bankIndex, assetsBase: ctx.assetsBase, demo: ctx.demo,
-                                      vendorBase: new URL('.', location.href).href });
+                                      vendorBase: new URL('.', location.href).href,
+                                      engine: ctx.engineId });
   ctx.overlays = createOverlays(ctx);
 
   // /restore: занятие могло ещё не начаться (no_run) — ждём старта ведущего

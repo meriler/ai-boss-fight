@@ -25,14 +25,27 @@
   (identity-agnostic). Используется валидатором в CI и страницей `z1.html?demo=1`.
 - `core.test.mjs` — тесты ядра: `node --test 'app/**/*.test.mjs'`.
 
-## engine/ — нода ImageClassifier (§1.1, параметры заморожены пилотом §6)
+## engine/ — сменные движки за EngineAdapter (ТЗ-платформа-v3 §2.2; параметры заморожены пилотами §6)
 
-- `classifier.js` — kNN на комбинированном cos-расстоянии; параметры из `bank.frozen_params`
-  (эмбеддер/k/веса/формула уверенности). Два режима: real (MediaPipe ImageEmbedder,
-  warmup ФОНОМ — restore ≤3 c) и demo (`?demo=1`: фикс-фичи из метаданных банка bg/class/id,
-  без wasm — детерминизм e2e; веса направлений считаны, не подобраны — см. шапку файла).
-- `classifier.test.mjs` — драматургия занятия на ОБОИХ банках: флипы R1 уверенные (≥75),
-  R2 чинится ловушками, детерминизм.
+Слои: FeatureSource × EngineCore × Calibration. Реестр движков закрытый: `knn` (дефолт,
+fallback, «движок v1») и `head` (обучаемая голова TM-типа, Р20 — прошла свой мини-пилот §6,
+на проде только за флагом `?engine=head`; включение в манифест — решение владельца).
+Валидатор пускает в манифест только движки, пилотированные на банке (`frozen_params.engines`).
+
+- `index.js` — фабрика `createEngine({..., engine})`: единый адаптер (warmup/train/classify/
+  measure/modelInfo) — screens/* работают с любым движком; `allowedEngines(bank)`.
+- `features.js` — FeatureSource: warmup эмбеддера, фичи банка; два режима: real (MediaPipe
+  ImageEmbedder, warmup ФОНОМ — restore ≤3 c) и demo (`?demo=1`: фикс-фичи из метаданных
+  банка bg/class/id, без wasm — детерминизм e2e; веса направлений считаны, не подобраны).
+- `knn.js` — kNN голосованием top-k на комбинированном cos-расстоянии (параметры из
+  `bank.frozen_params`: k/веса/шкала) + `compositionSig` + `scaleConf`.
+- `head.js` — детерминированная softmax-логрегрессия (математика Teachable Machine, БЕЗ
+  tfjs): W=0-init, full-batch GD, канонизация состава, Float64; гиперпараметры — из
+  `frozen_params.engines.head` (пилот H1, пилот-R1-параметры §8).
+- `classifier.js` — легаси-фасад (createClassifier = createEngine, реэкспорт чистых функций).
+- `classifier.test.mjs` — драматургия занятия на ОБОИХ банках (kNN); `engine-contract.test.mjs`
+  — conformance-suite обоих движков (детерминизм, спектр=1, measure≡classify, драматургия);
+  `parity.test.mjs` / `parity-head.test.mjs` — сверка с пилотами на реальных фичах.
 
 ## screens/ — детские экраны (§2, компоненты 1–10)
 

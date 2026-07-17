@@ -89,6 +89,54 @@
             "note": { "type": "string" }
           },
           "description": "Калиброванная шкала экранного процента уверенности (фаза 0.5): выведена из маржей пилота, отчёт pilot/calibration-report.md"
+        },
+        "engines": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "head": {
+              "type": "object",
+              "required": ["piloted_at", "feat_scale_pix", "epochs", "lr", "l2", "T", "confidence_scale"],
+              "additionalProperties": false,
+              "properties": {
+                "piloted_at": { "type": "string", "format": "date" },
+                "pilot": { "type": "string" },
+                "feat_scale_pix": { "type": "number", "exclusiveMinimum": 0 },
+                "epochs": { "type": "integer", "minimum": 1 },
+                "lr": { "type": "number", "exclusiveMinimum": 0 },
+                "l2": { "type": "number", "minimum": 0 },
+                "class_balance": { "type": "boolean" },
+                "min_per_class": { "type": "integer", "minimum": 1 },
+                "T": { "type": "number", "exclusiveMinimum": 0 },
+                "confidence_scale": {
+                  "type": "object",
+                  "required": ["anchors"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "calibrated_at": { "type": "string", "format": "date" },
+                    "anchors": {
+                      "type": "array",
+                      "minItems": 3,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "array",
+                        "prefixItems": [
+                          { "type": "number", "minimum": 0 },
+                          { "type": "number", "minimum": 0, "maximum": 100 }
+                        ],
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "note": { "type": "string" }
+                  },
+                  "description": "Шкала conf% головы по logit-марже (правило §8.4 пилот-дока)"
+                }
+              },
+              "description": "Обучаемая голова TM-типа (Р20, ТЗ-платформа-v3 §2.1): появляется здесь ТОЛЬКО после ALL_PASS мини-пилота §6 (pilot/run_head_pilot.mjs). Гиперпараметры заморожены пилотом — код дефолтов не имеет права расходиться с банком"
+            }
+          },
+          "description": "Пилотированные движки сверх kNN (ТЗ-платформа-v3 §2.2): движок манифеста обязан быть из этого словаря или knn — инвариант валидатора"
         }
       }
     },

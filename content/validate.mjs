@@ -19,6 +19,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { normalizeLesson, indexBank } from '../app/core/manifest.js';
 import { walkLesson } from '../app/core/walk.js';
+import { allowedEngines } from '../app/engine/index.js';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const LIMIT = 5;   // конституция: ≤5 одновременных интерактивов («Застрял» — вне лимита)
@@ -51,6 +52,13 @@ function checkManifestDir(dir) {
 
   if (manifest.lesson.bank !== bank.id)
     err(`lesson.bank=${manifest.lesson.bank} ≠ bank.id=${bank.id}`);
+
+  // — инвариант движка (ТЗ-платформа-v3 §2.2): движок манифеста ∈ пилотированные движки
+  // банка (knn — пилот фазы 0; остальные появляются в frozen_params.engines после
+  // СВОЕГО мини-пилота §6) — новый движок физически не попадает детям мимо пилота
+  if (manifest.lesson.engine && !allowedEngines(bank).includes(manifest.lesson.engine))
+    err(`lesson.engine=${manifest.lesson.engine} не пилотирован на банке ${bank.id} ` +
+        `(допустимы: ${allowedEngines(bank).join(', ')}) — сначала мини-пилот §6`);
 
   const norm = normalizeLesson(manifest);
   const bi = indexBank(bank);

@@ -194,9 +194,10 @@ function trainPhase(ctx, step, phase) {
     // restore после F5 переобучает модель из composition последней версии.
     // counts/engine — аддитивные поля V2 (состав словами для карточки версии В-1)
     const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
-    const sig = ctx.classifier.modelInfo().sig;
+    const mi = ctx.classifier.modelInfo();
+    const sig = mi.sig;
     ctx.j('train_commit', { version, sig, n, composition: examples,
-                            counts: countsOf(ctx), engine: 'knn' });
+                            counts: countsOf(ctx), engine: mi.engine });
     ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained', { n, version, sig });
     setTimeout(() => {
       boxEl && boxEl.classList.remove('learning');
@@ -453,9 +454,10 @@ function measurePhase(ctx, step, phase) {
         const composition = stableComposition(live.composition);
         const n = ctx.classifier.train(composition);
         const version = live.version + 1;
-        const sig = ctx.classifier.modelInfo().sig;
+        const mi = ctx.classifier.modelInfo();
+        const sig = mi.sig;
         ctx.j('train_commit', { version, sig, n, composition,
-                                counts: countsFromComposition(ctx, composition), engine: 'knn' });
+                                counts: countsFromComposition(ctx, composition), engine: mi.engine });
         ctx.tele.push('retrained', { n, version, sig });
         ctx.render();   // не-volatile версия активна — замер открылся
       }, { id: 'btn_train_stable' });
