@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ws.meriler.cc/content/schema/bank.schema.json",
+  "title": "Банк картинок занятия — фаза 0 (нормативная схема, финализирована 2026-07-17)",
+  "description": "Роли картинок не пересекаются (проверяет валидатор). Банко-зависимые экраны кодятся только при pilot_status=frozen (ТЗ §6, §7 п.5).",
+  "type": "object",
+  "required": ["id", "classes", "spurious", "pilot_status", "images"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "classes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "label": { "type": "string", "maxLength": 30 }
+        }
+      },
+      "description": "Фаза 0: ровно 2 класса (нода ImageClassifier среза — бинарная)"
+    },
+    "spurious": {
+      "type": "string",
+      "description": "Тайная примета (подвох). При провале пилота правится ЭТА строка + картинки — не код"
+    },
+    "pilot_status": { "enum": ["pending", "frozen"] },
+    "frozen_params": {
+      "type": "object",
+      "required": ["frozen_at", "embedder", "k", "weights", "confidence_map"],
+      "additionalProperties": false,
+      "properties": {
+        "frozen_at": { "type": "string", "format": "date" },
+        "embedder": { "type": "string", "description": "точная модель, напр. mobilenet_v3_small_embedder.tflite" },
+        "k": { "type": "integer", "minimum": 1 },
+        "weights": {
+          "type": "object",
+          "required": ["embed", "pixel"],
+          "additionalProperties": false,
+          "properties": {
+            "embed": { "type": "number", "minimum": 0, "maximum": 1 },
+            "pixel": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "confidence_map": {
+          "type": "string",
+          "description": "Формула/параметры маппинга расстояние→процент уверенности (фиксируется пилотом ДО заморозки, §6 п.3)"
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "class", "role", "src"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "class": { "type": "string" },
+          "role": {
+            "enum": ["train_core", "probe", "trap", "holdout", "forecast", "buffer", "reserve"],
+            "description": "Реестр ролей ЗАКРЫТ. Непересечение ролей и минимумы (holdout ≥4) проверяет валидатор"
+          },
+          "bg": { "type": "string", "description": "значение измерения подвоха (напр. дом/улица)" },
+          "src": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор" },
+          "expected_flip": { "type": "boolean", "description": "для probe: ждём ошибку коробки (пилотный порог)" }
+        }
+      }
+    }
+  },
+  "if": { "properties": { "pilot_status": { "const": "frozen" } } },
+  "then": { "required": ["frozen_params"] }
+}

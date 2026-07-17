@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ws.meriler.cc/content/schema/journal.schema.json",
+  "title": "Журнал действий restore (локальный буфер seat-save) — словарь ЗАКРЫТ 2026-07-17",
+  "description": "ТЗ §1.1: restore = серверная база (/restore) + replay записей с rev > серверного через ТОТ ЖЕ редьюсер, что применяет действия вживую. Принцип включения в словарь: локальная мутация payload, обязанная пережить F5 и НЕ являющаяся acked-действием. Acked (вне журнала, ходят /commit): version, choice, forecast, captcha, gate_enter, step_enter. Не в журнале (сервер — источник правды): chat, react; hints — телеметрия. Новый тип действия = правка этой схемы + аннекса, не рефлекс.",
+  "type": "object",
+  "required": ["type", "args", "rev", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "enum": [
+        "phase_enter",
+        "basket_assign", "basket_undo",
+        "trap_add", "trap_undo",
+        "frag_pick", "free_text_set",
+        "quiz_answer", "captcha_toggle",
+        "forecast_pick",
+        "buffer_predict",
+        "best_trap_pick",
+        "probe_result", "measure_result"
+      ]
+    },
+    "args": { "type": "object" },
+    "rev": { "type": "integer", "minimum": 1, "description": "Монотонный per-instance; стартовый rev нового инстанса = max(server_rev, local_rev) + 1 (§1.1)" },
+    "ts": { "type": "integer", "description": "unix ms, информационный (порядок задаёт rev)" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "phase_enter" } } },
+      "then": { "properties": { "args": { "required": ["phase"], "additionalProperties": false, "properties": { "phase": { "type": "string" } } } } } },
+    { "if": { "properties": { "type": { "const": "basket_assign" } } },
+      "then": { "properties": { "args": { "required": ["img", "basket"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "basket": { "type": "string", "description": "classId из bank.classes" } } } } } },
+    { "if": { "properties": { "type": { "const": "basket_undo" } } },
+      "then": { "properties": { "args": { "additionalProperties": false, "properties": {} } } } },
+    { "if": { "properties": { "type": { "const": "trap_add" } } },
+      "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } } } },
+    { "if": { "properties": { "type": { "const": "trap_undo" } } },
+      "then": { "properties": { "args": { "additionalProperties": false, "properties": {} } } } },
+    { "if": { "properties": { "type": { "const": "frag_pick" } } },
+      "then": { "properties": { "args": { "required": ["slot", "frag"], "additionalProperties": false, "properties": { "slot": { "type": "integer", "minimum": 1 }, "frag": { "type": "integer", "minimum": 1 } } } } } },
+    { "if": { "properties": { "type": { "const": "free_text_set" } } },
+      "then": { "properties": { "args": { "required": ["text"], "additionalProperties": false, "properties": { "text": { "type": "string", "maxLength": 200 } } } } } },
+    { "if": { "properties": { "type": { "const": "quiz_answer" } } },
+      "then": { "properties": { "args": { "required": ["card", "answer"], "additionalProperties": false, "properties": { "card": { "type": "string" }, "answer": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "type": { "const": "captcha_toggle" } } },
+      "then": { "properties": { "args": { "required": ["card", "cell"], "additionalProperties": false, "properties": { "card": { "type": "string" }, "cell": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "type": { "const": "forecast_pick" } } },
+      "then": { "properties": { "args": { "required": ["field", "option"], "additionalProperties": false, "properties": { "field": { "enum": ["predict", "reason"] }, "option": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "type": { "const": "buffer_predict" } } },
+      "then": { "properties": { "args": { "required": ["img", "predict"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "predict": { "type": "string" } } } } } },
+    { "if": { "properties": { "type": { "const": "best_trap_pick" } } },
+      "then": { "properties": { "args": { "required": ["img"], "additionalProperties": false, "properties": { "img": { "type": "string" } } } } } },
+    { "if": { "properties": { "type": { "const": "probe_result" } } },
+      "then": { "properties": { "args": { "required": ["img", "label", "conf"], "additionalProperties": false, "properties": { "img": { "type": "string" }, "label": { "type": "string" }, "conf": { "type": "number", "minimum": 0, "maximum": 100 } } } },
+        "description": "Показанный вердикт — фиксируется, чтобы F5 не пересчитывал/не перепоказывал (DoD п.3)" } },
+    { "if": { "properties": { "type": { "const": "measure_result" } } },
+      "then": { "properties": { "args": { "required": ["phase", "score", "of"], "additionalProperties": false, "properties": { "phase": { "enum": ["before", "after"] }, "score": { "type": "integer", "minimum": 0 }, "of": { "type": "integer", "minimum": 1 } } } } } }
+  ]
+}
