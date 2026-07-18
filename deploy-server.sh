@@ -11,7 +11,7 @@
 #
 # Использование: ./deploy-server.sh            (обычный путь)
 #                ./deploy-server.sh --force    (пропустить проверку занятости — осознанно!)
-set -e
+set -euo pipefail   # pipefail обязателен: тесты идут через "| tail", без него провал маскируется (Codex-ревью 18.07, находка 5)
 cd "$(dirname "$0")"
 FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 
