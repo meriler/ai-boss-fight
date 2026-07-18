@@ -2,7 +2,9 @@
 """Приёмник телеметрии демки воркшопа + дашборд наблюдателя.
 
 POST /tele  — дампы от демки (за nginx location=/tele, без auth, POST-only ≤256КБ) → JSONL по дате.
-GET  /dash  — дашборд для Алексея/Насти (за nginx basic auth): «кому помочь сейчас» + рубрика после.
+GET  /dash  — дашборд для Алексея/Насти (за nginx basic auth). «Один экран — одна задача»
+(заход И3-Д 18.07): по умолчанию — контур ЗАНЯТИЯ (панель dash_lesson; нет run → кнопка
+запуска); воркшоп v5 целиком (метки, «Все дети», рубрика) — за ссылкой ?view=archive.
 
 Приватность: IP не пишем (и nginx access_log off), имена детей НЕ приезжают с устройств —
 локальный маппинг /var/lib/ws-tele/seats.json (кладёт генератор персональных ссылок).
@@ -239,8 +241,9 @@ class H(BaseHTTPRequestHandler):
         added = added if re.fullmatch(r'\d{1,2}', added) else ''
         taken = (q.get('taken') or [''])[0]
         taken = taken if re.fullmatch(r'\d{1,2}', taken) else ''
-        body = render_dash(date, demo='demo' in q, review='review' in (q.get('view') or []),
-                           added=added, taken=taken).encode()
+        views = q.get('view') or []
+        body = render_dash(date, demo='demo' in q, review='review' in views,
+                           added=added, taken=taken, archive='archive' in views).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
@@ -414,8 +417,40 @@ def render_link_block(date, added, taken):
             '<a href="?date=' + esc(date) + '" style="margin-left:8px">убрать</a></div>')
 
 
-def render_dash(date, demo=False, review=False, added='', taken=''):
-    """Дашборд наблюдателя: сначала «кому помочь», потом всё остальное (ревью Codex 10.07)."""
+DASH_CSS = """
+body{background:#f5f7fa;color:#1a2330;font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:24px;max-width:1100px}
+.big{font-size:19px;font-weight:800;padding:12px 16px;border-radius:12px;margin-bottom:12px}
+.ok{background:#e8f7ee;border:1px solid #35b46a}.warn{background:#fdeaea;border:1px solid #d64545}
+.red{background:#fff;border:2px solid #d64545;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}
+.red .act{color:#b83232;font-weight:700}
+.org{background:#fff;border:2px solid #e08a2e;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}
+.org .act2{color:#b06a1a;font-weight:700}
+table{border-collapse:collapse;width:100%;margin:10px 0 24px;background:#fff;border-radius:10px}
+td,th{padding:8px 10px;border-bottom:1px solid #e2e7ee;text-align:left;font-size:15px}
+th{color:#66738a;font-size:13px;text-transform:uppercase}
+tr.p0 td{background:#fdeaea}tr.p1 td{background:#fbeedd}tr.p2 td{background:#fdf6e3}tr.p5 td{color:#9aa5b8}
+h2{margin:20px 0 4px}h4{margin:14px 0 2px;color:#2557d6}
+p{margin:4px 0;color:#3a4560}a{color:#2557d6}details{margin:14px 0}summary{cursor:pointer;font-weight:800;font-size:16px}
+.note{color:#66738a;font-size:13px}
+.sess{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:9px 14px;margin:0 0 12px;font-size:15px}
+.sess button,.linkbox button{font-size:14px;padding:5px 12px;border-radius:8px;border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer;font-weight:700}
+.linkbox{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:11px 14px;margin:0 0 12px;font-size:15px}
+.linkbox.ok2{border:2px solid #35b46a;background:#eefaf1}.linkbox.err{border:2px solid #d64545;background:#fdeaea}
+"""
+
+
+def _page(title, body):
+    return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta http-equiv="refresh" content="15">\n'
+            '<title>' + title + '</title><style>' + DASH_CSS + '</style></head><body>\n'
+            + body + '</body></html>')
+
+
+def render_dash(date, demo=False, review=False, added='', taken='', archive=False):
+    """Дашборд. «Один экран — одна задача» (заход И3-Д): по умолчанию — контур ЗАНЯТИЯ
+    (панель dash_lesson; нет run → большая кнопка запуска). Воркшоп v5 целиком —
+    за ссылкой ?view=archive (баннер, метки, «Все дети», рубрика — как раньше)."""
     fn = os.path.join(DIR, date + '.jsonl')
     lines = open(fn, encoding='utf-8').readlines() if os.path.exists(fn) else []
     raws, bad = parse_lines(lines)
@@ -569,31 +604,14 @@ def render_dash(date, demo=False, review=False, added='', taken=''):
     except Exception as e:
         lesson_panel = '<p class="note">панель занятия недоступна: %s</p>' % esc(e)
 
-    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="15">
-<title>Воркшоп · {esc(date)}</title><style>
-body{{background:#f5f7fa;color:#1a2330;font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:24px;max-width:1100px}}
-.big{{font-size:19px;font-weight:800;padding:12px 16px;border-radius:12px;margin-bottom:12px}}
-.ok{{background:#e8f7ee;border:1px solid #35b46a}}.warn{{background:#fdeaea;border:1px solid #d64545}}
-.red{{background:#fff;border:2px solid #d64545;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}}
-.red .act{{color:#b83232;font-weight:700}}
-.org{{background:#fff;border:2px solid #e08a2e;border-radius:12px;padding:10px 14px;margin:8px 0;font-size:16px}}
-.org .act2{{color:#b06a1a;font-weight:700}}
-table{{border-collapse:collapse;width:100%;margin:10px 0 24px;background:#fff;border-radius:10px}}
-td,th{{padding:8px 10px;border-bottom:1px solid #e2e7ee;text-align:left;font-size:15px}}
-th{{color:#66738a;font-size:13px;text-transform:uppercase}}
-tr.p0 td{{background:#fdeaea}}tr.p1 td{{background:#fbeedd}}tr.p2 td{{background:#fdf6e3}}tr.p5 td{{color:#9aa5b8}}
-h2{{margin:20px 0 4px}}h4{{margin:14px 0 2px;color:#2557d6}}
-p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary{{cursor:pointer;font-weight:800;font-size:16px}}
-.note{{color:#66738a;font-size:13px}}
-.sess{{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:9px 14px;margin:0 0 12px;font-size:15px}}
-.sess button,.linkbox button{{font-size:14px;padding:5px 12px;border-radius:8px;border:1px solid #2557d6;background:#eef3ff;color:#2557d6;cursor:pointer;font-weight:700}}
-.linkbox{{background:#fff;border:1px solid #c9d3e0;border-radius:12px;padding:11px 14px;margin:0 0 12px;font-size:15px}}
-.linkbox.ok2{{border:2px solid #35b46a;background:#eefaf1}}.linkbox.err{{border:2px solid #d64545;background:#fdeaea}}</style></head><body>
+    demo_qs = '&demo=1' if demo else ''
+    if archive:
+        # ---- архив воркшопа v5: прежняя страница целиком, без панели занятия ----
+        back = ('<p><a href="?date=' + esc(date) + demo_qs + '">← к занятию (главный дашборд)</a></p>')
+        body = f"""{back}
 {banner}
 {linkblk}
 {sess}
-{lesson_panel}
 {helpb}
 <h2>Все дети <span class="note">(красные сверху · страница сама обновляется каждые 15 сек)</span></h2>
 <table><tr><th>кто</th><th>что делать</th><th>стадия</th><th>активность</th><th></th></tr>{live or '<tr><td colspan=5>—</td></tr>'}</table>
@@ -606,15 +624,23 @@ p{{margin:4px 0;color:#3a4560}}a{{color:#2557d6}}details{{margin:14px 0}}summary
 ⚪ НЕАКТИВЕН — тишина &gt;30 мин (закрыл вкладку / старый тест), в «нужна помощь» не считается.<br>
 💥 «поломка была» — его ИИ обманулся на проверке: это ЦЕЛЬ урока, хорошо! Если 💥 нет у большинства — с механикой что-то не так.
 Номер у этапа — порядок в уроке (01 старт → 15 опрос готов). «Перезап.» — перезагрузки страницы (много = проблемы камеры/сети). «?·xxxx» — зашёл не по своей ссылке.</p></details>
-<p class="note">дата: <a href="?date={esc(date)}{'&demo=1' if demo else ''}">{esc(date)}</a>
- · <a href="?{'demo=1' if not demo else ''}">{'показать' if not demo else 'скрыть'} demo-сессии</a> (боты-тесты)</p>
+<p class="note">дата: <a href="?view=archive&date={esc(date)}{demo_qs}">{esc(date)}</a>
+ · <a href="?view=archive{'&demo=1' if not demo else ''}">{'показать' if not demo else 'скрыть'} demo-сессии</a> (боты-тесты)</p>
 {admin}
 <details{' open' if review else ''}><summary>📋 Рубрика и ответы детей — смотреть ПОСЛЕ занятия</summary>
 <p><b>{esc(summary)}</b></p>
 <table><tr><th>кто</th><th>дошёл до</th><th>гипотеза</th><th>guess</th><th>починка</th><th>до→после</th><th>клетка (предв.)</th><th>фазы, мин</th><th>железо</th></tr>{rub}</table>
 {texts_block}
 <p class="note">Клетки — предварительные: тексты размечаются руками по кодбуку (rubric.py).</p>
-</details></body></html>"""
+</details>"""
+        return _page('Воркшоп v5 (архив) · ' + esc(date), body)
+
+    # ---- главный экран: только контур занятия (панель сама решает: run или кнопка запуска);
+    #      воркшоп v5 — за ссылкой «архив» (И3-Д п.1) ----
+    body = (linkblk + lesson_panel + admin +
+            '<p class="note"><a href="?view=archive&date=' + esc(date) + demo_qs +
+            '">📦 архив воркшопа v5 (старый дашборд: метки, «Все дети», рубрика)</a></p>')
+    return _page('Занятие · ' + esc(date), body)
 
 
 if __name__ == '__main__':
