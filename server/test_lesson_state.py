@@ -133,6 +133,74 @@ class TestMaintenancePause(unittest.TestCase):
         self.assertFalse(busy['maintenance'])
 
 
+class TestMaintenanceBarrierEverywhere(unittest.TestCase):
+    """Закалка 18.07, critical 4: maintenance — барьер ВСЕХ пишущих ручек (/tele,
+    POST /dash, контур занятия), и проверяется ПОСЛЕ чтения тела."""
+
+    def tearDown(self):
+        try:
+            os.remove(tele.MAINT_FLAG)
+        except FileNotFoundError:
+            pass
+
+    def test_tele_and_admin_blocked(self):
+        with open(tele.MAINT_FLAG, 'w') as f:
+            f.write('deploy')
+        st, _ = req('POST', '/tele', {'sid': 'maintsid', 'events': [{'type': 'seat'}]})
+        self.assertEqual(st, 503)
+        st, _ = req('POST', '/dash', b'act=sess_start&date=2026-01-02',
+                    headers={'Referer': BASE + '/dash',
+                             'Content-Type': 'application/x-www-form-urlencoded'})
+        self.assertEqual(st, 503)
+        self.assertFalse(os.path.exists(os.path.join(TMP, 'session-2026-01-02.json')))
+        st, _ = req('GET', '/dash')                    # чтение живёт
+        self.assertEqual(st, 200)
+
+    def test_flag_set_while_body_in_flight(self):
+        """Запрос прошёл бы «проверку до тела»: заголовки отправлены ДО флага, тело —
+        ПОСЛЕ. Барьер обязан сработать (флаг решает судьбу перед исполнением)."""
+        import socket
+        run = start_run()
+        body = json.dumps({'seat': '78', 'run_id': run, 'client_instance_id': 'S',
+                           'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                           'state': 's1', 'payload': {}, 'rev': 1, 'ts': 1}).encode()
+        s = socket.create_connection(('127.0.0.1', PORT), timeout=10)
+        try:
+            s.sendall(b'POST /save HTTP/1.1\r\nHost: t\r\nContent-Type: application/json\r\n'
+                      + ('Content-Length: %d\r\n\r\n' % len(body)).encode())
+            import time as _t
+            _t.sleep(0.3)                              # сервер уже читает тело
+            with open(tele.MAINT_FLAG, 'w') as f:
+                f.write('deploy')
+            s.sendall(body)
+            chunks = b''
+            while b'maintenance' not in chunks:      # дочитываем до тела (recv может
+                part = s.recv(65536)                 # отдать заголовки отдельным куском)
+                if not part:
+                    break
+                chunks += part
+            resp = chunks.decode('utf-8', 'replace')
+        finally:
+            s.close()
+        self.assertIn('503', resp.split('\r\n')[0])
+        self.assertIn('maintenance', resp)
+
+
+class TestBadContentLength(unittest.TestCase):
+    def test_garbage_content_length_is_400_not_crash(self):
+        """Закалка 18.07, medium: кривой Content-Length — 400, а не упавший worker."""
+        import socket
+        s = socket.create_connection(('127.0.0.1', PORT), timeout=10)
+        try:
+            s.sendall(b'POST /tele HTTP/1.1\r\nHost: t\r\nContent-Length: abc\r\n\r\n')
+            resp = s.recv(65536).decode('utf-8', 'replace')
+        finally:
+            s.close()
+        self.assertIn('400', resp.split('\r\n')[0])
+        st, _ = req('GET', '/busy')                    # сервер жив
+        self.assertEqual(st, 200)
+
+
 class TestSaveRestore(unittest.TestCase):
     def test_restore_is_server_side_merge(self):
         """Склейка на СЕРВЕРЕ: F5 в окне «коммит принят, дебаунс-сейв не доехал»
@@ -260,6 +328,60 @@ class TestSaveEpochGuard(unittest.TestCase):
         self.assertIsNone(view['suspended'])
 
 
+class TestResetInvalidatesSnapshot(unittest.TestCase):
+    def test_restore_does_not_return_cancelled_version(self):
+        """Аудит сервера 18.07, critical 2 (красный-без-фикса): /host/reset_version
+        обязан инвалидировать УЖЕ лежащий снапшот — /restore после F5 не отдаёт
+        отменённую версию как базу. server_rev при этом сохраняется (журнал клиента
+        продолжает с rev > server_rev, следующий /save новой эпохи принимается)."""
+        run = start_run()
+        body = {'seat': '21', 'run_id': run, 'client_instance_id': 'R',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': 's2', 'payload': {'version': {'slots': {'1': 1}},
+                                           'baskets': [{'img': 't1'}]},
+                'rev': 5, 'ts': 1}
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        st, _ = commit(run, '21', 'version', 's2', {'slots': {'1': 1}}, instance='R')
+        self.assertEqual(st, 200)
+        st, r = req('POST', '/host/reset_version', {'seat': '21', 'step': 's2'},
+                    headers=DASH_REF)
+        self.assertEqual((st, r['epoch']), (200, 1))
+        st, view = req('GET', '/restore?seat=21')
+        self.assertEqual(st, 200)
+        # снапшот собран в epoch 0 → он больше не база: отменённой версии в нём нет
+        self.assertNotIn('version', (view['payload'] or {}))
+        self.assertEqual(view['server_rev'], 5)      # порядок (gen, rev) не сломан
+        self.assertNotIn('version', view['acked'].get('s2', {}))
+        # свежий /save новой эпохи (rev дальше журнала) — принимается и снова база
+        st, r = req('POST', '/save', dict(body, rev=6, epoch=1,
+                                          payload={'baskets': [{'img': 't1'}]}))
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=21')
+        self.assertEqual(view['payload'], {'baskets': [{'img': 't1'}]})
+
+
+class TestSameRevForwardOnly(unittest.TestCase):
+    def test_done_not_rolled_back_by_late_retry(self):
+        """Аудит merged 18.07, critical 1 (красный-без-фикса): равный (gen, rev)
+        перезаписывает снапшот только ВПЕРЁД по вехе — запоздалый повтор rev=4
+        state=s8 после принятого rev=4 state=done не возвращает s8 и старый payload."""
+        run = start_run()
+        body = {'seat': '22', 'run_id': run, 'client_instance_id': 'F',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': 's8', 'payload': {'p': 1}, 'rev': 4, 'ts': 1}
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        st, r = req('POST', '/save', dict(body, state='done', payload={'p': 2}, ts=2))
+        self.assertEqual(st, 200, r)
+        # обратный ретрай (тот же rev, ранняя веха s8) — не откатывает done
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)   # идемпотентный ответ, но БЕЗ перезаписи
+        st, view = req('GET', '/restore?seat=22')
+        self.assertEqual(view['state'], 'done')
+        self.assertEqual(view['payload'], {'p': 2})
+
+
 class TestWriterTakeover(unittest.TestCase):
     def test_single_writer_and_takeover(self):
         run = start_run()
@@ -303,6 +425,172 @@ class TestWriterTakeover(unittest.TestCase):
         # новая вкладка работает
         st, r = commit(run, '5', 'version', 's2', instance='tabB', generation=2)
         self.assertEqual(st, 200, r)
+
+
+class TestLegacyEpochRollingDeploy(unittest.TestCase):
+    def test_save_without_epoch_accepted_until_reset(self):
+        """Аудит merged 18.07, critical 2 (rolling deploy): старый клиент не шлёт
+        epoch — его /save принимается с warning, прогресс живых вкладок при выкладке
+        не теряется. После reset_version (epoch>0) легаси-снапшот с отменённой
+        версией по-прежнему отклоняется (критерий reset сильнее совместимости)."""
+        run = start_run()
+        body = {'seat': '31', 'run_id': run, 'client_instance_id': 'L',
+                'writer_generation': 1, 'lesson_id': 'z1-kot',
+                'state': 's2', 'payload': {'baskets': [1]}, 'rev': 3, 'ts': 1}
+        self.assertNotIn('epoch', body)
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r.get('warning'), 'no_epoch_legacy')
+        st, view = req('GET', '/restore?seat=31')
+        self.assertEqual(view['payload'], {'baskets': [1]})
+        # ведущий сбросил версию → epoch 1 → легаси-клиент без epoch получает отказ
+        st, _ = commit(run, '31', 'version', 's2', {'slots': {}}, instance='L')
+        self.assertEqual(st, 200)
+        req('POST', '/host/reset_version', {'seat': '31', 'step': 's2'}, headers=DASH_REF)
+        st, r = req('POST', '/save', dict(body, rev=4))
+        self.assertEqual((st, r['error']), (409, 'stale_epoch'))
+
+
+class TestWriterClaimRollback(unittest.TestCase):
+    def test_failed_claim_does_not_occupy_seat(self):
+        """Закалка 18.07, high 5: отказ мутации (stale_epoch) откатывает свежий claim —
+        неудачный запрос не занимает свободный seat и не блокирует настоящую вкладку."""
+        run = start_run()
+        base = {'seat': '32', 'run_id': run, 'writer_generation': 1,
+                'lesson_id': 'z1-kot', 'state': 's1', 'payload': {}, 'rev': 1, 'ts': 1}
+        # свободный seat + заведомо чужая эпоха → отказ, claim обязан откатиться
+        st, r = req('POST', '/save', dict(base, client_instance_id='ghost', epoch=5))
+        self.assertEqual((st, r['error']), (409, 'stale_epoch'))
+        # настоящая вкладка занимает seat БЕЗ takeover и без other_tab
+        st, r = req('POST', '/save', dict(base, client_instance_id='real', epoch=0))
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r['writer_generation'], 1)
+
+
+class TestIdempotency(unittest.TestCase):
+    def test_takeover_same_instance_idempotent(self):
+        """Закалка 18.07, high 2: повтор takeover того же инстанса (потерянный ответ,
+        параллельный ретрай) не поднимает generation."""
+        run = start_run()
+        a = {'seat': '33', 'run_id': run, 'client_instance_id': 'tabA',
+             'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+             'state': 's1', 'payload': {}, 'rev': 1, 'ts': 1}
+        self.assertEqual(req('POST', '/save', a)[0], 200)
+        t = {'seat': '33', 'run_id': run, 'client_instance_id': 'tabB', 'takeover': True}
+        st, r1 = req('POST', '/save', t)
+        self.assertEqual((st, r1['writer_generation']), (200, 2))
+        st, r2 = req('POST', '/save', t)               # ретрай — generation тот же
+        self.assertEqual((st, r2['writer_generation']), (200, 2))
+        self.assertTrue(r2.get('replay'))
+        st, r3 = req('POST', '/save', dict(t, client_instance_id='tabC'))   # честный новый
+        self.assertEqual((st, r3['writer_generation']), (200, 3))
+
+    def test_reset_version_op_id_idempotent(self):
+        """Закалка 18.07, high 1: повтор host-reset с тем же op_id не удаляет заново
+        и не поднимает epoch второй раз."""
+        run = start_run()
+        commit(run, '34', 'gate_enter', 's1')
+        commit(run, '34', 'version', 's2', {'slots': {'1': 1}})
+        st, r = req('POST', '/host/reset_version',
+                    {'seat': '34', 'step': 's2', 'op_id': 'reset-once'}, headers=DASH_REF)
+        self.assertEqual((st, r['epoch']), (200, 1))
+        st, r = req('POST', '/host/reset_version',
+                    {'seat': '34', 'step': 's2', 'op_id': 'reset-once'}, headers=DASH_REF)
+        self.assertEqual((st, r['epoch']), (200, 1))   # replay, не 2
+        self.assertTrue(r.get('replay'))
+        st, sync = req('GET', '/sync?seat=34&cursor=0')
+        self.assertEqual(sync['seat']['epoch'], 1)
+        # новый осознанный reset (новый op_id) — работает
+        st, r = req('POST', '/host/reset_version',
+                    {'seat': '34', 'step': 's2', 'op_id': 'reset-two'}, headers=DASH_REF)
+        self.assertEqual((st, r['epoch']), (200, 2))
+
+    def test_op_id_ledger_checks_fingerprint(self):
+        """Закалка 18.07, high 4: коллизия op_id с другим (seat, type, step) — не тихий
+        replay-200 (терялась бы новая мутация), а явный 409 op_conflict."""
+        run = start_run()
+        st, _ = commit(run, '35', 'gate_enter', 's1', op_id='op-fp')
+        self.assertEqual(st, 200)
+        st, r = commit(run, '35', 'step_enter', 's2', op_id='op-fp')   # тот же op_id, другой смысл
+        self.assertEqual((st, r['error']), (409, 'op_conflict'))
+        st, r = commit(run, '35', 'gate_enter', 's1', op_id='op-fp')   # честный replay
+        self.assertEqual(st, 200)
+        self.assertTrue(r.get('replay'))
+
+
+class TestChatReactHardening(unittest.TestCase):
+    def _chat(self, run, seat, text, **kw):
+        body = {'seat': seat, 'run_id': run, 'step': 's7', 'text': text,
+                'client_instance_id': 'C-%s' % seat, 'writer_generation': 1}
+        body.update(kw)
+        return req('POST', '/chat', body)
+
+    def test_chat_dedup_and_epoch(self):
+        """Закалка 18.07, high 3: /chat дедупит по op_id и отклоняет чужую эпоху;
+        клиент без op_id/epoch (rolling deploy) работает как раньше."""
+        run = start_run()
+        st, r1 = self._chat(run, '41', 'раз', op_id='chat-1', epoch=0)
+        self.assertEqual(st, 200, r1)
+        st, r2 = self._chat(run, '41', 'раз', op_id='chat-1', epoch=0)   # ретрай
+        self.assertEqual(st, 200)
+        self.assertTrue(r2.get('replay'))
+        self.assertEqual(r2['seq'], r1['seq'])
+        st, sync = req('GET', '/sync?seat=41&cursor=0')
+        self.assertEqual(sum(1 for m in sync['chat_delta'] if m['seat'] == '41'), 1)
+        st, r = self._chat(run, '41', 'из прошлого', epoch=7)            # чужая эпоха
+        self.assertEqual((st, r['error']), (409, 'stale_epoch'))
+        st, r = self._chat(run, '41', 'легаси без полей')                # старый клиент
+        self.assertEqual(st, 200, r)
+
+    def test_react_dedup(self):
+        run = start_run()
+        body = {'seat': '42', 'run_id': run, 'step': 's2',
+                'client_instance_id': 'R-42', 'writer_generation': 1, 'op_id': 'react-1'}
+        st, r1 = req('POST', '/react', body)
+        self.assertEqual(st, 200, r1)
+        st, r2 = req('POST', '/react', body)
+        self.assertEqual(st, 200)
+        self.assertTrue(r2.get('replay'))
+        st, sync = req('GET', '/sync?seat=42&cursor=0')
+        self.assertEqual(sync['reactions_count'], 1)
+
+    def test_chat_quota_per_seat(self):
+        """Закалка 18.07, принятый риск 3 (дешёвые меры): квота сообщений на seat."""
+        run = start_run()
+        for i in range(tele.lesson_state.MAX_CHAT_PER_SEAT):
+            st, r = self._chat(run, '43', 'msg %d' % i)
+            self.assertEqual(st, 200, r)
+        st, r = self._chat(run, '43', 'сверх квоты')
+        self.assertEqual((st, r['error']), (429, 'quota'))
+
+    def test_bad_seat_rejected(self):
+        """Валидация на границе (XSS-канон): seat вне ростер-формата — 400."""
+        run = start_run()
+        st, r = self._chat(run, '"><img src=x>', 'привет')
+        self.assertEqual(st, 400)
+        st, r = req('POST', '/save', {'seat': 'абв', 'run_id': run,
+                                      'client_instance_id': 'X', 'writer_generation': 1,
+                                      'epoch': 0, 'state': 's1', 'payload': {},
+                                      'rev': 1, 'ts': 1})
+        self.assertEqual(st, 400)
+
+    def test_broken_payload_type_rejected(self):
+        """Закалка 18.07, high 8: payload-массив/строка не доходит до снапшота."""
+        run = start_run()
+        st, _ = req('POST', '/save', {'seat': '44', 'run_id': run,
+                                      'client_instance_id': 'B', 'writer_generation': 1,
+                                      'epoch': 0, 'state': 's1',
+                                      'payload': ['не', 'словарь'], 'rev': 1, 'ts': 1})
+        self.assertEqual(st, 400)
+
+
+class TestRevealEmptyN(unittest.TestCase):
+    def test_reveal_rejects_empty_roster(self):
+        """Закалка 18.07, medium: reveal при пустом составе (никто не прошёл гейт) —
+        отказ сервером, не только блокировка кнопки в UI."""
+        run = start_run()
+        st, r = req('POST', '/host/reveal', {'step': 's2'}, headers=DASH_REF)
+        self.assertEqual((st, r['error']), (409, 'empty_n'))
 
 
 class TestCommitDedupAndEpoch(unittest.TestCase):

@@ -132,5 +132,64 @@ class TestWsAlarms(unittest.TestCase):
         self.assertIn('🟢 СПОКОЙНО', html)
 
 
+class TestXssEscaping(unittest.TestCase):
+    """Аудит сервера 18.07, critical 1 (красный-без-фикса): невалидированный seat/step
+    и клиентские тексты не должны исполняться в origin ведущего — ни в HTML-тексте,
+    ни внутри onclick-атрибутов (обе разновидности кавычек)."""
+
+    EVIL_SEAT_HTML = '"><img src=x onerror=alert(1)>'   # вырывается из атрибута/тега
+    EVIL_SEAT_JS = "9' onmouseover='alert(2)"           # вырывается из onclick='...'
+    EVIL_STEP = "s2');alert(3);//"                      # вырывается из JS-строки
+
+    def _store(self):
+        st = FakeStore({
+            self.EVIL_SEAT_HTML: online_seat(),
+            self.EVIL_SEAT_JS: online_seat(),
+        })
+        for s in (self.EVIL_SEAT_HTML, self.EVIL_SEAT_JS):
+            st.state['seats'][s]['acked_step'] = 's1'
+        st.state['steps_meta'] = [
+            {'id': 's1', 'type': 'gate', 'label': 'гейт', 'gate': 'code'},
+            {'id': self.EVIL_STEP, 'type': 'trainer_act', 'label': 'коробка',
+             'has_version': True},
+        ]
+        st.state['commits'] = {self.EVIL_SEAT_HTML: {self.EVIL_STEP: {
+            'version': {'data': {'readable': '<script>xss-v</script>'},
+                        'ts': 1, 'op_id': 'o1'}}}}
+        st.state['reveal'] = {self.EVIL_STEP: {
+            'open': False, 'payload_rev': 0, 'anon_versions': [],
+            'n_set': [self.EVIL_SEAT_HTML, self.EVIL_SEAT_JS], 'override': None}}
+        st.state['chat'] = [{'seq': 1, 'seat': self.EVIL_SEAT_JS, 'step': 's1',
+                             'text': '<script>xss-chat</script>', 'ts': 1}]
+        st.state['gates'] = {'s1': {'code': '<script>xss-code</script>',
+                                    'code_shown': True,
+                                    'arrived': [self.EVIL_SEAT_HTML]}}
+        st.state['log'] = [{'op': 'reset_version', 'seat': self.EVIL_SEAT_JS,
+                            'step': self.EVIL_STEP, 'ts': 1}]
+        return st
+
+    def test_payloads_never_reach_dom_raw(self):
+        html = dash_lesson.render_lesson_panel(self._store(), [], {}, True)
+        self.assertNotIn('<img', html)                        # выход из HTML (сырой тег)
+        self.assertNotIn('<script>xss', html)                 # сырой script-тег
+        self.assertNotIn("' onmouseover='", html)             # выход из '-атрибута
+        self.assertNotIn("');alert(3)", html)                 # выход из JS-строки в onclick
+        # пейлоады присутствуют ТОЛЬКО в заэскейпленном (инертном) виде
+        self.assertIn('&lt;img src=x', html)
+
+
+class TestBrokenPayloadSurvives(unittest.TestCase):
+    """Аудит сервера 18.07, high: снапшот с payload-массивом/строкой не должен
+    ронять рендер всей панели («панель занятия недоступна»)."""
+
+    def test_panel_renders_with_non_dict_payload(self):
+        class BadSnapStore(FakeStore):
+            def read_snapshot(self, run_id, seat):
+                return {'payload': ['не', 'словарь'], 'state': 42}
+        store = BadSnapStore({'1': online_seat()})
+        html = dash_lesson.render_lesson_panel(store, [], {'1': 'Тест-А'}, True)
+        self.assertIn('Тест-А', html)   # панель отрисовалась, ребёнок в таблице
+
+
 if __name__ == '__main__':
     unittest.main()

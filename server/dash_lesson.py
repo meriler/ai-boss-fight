@@ -32,6 +32,16 @@ def esc(s):
     return html.escape(str(s if s is not None else '—'))
 
 
+def jsval(obj):
+    """Данные → inline-JS внутри HTML-атрибута onclick (закалка 18.07, critical XSS).
+    json.dumps даёт корректный JS-литерал (строки в двойных кавычках, спецсимволы
+    \\-эскейплены), html.escape поверх закрывает выход из самого атрибута (&quot;
+    и &#x27; вместо кавычек, &lt;/&gt; вместо угловых — «</script>» внутри данных
+    не рвёт разметку). ВСЕ подстановки данных в onclick — только через эту функцию;
+    html.escape без json.dumps НЕДОСТАТОЧЕН (не эскейпит выход из JS-строки)."""
+    return html.escape(json.dumps(obj, ensure_ascii=False), quote=True)
+
+
 def _now_ms():
     return int(time.time() * 1000)
 
@@ -119,36 +129,42 @@ def _ws_alarms(k, gate_fails, now_dt):
     return out
 
 
+def _dict(v):
+    """Кривой payload/снапшот (массив, строка, null) не должен ронять рендер панели
+    (закалка 18.07, high 8) — любое «ожидали словарь» приводится к пустому словарю."""
+    return v if isinstance(v, dict) else {}
+
+
 def _fmt_measure(payload):
-    m = (payload or {}).get('measures') or {}
+    m = _dict(_dict(payload).get('measures'))
     b, a = m.get('before'), m.get('after')
-    fmt = lambda x: ('%s/%s' % (x['score'], x['of'])) if isinstance(x, dict) and x else '—'
+    fmt = lambda x: ('%s/%s' % (x.get('score'), x.get('of'))) if isinstance(x, dict) and x else '—'
     if not b and not a:
         return '—'
     return fmt(b) + ' → ' + fmt(a)
 
 
 def _version_cell(step_commits):
-    v = (step_commits or {}).get('version')
-    c = (step_commits or {}).get('choice')
+    sc = _dict(step_commits)
+    v, c = _dict(sc.get('version')), sc.get('choice')
     if not v and not c:
         return ''
     txt = ''
     if v:
-        data = v.get('data') or {}
+        data = _dict(v.get('data'))
         txt = data.get('readable') or data.get('text') or 'версия из фрагментов'
         if v.get('late'):
-            txt += ' · late'
+            txt = str(txt) + ' · late'
     parts = ['✓ версия' if v else '', '✓ выбор' if c else '']
     head = ' · '.join(p for p in parts if p)
     return head + ('<br><span class="note">' + esc(txt) + '</span>' if txt else '')
 
 
 def _forecast_cell(step_commits):
-    f = (step_commits or {}).get('forecast')
+    f = _dict(_dict(step_commits).get('forecast'))
     if not f:
         return ''
-    data = f.get('data') or {}
+    data = _dict(f.get('data'))
     return '✓ прогноз' + ('<br><span class="note">' + esc(data.get('readable', '')) + '</span>'
                           if data.get('readable') else '')
 
@@ -175,7 +191,9 @@ async function zOverride(step, missing) {
 }
 async function zResetVersion(step, seat) {
   if (!confirm('Сбросить версию места ' + seat + '? Ребёнок соберёт её заново.')) return;
-  await zAct('/host/reset_version', {step, seat});
+  // op_id: повтор запроса (сеть, двойной клик) не поднимает epoch второй раз
+  const op = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+  await zAct('/host/reset_version', {step, seat, op_id: 'reset-' + op});
 }
 async function zGateCode(step) {
   const code = document.getElementById('gcode_' + step).value.trim();
@@ -240,7 +258,85 @@ def _gate_counts(state, gid, names):
 
 def _gate_controls(gid):
     return (' <input id="gcode_' + esc(gid) + '" placeholder="код" style="width:70px">' +
-            '<button onclick="zGateCode(\'' + esc(gid) + '\')">задать</button>')
+            '<button onclick="zGateCode(' + jsval(gid) + ')">задать</button>')
+
+
+def _host_btn(label, path, body, cls=''):
+    """Кнопка host-действия: данные в onclick — ТОЛЬКО через jsval (XSS-канон панели)."""
+    return ('<button' + ((' class="' + cls + '"') if cls else '') +
+            ' onclick="zAct(' + jsval(path) + ', ' + jsval(body) + ')">' + label + '</button>')
+
+
+def _child_row(s, state, store, seats_state, commits, tele, wskids, seat_alarms,
+               meta_by_id, version_steps, seat_name, offline, now_dt):
+    """Одна строка таблицы «Дети в занятии»: (prio, sort_key, html). Вынесена из
+    render_lesson_panel, чтобы кривые данные одного места не гасили всю панель
+    (закалка 18.07, high 8) — вызывается в try."""
+    rec = _dict(seats_state.get(str(s)))
+    snap = _dict(store.read_snapshot(state['run_id'], s))
+    payload = _dict(snap.get('payload'))
+    t = _dict(tele.get(str(s)))
+    step_now = rec.get('acked_step') or snap.get('state') or '—'
+    if not isinstance(step_now, str):   # state в снапшоте бывает объектом машины
+        step_now = str(_dict(step_now).get('step') or '—')
+    label = _dict(meta_by_id.get(step_now)).get('label', '')
+    sc = _dict(commits.get(str(s)))
+    vcell = fcell = ''
+    for _st_id, st_commits in sc.items():
+        vcell = vcell or _version_cell(st_commits)
+        fcell = fcell or _forecast_cell(st_commits)
+    reacts = sum(1 for r in (state.get('reactions') or [])
+                 if isinstance(r, dict) and str(r.get('seat')) == str(s))
+    reset_btn = ''
+    for step in version_steps:
+        r = _dict(_dict(state.get('reveal')).get(step))
+        if not r.get('open') and 'version' in _dict(sc.get(step)):
+            reset_btn = (' <button onclick="zResetVersion(' + jsval(step) + ', ' +
+                         jsval(str(s)) + ')">сбросить версию</button>')
+    # статус = цвет строки + иконка + слово (не только цвет); приоритет задаёт сортировку
+    prio = 3
+    help_bits = []
+    if t.get('stuck_last'):
+        age_min = (now_dt - t['stuck_last']).total_seconds() / 60
+        if age_min <= STUCK_FRESH_MIN:
+            help_bits.append('🆘 застрял (шаг %s, %d мин)' %
+                             (esc(t.get('stuck_step') or '?'), max(0, int(age_min))))
+            prio = 0
+    if t.get('hint_max'):
+        help_bits.append('ур.' + str(t['hint_max']))
+    # живые тревоги воркшоп-контура (Codex-ревью И3 п.4): ребёнок со сломанной
+    # загрузкой / двумя сессиями не должен выглядеть «на связи» — красные тревоги
+    # перекрывают колонку связи, оранжевые идут в «помощь»
+    alarms = seat_alarms.get(str(s)) or []
+    hard = [a for a in alarms if a[0] == 0]
+    for _p, word, _why in (a for a in alarms if a[0] != 0):
+        help_bits.append(esc(word))
+    if alarms:
+        prio = min(prio, min(a[0] for a in alarms))
+    wk = _dict(wskids.get(str(s)))
+    if hard:
+        conn = ' · '.join(esc(w) for _p, w, _why in hard)
+    elif offline(s):
+        conn = '📴 НЕТ СВЯЗИ'
+        prio = min(prio, 1)
+    elif rec.get('instance'):
+        conn = '🟢 на связи'
+    else:
+        conn = '⚪ не открывал'
+        prio = min(prio, 2)
+    if wk.get('restarts'):
+        conn += ' · %d перезап.' % wk['restarts']
+    return (prio,
+            (not str(s).isdigit(), int(s) if str(s).isdigit() else 0, str(s)),
+            '<tr class="zr' + str(prio) + '"><td><b>' + seat_name(s) + '</b></td>' +
+            '<td>' + conn + '</td>' +
+            '<td>' + esc(step_now) +
+            (' <span class="note">' + esc(label) + '</span>' if label else '') + '</td>' +
+            '<td>' + esc(_fmt_measure(payload)) + '</td>' +
+            '<td>' + (vcell or '') + reset_btn + '</td>' +
+            '<td>' + (fcell or '') + '</td>' +
+            '<td>' + ' · '.join(help_bits) + '</td>' +
+            '<td>' + (str(reacts) if reacts else '') + '</td></tr>')
 
 
 def render_lesson_panel(store, dumps, names, session_live):
@@ -292,9 +388,9 @@ def render_lesson_panel(store, dumps, names, session_live):
             nxt = step_ids[0]
     if nxt:
         nxt_label = meta_by_id.get(nxt, {}).get('label', '')
-        bits.append('<button onclick="zAct(\'/host/gate\', {action: \'step\', step: \'' + esc(nxt) +
-                    '\'})">→ шаг вперёд: ' + esc(nxt) +
-                    ((' · ' + esc(nxt_label)) if nxt_label else '') + '</button>')
+        bits.append(_host_btn('→ шаг вперёд: ' + esc(nxt) +
+                              ((' · ' + esc(nxt_label)) if nxt_label else ''),
+                              '/host/gate', {'action': 'step', 'step': nxt}))
     elif step_ids and cur == step_ids[-1]:
         bits.append('<span class="note">последний шаг</span>')
     bits.append('<span class="restart"><input id="zlesson" value="' +
@@ -344,7 +440,6 @@ def render_lesson_panel(store, dumps, names, session_live):
                 ready.append(s)
         n_of = n_set if n_set is not None else []
         missing = [s for s in n_of if s not in ready]
-        missing_js = json.dumps(missing)
         if rec.get('open'):
             now_parts.append('<div class="lesson-lock">🔓 <b>' + esc(step) + '</b>: разгадка ОТКРЫТА' +
                              (' (override)' if rec.get('override') else '') + '</div>')
@@ -353,14 +448,14 @@ def render_lesson_panel(store, dumps, names, session_live):
                     (str(len(n_of)) if n_set is not None else '?— состав не зафиксирован'))
         btns = []
         if n_set is not None and not missing and len(n_of) > 0:
-            btns.append('<button onclick="zReveal(\'' + esc(step) + '\')">🔓 Раскрыть</button>')
+            btns.append('<button onclick="zReveal(' + jsval(step) + ')">🔓 Раскрыть</button>')
         else:
             btns.append('<button disabled title="активна при N/N">🔓 Раскрыть</button>')
             if missing:
-                btns.append('<button class="warnbtn" onclick=\'zOverride("' + esc(step) + '", ' +
-                            missing_js + ')\'>Раскрыть без отвалившегося</button>')
-        btns.append('<button onclick="zAct(\'/host/gate\', {action: \'fix_n\', step: \'' +
-                    esc(step) + '\'})">Зафиксировать состав сейчас</button>')
+                btns.append('<button class="warnbtn" onclick="zOverride(' + jsval(step) + ', ' +
+                            jsval(missing) + ')">Раскрыть без отвалившегося</button>')
+        btns.append(_host_btn('Зафиксировать состав сейчас',
+                              '/host/gate', {'action': 'fix_n', 'step': step}))
         miss_txt = ''
         if missing:
             miss_txt = ('<br><span class="note">ждём: ' +
@@ -403,9 +498,9 @@ def render_lesson_panel(store, dumps, names, session_live):
             grows.append('<div class="lesson-gate"><b>' + esc(gid) + '</b> (' + esc(s.get('gate')) + '): ' +
                          '<b>' + str(len(in_roster)) + ' из ' + str(roster_n) + '</b> перешли' + extra_txt +
                          (' · код: <b class="gatecode">' + esc(code) + '</b>' if code is not None else '') +
-                         (_gate_controls(gid) if s.get('gate') == 'code' else '') +
-                         ' <button onclick="zAct(\'/host/gate\', {action: \'step\', step: \'' + esc(gid) +
-                         '\'})">→ сделать текущим</button></div>')
+                         (_gate_controls(gid) if s.get('gate') == 'code' else '') + ' ' +
+                         _host_btn('→ сделать текущим', '/host/gate',
+                                   {'action': 'step', 'step': gid}) + '</div>')
         out.append('<details' + (' open' if cur is None else '') + '><summary>⛩ Остальные гейты (' +
                    str(len(other_gates)) + ')</summary>' + ''.join(grows) + '</details>')
 
@@ -413,68 +508,15 @@ def render_lesson_panel(store, dumps, names, session_live):
     #      проблемные наверху (паттерн «красные сверху», И3-Д п.2) ----
     rows = []
     for s in all_seats:
-        rec = seats_state.get(str(s)) or {}
-        snap = store.read_snapshot(state['run_id'], s) or {}
-        payload = snap.get('payload') or {}
-        t = tele.get(str(s)) or {}
-        step_now = rec.get('acked_step') or snap.get('state') or '—'
-        label = meta_by_id.get(step_now, {}).get('label', '')
-        sc = commits.get(str(s)) or {}
-        vcell = fcell = ''
-        for st_id, st_commits in sc.items():
-            vcell = vcell or _version_cell(st_commits)
-            fcell = fcell or _forecast_cell(st_commits)
-        reacts = sum(1 for r in (state.get('reactions') or []) if str(r.get('seat')) == str(s))
-        reset_btn = ''
-        for step in version_steps:
-            r = (state.get('reveal') or {}).get(step) or {}
-            if not r.get('open') and 'version' in (sc.get(step) or {}):
-                reset_btn = (' <button onclick=\'zResetVersion("' + esc(step) + '", "' + esc(s) +
-                             '")\'>сбросить версию</button>')
-        # статус = цвет строки + иконка + слово (не только цвет); приоритет задаёт сортировку
-        prio = 3
-        help_bits = []
-        if t.get('stuck_last'):
-            age_min = (now_dt - t['stuck_last']).total_seconds() / 60
-            if age_min <= STUCK_FRESH_MIN:
-                help_bits.append('🆘 застрял (шаг %s, %d мин)' %
-                                 (esc(t.get('stuck_step') or '?'), max(0, int(age_min))))
-                prio = 0
-        if t.get('hint_max'):
-            help_bits.append('ур.' + str(t['hint_max']))
-        # живые тревоги воркшоп-контура (Codex-ревью И3 п.4): ребёнок со сломанной
-        # загрузкой / двумя сессиями не должен выглядеть «на связи» — красные тревоги
-        # перекрывают колонку связи, оранжевые идут в «помощь»
-        alarms = seat_alarms.get(str(s)) or []
-        hard = [a for a in alarms if a[0] == 0]
-        for _p, word, _why in (a for a in alarms if a[0] != 0):
-            help_bits.append(esc(word))
-        if alarms:
-            prio = min(prio, min(a[0] for a in alarms))
-        wk = wskids.get(str(s)) or {}
-        if hard:
-            conn = ' · '.join(esc(w) for _p, w, _why in hard)
-        elif offline(s):
-            conn = '📴 НЕТ СВЯЗИ'
-            prio = min(prio, 1)
-        elif rec.get('instance'):
-            conn = '🟢 на связи'
-        else:
-            conn = '⚪ не открывал'
-            prio = min(prio, 2)
-        if wk.get('restarts'):
-            conn += ' · %d перезап.' % wk['restarts']
-        rows.append((prio,
-                     (not str(s).isdigit(), int(s) if str(s).isdigit() else 0, str(s)),
-                     '<tr class="zr' + str(prio) + '"><td><b>' + seat_name(s) + '</b></td>' +
-                     '<td>' + conn + '</td>' +
-                     '<td>' + esc(step_now) +
-                     (' <span class="note">' + esc(label) + '</span>' if label else '') + '</td>' +
-                     '<td>' + esc(_fmt_measure(payload)) + '</td>' +
-                     '<td>' + (vcell or '') + reset_btn + '</td>' +
-                     '<td>' + (fcell or '') + '</td>' +
-                     '<td>' + ' · '.join(help_bits) + '</td>' +
-                     '<td>' + (str(reacts) if reacts else '') + '</td></tr>'))
+        try:
+            rows.append(_child_row(s, state, store, seats_state, commits, tele, wskids,
+                                   seat_alarms, meta_by_id, version_steps, seat_name,
+                                   offline, now_dt))
+        except Exception as e:   # noqa: BLE001 — одна кривая строка не гасит панель (high 8)
+            rows.append((0, (True, 0, str(s)),
+                         '<tr class="zr0"><td><b>' + seat_name(s) + '</b></td>'
+                         '<td colspan=7 class="note">строка не отрисовалась: ' +
+                         esc(e) + '</td></tr>'))
     rows.sort(key=lambda r: (r[0], r[1]))
     out.append('<h3>Дети в занятии</h3><table><tr>'
                '<th title="имя и место из ростера">кто</th>'
@@ -499,7 +541,7 @@ def render_lesson_panel(store, dumps, names, session_live):
             cur_cls = ' lesson-cur' if cur == s['id'] else ''
             cells.append('<div class="lesson-stepcell' + cur_cls + '"><div class="note">' + esc(s['id']) +
                          '</div><div>' + esc(s.get('label') or s.get('type')) + '</div><b>' +
-                         ('·'.join(str(x) for x in here) if here else ' ') + '</b></div>')
+                         ('·'.join(esc(x) for x in here) if here else ' ') + '</b></div>')
         out.append('<details><summary>📊 Прогресс по блокам</summary><div class="lesson-strip">' +
                    ''.join(cells) + '</div><p class="note">в ячейке — номера мест, чей последний '
                    'подтверждённый шаг этот</p></details>')

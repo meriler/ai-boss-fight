@@ -114,10 +114,9 @@ class TestShadowParity(unittest.TestCase):
         self._stores = []
 
     def tearDown(self):
-        for s in self._stores:   # закрыть соединения тени — без ResourceWarning в прогоне
+        for s in self._stores:   # остановить worker тени + закрыть соединение
             try:
-                if s.shadow and s.shadow.con:
-                    s.shadow.con.close()
+                s.close()
             except Exception:   # noqa: BLE001
                 pass
 
@@ -126,9 +125,11 @@ class TestShadowParity(unittest.TestCase):
         return store
 
     def test_full_scenario_parity_zero(self):
-        """Критерий M1: после прогона по всем ручкам — ноль расхождений тени и файлов."""
+        """Критерий M1: после прогона по всем ручкам — ноль расхождений тени и файлов.
+        Тень асинхронная (закалка 18.07, high 6) — перед сверкой ждём дренаж очереди."""
         store = self._reg(mk_store(self.tmp))
         full_scenario(store)
+        self.assertTrue(store.shadow_drain())
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertEqual(problems, [])
 
@@ -137,6 +138,7 @@ class TestShadowParity(unittest.TestCase):
         потому что источник чтения — файлы, а ошибка тени глотается."""
         store = self._reg(mk_store(self.tmp))
         run1, run2 = full_scenario(store)
+        self.assertTrue(store.shadow_drain())
         store.shadow.con.close()          # имитация смерти тени посреди занятия
         os.remove(self.db)
         st, view = lesson_state.api_restore(store, '4')
@@ -145,6 +147,7 @@ class TestShadowParity(unittest.TestCase):
         self.assertEqual(view['payload'], {'r': 1})
         st, _ = save(store, '4', 2, run2)  # мутация при мёртвой тени — работает
         self.assertEqual(st, 200)
+        store.shadow_drain()
         self.assertGreater(store.shadow.errors, 0)   # ошибка залогирована, не проглочена молча
         st, view = lesson_state.api_restore(store, '4')
         self.assertEqual(view['server_rev'], 2)
@@ -161,6 +164,7 @@ class TestShadowParity(unittest.TestCase):
         """Сверка не декоративная: подмена байта в тени даёт ненулевые расхождения."""
         store = self._reg(mk_store(self.tmp))
         full_scenario(store)
+        self.assertTrue(store.shadow_drain())
         con = sqlite3.connect(self.db)
         with con:
             con.execute("UPDATE chat_msg SET text='подменили'")
@@ -177,7 +181,7 @@ class TestShadowParity(unittest.TestCase):
         store0 = self._reg(mk_store(self.tmp, db=False))   # фаза 0: только файлы
         full_scenario(store0)
         store1 = self._reg(mk_store(self.tmp))             # рестарт сервиса уже с LESSON_DB
-        self.assertIsNotNone(store1.shadow)
+        self.assertIsNotNone(store1.shadow)                # backfill — синхронный, при старте
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertEqual(problems, [])
 
@@ -185,24 +189,27 @@ class TestShadowParity(unittest.TestCase):
         """Полная перезапись run'а на каждой dirty-мутации: пропущенное зеркало
         (тень временно умерла) самовосстанавливается следующей мутацией. СНАПШОТЫ
         полная перезапись run'а НЕ трогает — их провалившееся зеркало обязано
-        удержать в очереди до успеха (Codex-ревью 18.07, находка 1): /save при
-        мёртвой тени раньше оставлял строку snapshot стейлой навсегда."""
+        удержаться в _shadow_pending до успеха (Codex-ревью 18.07, находка 1):
+        /save при мёртвой тени раньше оставлял строку snapshot стейлой навсегда."""
         store = self._reg(mk_store(self.tmp))
         run1 = store.start_run('z1-kot')
         commit(store, '1', 'gate_enter', 's1', run1)
         self.assertEqual(save(store, '1', 1, run1)[0], 200)   # снапшот, зеркало успело
+        self.assertTrue(store.shadow_drain())
         good_con = store.shadow.con
         store.shadow.con = None                          # тень «умерла»
         commit(store, '2', 'gate_enter', 's1', run1)     # зеркало state пропущено
         # /save при мёртвой тени: файл снапшота пишется, зеркало проваливается —
-        # снапшот обязан остаться в очереди (два подряд: в тень поедет последний)
+        # снапшот обязан удержаться (два подряд: в тень поедет последний)
         self.assertEqual(save(store, '1', 2, run1, payload={'r': 2})[0], 200)
         self.assertEqual(save(store, '1', 3, run1, payload={'r': 3})[0], 200)
+        self.assertTrue(store.shadow_drain())
         self.assertGreater(store.shadow.errors, 0)
-        self.assertEqual(len(store._pend_snaps), 1)      # дедуп по (run, seat): последний
+        self.assertEqual(len(store._shadow_pending), 1)  # дедуп по (run, seat): последний
         store.shadow.con = good_con                      # тень «ожила»
         commit(store, '3', 'gate_enter', 's1', run1)     # re-mirror state + доезд снапшота
-        self.assertEqual(store._pend_snaps, [])
+        self.assertTrue(store.shadow_drain())
+        self.assertEqual(store._shadow_pending, [])
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertEqual(problems, [])
 
@@ -213,6 +220,7 @@ class TestShadowParity(unittest.TestCase):
         store = self._reg(mk_store(self.tmp))
         run1 = store.start_run('z1-kot')
         commit(store, '1', 'gate_enter', 's1', run1)
+        self.assertTrue(store.shadow_drain())                 # worker в покое → PRAGMA безопасен
         store.shadow.con.execute('PRAGMA busy_timeout=100')   # тест не ждёт дефолтные 5 с
         locker = sqlite3.connect(self.db)
         locker.execute('BEGIN IMMEDIATE')                     # write-lock чужой «сессии»
@@ -220,8 +228,9 @@ class TestShadowParity(unittest.TestCase):
             st, _ = commit(store, '2', 'gate_enter', 's1', run1)
             self.assertEqual(st, 200)                         # контур жив на файлах
             self.assertEqual(save(store, '2', 1, run1)[0], 200)
+            self.assertTrue(store.shadow_drain())
             self.assertGreater(store.shadow.errors, 0)
-            self.assertEqual(len(store._pend_snaps), 1)       # снапшот удержан до успеха
+            self.assertEqual(len(store._shadow_pending), 1)   # снапшот удержан до успеха
             st, view = lesson_state.api_restore(store, '2')   # чтение — файлы, тень не нужна
             self.assertEqual(st, 200)
             self.assertEqual(view['server_rev'], 1)
@@ -229,7 +238,8 @@ class TestShadowParity(unittest.TestCase):
             locker.rollback()
             locker.close()
         commit(store, '3', 'gate_enter', 's1', run1)          # разблокировано → re-mirror
-        self.assertEqual(store._pend_snaps, [])
+        self.assertTrue(store.shadow_drain())
+        self.assertEqual(store._shadow_pending, [])
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertEqual(problems, [])
 
@@ -239,6 +249,7 @@ class TestShadowParity(unittest.TestCase):
         проходил (Codex-ревью 18.07, находка 2)."""
         store = self._reg(mk_store(self.tmp))
         full_scenario(store)
+        self.assertTrue(store.shadow_drain())
         cur = os.path.join(self.tmp, 'lesson-current.json')
         with open(cur, 'w', encoding='utf-8') as f:
             f.write('{оборванный json')
@@ -260,6 +271,35 @@ class TestShadowParity(unittest.TestCase):
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertTrue(any('файла-указателя нет' in p for p in problems), problems)
 
+    def test_shadow_repairs_current_run(self):
+        """Закалка 18.07, high 9: если зеркало current_run потерялось (mirror нового
+        run'а упал), любая следующая мутация чинит meta.current_run — parity не висит
+        красным до рестарта сервиса."""
+        store = self._reg(mk_store(self.tmp))
+        run1 = store.start_run('z1-kot')
+        self.assertTrue(store.shadow_drain())
+        with store.shadow.con:   # имитация потерянного зеркала указателя
+            store.shadow.con.execute("DELETE FROM meta WHERE k='current_run'")
+        self.assertEqual(lesson_db.db_current_run(store.shadow.con), None)
+        commit(store, '1', 'gate_enter', 's1', run1)   # обычная мутация
+        self.assertTrue(store.shadow_drain())
+        self.assertEqual(lesson_db.db_current_run(store.shadow.con), run1)
+        problems = check_db_parity.check(self.tmp, self.db)
+        self.assertEqual(problems, [])
+
+    def test_parity_survives_broken_json_file(self):
+        """Закалка 18.07, medium: битый JSON-файл в data-dir — диагностированное
+        расхождение и exit 1, а не traceback самого чекера."""
+        store = self._reg(mk_store(self.tmp))
+        run1 = store.start_run('z1-kot')
+        commit(store, '1', 'gate_enter', 's1', run1)
+        self.assertTrue(store.shadow_drain())
+        with open(os.path.join(self.tmp, 'lesson-save-%s-seat9.json' % run1),
+                  'w', encoding='utf-8') as f:
+            f.write('{оборванный')
+        problems = check_db_parity.check(self.tmp, self.db)   # не бросает
+        self.assertTrue(any('НЕЧИТАЕМ' in p for p in problems), problems)
+
     def test_env_flag_resolution(self):
         self.assertIsNone(lesson_db.db_path_from_env('/x'))
         os.environ['LESSON_DB'] = '1'
@@ -267,6 +307,54 @@ class TestShadowParity(unittest.TestCase):
         os.environ['LESSON_DB'] = '/custom/path.db'
         self.assertEqual(lesson_db.db_path_from_env('/x'), '/custom/path.db')
         os.environ.pop('LESSON_DB', None)
+
+
+class TestAtomicityAndRecovery(unittest.TestCase):
+    """Закалка 18.07, critical 3: снапшот и lesson-state — упорядоченная запись
+    (state → снапшот) с восстановлением после сбоя. Crash-failpoint — падение
+    файловой записи на выбранном пути."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='lesson-atomic-test-')
+        self.store = mk_store(self.tmp, db=False)
+        self.run = self.store.start_run('z1-kot')
+
+    def _fail_on(self, needle):
+        orig = self.store._write_atomic_str
+
+        def patched(path, data):
+            if needle in path:
+                raise OSError('failpoint: %s' % needle)
+            return orig(path, data)
+        self.store._write_atomic_str = patched
+        return orig
+
+    def test_snapshot_write_failure_recovers_on_retry(self):
+        """Сбой записи снапшота ПОСЛЕ state: клиент получает ошибку (не 200),
+        снапшота на диске нет, ретрай после восстановления диска доводит пару
+        state+снапшот до согласованности."""
+        orig = self._fail_on('lesson-save-')
+        with self.assertRaises(OSError):
+            save(self.store, '1', 1, self.run, payload={'r': 1})
+        self.assertFalse(any(n.startswith('lesson-save-') for n in os.listdir(self.tmp)))
+        self.store._write_atomic_str = orig            # «диск ожил» — ретрай клиента
+        self.assertEqual(save(self.store, '1', 1, self.run, payload={'r': 1})[0], 200)
+        st, view = lesson_state.api_restore(self.store, '1')
+        self.assertEqual((st, view['server_rev'], view['payload']), (200, 1, {'r': 1}))
+
+    def test_state_write_failure_rolls_back_memory(self):
+        """Сбой записи lesson-state: память откатывается к диску — claim свободного
+        seat НЕ повисает в кэше (закалка high 5 + critical 3), настоящая вкладка
+        занимает место без other_tab."""
+        orig = self._fail_on('lesson-state-')
+        with self.assertRaises(OSError):
+            save(self.store, '2', 1, self.run, instance='ghost')
+        self.store._write_atomic_str = orig
+        # seat свободен: другой инстанс пишет без takeover и без other_tab
+        st, r = save(self.store, '2', 1, self.run, instance='real')
+        self.assertEqual(st, 200, r)
+        st, view = lesson_state.api_restore(self.store, '2')
+        self.assertEqual(view['writer_generation'], 1)
 
 
 if __name__ == '__main__':

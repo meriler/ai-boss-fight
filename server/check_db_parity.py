@@ -62,15 +62,21 @@ def check(data_dir, db_path):
 
     file_states, file_snaps = {}, {}
     for name in sorted(os.listdir(data_dir)):
-        m = lesson_db.STATE_RE.match(name)
-        if m:
-            with open(os.path.join(data_dir, name), encoding='utf-8') as f:
-                file_states[m.group(1)] = json.load(f)
+        m_state = lesson_db.STATE_RE.match(name)
+        m_snap = lesson_db.SAVE_RE.match(name) if not m_state else None
+        if not m_state and not m_snap:
             continue
-        m = lesson_db.SAVE_RE.match(name)
-        if m:
+        try:
             with open(os.path.join(data_dir, name), encoding='utf-8') as f:
-                file_snaps[(m.group(1), m.group(2))] = json.load(f)
+                data = json.load(f)
+        except Exception as e:   # noqa: BLE001 — битый JSON = диагностированное
+            # расхождение, а не traceback скрипта (закалка 18.07, medium)
+            problems.append('%s: файл НЕЧИТАЕМ (%r) — parity неопределим' % (name, e))
+            continue
+        if m_state:
+            file_states[m_state.group(1)] = data
+        else:
+            file_snaps[(m_snap.group(1), m_snap.group(2))] = data
 
     db_run_set = set(lesson_db.db_runs(con))
     for run_id in sorted(set(file_states) | db_run_set):

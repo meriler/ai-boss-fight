@@ -23,7 +23,7 @@ import re
 import sqlite3
 import sys
 
-SCHEMA_VERSION = 2   # v2: snapshot.suspended (позиция основной машины при уходе в резерв)
+SCHEMA_VERSION = 3   # v3: snapshot.epoch (штамп эпохи /save — /restore отличает доreset-снапшот)
 
 # Точная форма state фазы 0 (_blank_state в lesson_state.py). Новый ключ в state
 # без правки тени → лог-ошибка тени + расхождение в parity, НЕ молчаливая потеря.
@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS op_ledger (
 CREATE TABLE IF NOT EXISTS snapshot (
   run_id TEXT NOT NULL, seat TEXT NOT NULL, rev INTEGER NOT NULL,
   writer_generation INTEGER NOT NULL, lesson_id TEXT, state TEXT NOT NULL,
-  payload TEXT NOT NULL, ts INTEGER, suspended TEXT, PRIMARY KEY (run_id, seat));
+  payload TEXT NOT NULL, ts INTEGER, suspended TEXT, epoch INTEGER,
+  PRIMARY KEY (run_id, seat));
 """
 
 SAVE_RE = re.compile(r'^lesson-save-(.+)-seat([^-]+)\.json$')
@@ -142,7 +143,10 @@ class Shadow:
         """state=None → зеркалим только снапшоты. Никогда не бросает; возвращает
         True/False — вызывающий обязан знать исход: state самовосстановится следующей
         полной перезаписью run'а, а снапшоты полная перезапись НЕ трогает, их при
-        провале нужно удержать до успешного зеркала (Codex-ревью 18.07, находка 1)."""
+        провале нужно удержать до успешного зеркала (Codex-ревью 18.07, находка 1).
+        set_current пишется в КАЖДОМ успешном зеркале (закалка 18.07, high 9):
+        если mirror нового run'а упал, следующая мутация чинит и meta.current_run,
+        а не оставляет parity красным до рестарта."""
         try:
             with self.con:
                 if state is not None:
@@ -209,12 +213,14 @@ class Shadow:
 
     def _put_snapshot(self, run_id, seat, snap):
         # suspended: SQL NULL = ключа в файле НЕТ (старые снапшоты до v2); JSON-строка
-        # (включая 'null') = ключ есть — parity восстанавливает файл байт-в-байт
-        self.con.execute('INSERT OR REPLACE INTO snapshot VALUES (?,?,?,?,?,?,?,?,?)',
+        # (включая 'null') = ключ есть — parity восстанавливает файл байт-в-байт.
+        # epoch — то же правило (снапшоты до v3 штампа не несут)
+        self.con.execute('INSERT OR REPLACE INTO snapshot VALUES (?,?,?,?,?,?,?,?,?,?)',
                          (run_id, seat, snap['rev'], snap['writer_generation'],
                           snap['lesson_id'], _j(snap['state']), _j(snap['payload']),
                           snap.get('ts'),
-                          _j(snap['suspended']) if 'suspended' in snap else None))
+                          _j(snap['suspended']) if 'suspended' in snap else None,
+                          snap.get('epoch')))
 
     # ---- backfill при старте: тень догоняет файлы на диске ----
     def backfill(self, data_dir, current_run=None):
@@ -307,13 +313,16 @@ def rebuild_state(con, run_id):
 
 
 def rebuild_snapshot(con, run_id, seat):
-    row = con.execute('SELECT rev, writer_generation, lesson_id, state, payload, ts, suspended'
+    row = con.execute('SELECT rev, writer_generation, lesson_id, state, payload, ts,'
+                      ' suspended, epoch'
                       ' FROM snapshot WHERE run_id=? AND seat=?', (run_id, seat)).fetchone()
     if row is None:
         return None
-    snap = {'seat': seat, 'run_id': run_id, 'writer_generation': row[1], 'rev': row[0],
-            'lesson_id': row[2], 'state': json.loads(row[3]), 'payload': json.loads(row[4]),
-            'ts': row[5]}
+    snap = {'seat': seat, 'run_id': run_id, 'writer_generation': row[1], 'rev': row[0]}
+    if row[7] is not None:   # epoch — штамп v3; порядок ключей как в api_save
+        snap['epoch'] = row[7]
+    snap.update({'lesson_id': row[2], 'state': json.loads(row[3]),
+                 'payload': json.loads(row[4]), 'ts': row[5]})
     if row[6] is not None:   # SQL NULL = ключа в файле не было (снапшот до v2)
         snap['suspended'] = json.loads(row[6])
     return snap

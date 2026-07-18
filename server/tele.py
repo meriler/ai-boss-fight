@@ -17,7 +17,7 @@ GET  /dash  — дашборд для Алексея/Насти (за nginx basi
 Деплой: ./deploy-server.sh из корня репо (M0: ворота-тесты, проверка занятости,
 pre-deploy tar data-dir, смоук; env LESSON_DB=1 — SQLite-тень M1, см. lesson_db.py).
 Данные: /var/lib/ws-tele/YYYY-MM-DD.jsonl (owner bots, TTL 45д через tmpfiles.d)."""
-import html, json, mimetypes, os, re, threading, time
+import html, json, mimetypes, os, re, signal, sys, threading, time
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -32,6 +32,17 @@ PORT = int(os.environ.get('WS_TELE_PORT', '8236'))
 # z1.html + /sync + /dash). На проде НЕ выставлять — статику отдаёт nginx (/var/www/ws).
 STATIC_DIR = os.environ.get('WS_STATIC_DIR')
 MAX = 262144
+# Лимиты тел по ручкам контура занятия (закалка 18.07, принятый риск 3: полного
+# rate-limit слоя нет — публичный вход лимитирует nginx; здесь — дешёвые предохранители:
+# размер тела по смыслу ручки + кап одновременных запросов + квоты на seat в lesson_state)
+LESSON_BODY_LIMITS = {
+    '/save': MAX,          # снапшот payload (корзины, замеры) — самое крупное тело
+    '/commit': 32768, '/chat': 8192, '/react': 4096,
+    '/host/gate': 65536,   # steps_meta при старте занятия
+    '/host/reveal': 4096, '/host/override': 4096, '/host/reset_version': 4096,
+}
+MAX_INFLIGHT = 64          # кап одновременных HTTP-запросов (ThreadingHTTPServer без него
+                           # плодит потоки без ограничения — закалка 18.07, high 7)
 MSK = timezone(timedelta(hours=3))
 _lock = threading.Lock()  # append из потоков — сериализуем, чтобы строки JSONL не перемешивались
 # Персональная ссылка на актуальную демку. ДУБЛЬ константы из бота (itmo/ai-school-bot/workshop.py
@@ -39,11 +50,12 @@ _lock = threading.Lock()  # append из потоков — сериализуе�
 # демки (v5→v6) править В ОБОИХ местах. Параметры ?ws=1&seat=N обязательны (телеметрия по seat).
 WS_DEMO_URL = 'https://ws.meriler.cc/v5.html?ws=1&seat={seat}'
 LESSON_STORE = lesson_state.LessonStore(DIR)   # стейтфул-контур занятия (§4.1), файлы в DIR
-# Maintenance-пауза деплоя (Codex-ревью 18.07, находка 3): пока файл-флаг существует,
-# мутирующие POST-ручки контура занятия отвечают 503 {"error":"maintenance"} — клиент
-# ретраит их сам (offline-паттерн acked.js), дети видят «Отправляю…» пару секунд.
-# Чтение (/restore, /sync, /dash) живёт. Ставит/снимает deploy-server.sh вокруг tar
-# data-dir — закрывает TOCTOU между busy-проверкой и бэкапом.
+# Maintenance-пауза деплоя (Codex-ревью 18.07, находка 3; ужесточена закалкой 18.07,
+# critical 4): пока файл-флаг существует, ВСЕ пишущие ручки (POST контура занятия,
+# /tele, POST /dash) отвечают 503 — клиент ретраит сам (offline-паттерн acked.js),
+# дети видят «Отправляю…» пару секунд. Флаг проверяется ПОСЛЕ чтения тела запроса —
+# медленное тело (до 15 c) не протаскивает запись в середину tar. Чтение (/restore,
+# /sync, GET /dash) живёт. Ставит/снимает deploy-server.sh вокруг tar data-dir.
 MAINT_FLAG = os.path.join(DIR, 'maintenance.flag')
 
 
@@ -60,13 +72,23 @@ def valid(d):
 class H(BaseHTTPRequestHandler):
     timeout = 15  # медленный клиент не должен вешать обработчик
 
+    def _clen(self):
+        """Content-Length с валидацией: кривой заголовок — None, а не упавший worker
+        (закалка 18.07, medium: int() вне try аварийно завершал поток обработчика)."""
+        try:
+            return int(self.headers.get('Content-Length') or 0)
+        except (TypeError, ValueError):
+            return None
+
     def do_POST(self):
         u = urlparse(self.path)
         if u.path.rstrip('/') == '/dash':          # админ-действия дашборда (за nginx basic auth)
             return self._admin()
         if u.path in lesson_state.POST_HANDLERS:   # стейтфул-контур занятия (§4.1)
             return self._lesson_post(u)
-        n = int(self.headers.get('Content-Length') or 0)
+        n = self._clen()
+        if n is None:
+            self.send_response(400); self.end_headers(); return
         if n <= 0 or n > MAX:
             self.send_response(413); self.end_headers(); return
         try:
@@ -76,6 +98,11 @@ class H(BaseHTTPRequestHandler):
             self.send_response(400); self.end_headers(); return
         if not valid(d):
             self.send_response(400); self.end_headers(); return
+        # maintenance-барьер ПОСЛЕ чтения тела (закалка 18.07, critical 4): /tele тоже
+        # пишет в архивируемый каталог; проверка до чтения оставляла окно «тело читается
+        # 15 c, запись падает в середину tar»
+        if os.path.exists(MAINT_FLAG):
+            self.send_response(503); self.end_headers(); return
         rec = {'recv': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'data': d}
         fn = os.path.join(DIR, time.strftime('%Y-%m-%d') + '.jsonl')
         with _lock, open(fn, 'a', encoding='utf-8') as f:
@@ -87,16 +114,22 @@ class H(BaseHTTPRequestHandler):
         CSRF-гард по Referer, что у _admin (вызовы идут со страницы дашборда)."""
         if u.path.startswith('/host/') and '/dash' not in (self.headers.get('Referer') or ''):
             return self._json(403, {'ok': False, 'error': 'forbidden'})
-        if os.path.exists(MAINT_FLAG):   # пауза мутаций на время pre-deploy tar (см. MAINT_FLAG)
-            return self._json(503, {'ok': False, 'error': 'maintenance'})
-        n = int(self.headers.get('Content-Length') or 0)
-        if n <= 0 or n > MAX:
+        n = self._clen()
+        if n is None:
+            return self._json(400, {'ok': False, 'error': 'bad_length'})
+        if n <= 0 or n > LESSON_BODY_LIMITS.get(u.path, MAX):
             return self._json(413, {'ok': False, 'error': 'too_large'})
         try:
             body = json.loads(self.rfile.read(n))
             assert isinstance(body, dict)
         except Exception:
             return self._json(400, {'ok': False, 'error': 'bad_json'})
+        # maintenance-барьер ПОСЛЕ чтения тела (закалка 18.07, critical 4): запрос,
+        # прошедший проверку ДО флага, мог читать тело до 15 c и записать в середину
+        # tar; теперь флаг решает судьбу мутации непосредственно перед исполнением
+        # (клиент ретраит сам — offline-паттерн acked.js)
+        if os.path.exists(MAINT_FLAG):
+            return self._json(503, {'ok': False, 'error': 'maintenance'})
         status, resp = lesson_state.handle_post(LESSON_STORE, u.path, body)
         return self._json(status, resp)
 
@@ -116,10 +149,16 @@ class H(BaseHTTPRequestHandler):
         ref = self.headers.get('Referer') or ''
         if '/dash' not in ref:
             self.send_response(403); self.end_headers(); return
-        n = int(self.headers.get('Content-Length') or 0)
+        n = self._clen()
+        if n is None:
+            self.send_response(400); self.end_headers(); return
         if n <= 0 or n > 8192:
             self.send_response(413); self.end_headers(); return
         q = parse_qs(self.rfile.read(n).decode('utf-8', 'replace'))
+        # maintenance-барьер ПОСЛЕ чтения тела (закалка 18.07, critical 4): админ-действия
+        # тоже мутируют архивируемый каталог (jsonl, seats.json, session-файлы)
+        if os.path.exists(MAINT_FLAG):
+            self.send_response(503); self.end_headers(); return
         act = (q.get('act') or [''])[0]
         date = (q.get('date') or [''])[0]
         if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
@@ -684,5 +723,45 @@ def render_dash(date, demo=False, review=False, added='', taken='', archive=Fals
     return _page('Занятие · ' + esc(date), body)
 
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer с капом одновременных запросов (закалка 18.07, high 7):
+    без него каждый запрос = новый поток без ограничения — доступный DoS. При
+    насыщении соединение сбрасывается ДО спавна потока; клиент (fetch/поллинг)
+    ретраит сам. Полный rate-limit слой — ПРИНЯТЫЙ РИСК фазы 0 (решение
+    координатора 3): публичный вход лимитирует nginx."""
+    daemon_threads = True
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._inflight = threading.BoundedSemaphore(MAX_INFLIGHT)
+
+    def process_request(self, request, client_address):
+        if not self._inflight.acquire(blocking=False):
+            try:
+                self.shutdown_request(request)
+            except Exception:   # noqa: BLE001
+                pass
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._inflight.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._inflight.release()
+
+
+def _graceful_shutdown(*_a):
+    """SIGTERM (systemd restart, e2e kill): дренаж очереди SQLite-тени перед выходом —
+    иначе parity сразу после рестарта видит хвост незазеркаленных мутаций."""
+    LESSON_STORE.close()
+    sys.exit(0)
+
+
 if __name__ == '__main__':
-    ThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    BoundedThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()
