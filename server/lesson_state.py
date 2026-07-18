@@ -88,6 +88,11 @@ class LessonStore:
         self.dir = data_dir
         self.lock = threading.Lock()
         self._cache = {}          # run_id -> state (в памяти; файл — durability)
+        # последняя активность контура (любой /save|/commit|/sync|/restore…) — В ПАМЯТИ:
+        # /sync файлов не трогает (last_sync — dirty=False), поэтому busy-проверка деплоя
+        # по mtime файлов живых детей не видит; ручка /busy отдаёт этот таймстемп
+        # (Codex-ревью 18.07, находка 3)
+        self.last_activity = None
         # SQLite-тень M1: dual-write на мутациях, ЧТЕНИЕ ОСТАЁТСЯ ИЗ ФАЙЛОВ (M2 — отдельно).
         # Флага нет → тень выключена, поведение фазы 0 байт-в-байт. Ошибки тени глотаются.
         self._pend_snaps = []     # снапшоты текущей мутации → одна транзакция с state
@@ -137,6 +142,7 @@ class LessonStore:
         Повторный запуск в тот же день = новый n; старый файл остаётся архивом (§4.1).
         steps_meta — снимок шагов занятия для панели дашборда (сервер контент не читает)."""
         with self.lock:
+            self.last_activity = time.time()
             date = time.strftime('%Y-%m-%d')
             n = 1
             while os.path.exists(self._state_path('%s-%d' % (date, n))):
@@ -161,6 +167,7 @@ class LessonStore:
         """Выполнить мутацию/чтение состояния под глобальным локом + атомарно записать.
         fn(state) -> (status, resp, dirty). run_id=None → текущий запуск."""
         with self.lock:
+            self.last_activity = time.time()
             rid = run_id or self.current_run()
             if not rid:
                 return 409, {'ok': False, 'error': 'no_run'}
@@ -184,10 +191,21 @@ class LessonStore:
 
     def _shadow_flush(self, state):
         """Одна транзакция тени на мутацию: state (если файл переписан) + снапшоты,
-        накопленные write_snapshot этой же мутации. Вызывается под self.lock."""
+        накопленные write_snapshot этой же мутации. Вызывается под self.lock.
+
+        Провал зеркала: state самовосстановится следующей dirty-мутацией (полная
+        перезапись строк run'а), но таблицу snapshot та перезапись НЕ трогает —
+        снапшоты возвращаем в очередь до успешного зеркала, иначе тень остаётся
+        стейлой навсегда (Codex-ревью 18.07, находка 1). Очередь ограничена дедупом
+        по (run_id, seat) — при мёртвой тени не растёт бесконечно."""
         snaps, self._pend_snaps = self._pend_snaps, []
-        if self.shadow and (state is not None or snaps):
-            self.shadow.mirror_mutation(state, snaps)
+        if not self.shadow or (state is None and not snaps):
+            return
+        if not self.shadow.mirror_mutation(state, snaps) and snaps:
+            last = {}
+            for run_id, seat, snap in snaps:
+                last[(run_id, seat)] = snap
+            self._pend_snaps = [(r, s, sn) for (r, s), sn in last.items()]
 
     # ---- снапшоты /save ----
     def view(self):

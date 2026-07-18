@@ -183,18 +183,82 @@ class TestShadowParity(unittest.TestCase):
 
     def test_shadow_selfheals_after_missed_mirror(self):
         """Полная перезапись run'а на каждой dirty-мутации: пропущенное зеркало
-        (тень временно умерла) самовосстанавливается следующей мутацией."""
+        (тень временно умерла) самовосстанавливается следующей мутацией. СНАПШОТЫ
+        полная перезапись run'а НЕ трогает — их провалившееся зеркало обязано
+        удержать в очереди до успеха (Codex-ревью 18.07, находка 1): /save при
+        мёртвой тени раньше оставлял строку snapshot стейлой навсегда."""
         store = self._reg(mk_store(self.tmp))
         run1 = store.start_run('z1-kot')
         commit(store, '1', 'gate_enter', 's1', run1)
+        self.assertEqual(save(store, '1', 1, run1)[0], 200)   # снапшот, зеркало успело
         good_con = store.shadow.con
         store.shadow.con = None                          # тень «умерла»
-        commit(store, '2', 'gate_enter', 's1', run1)     # зеркало пропущено (ошибка глотается)
+        commit(store, '2', 'gate_enter', 's1', run1)     # зеркало state пропущено
+        # /save при мёртвой тени: файл снапшота пишется, зеркало проваливается —
+        # снапшот обязан остаться в очереди (два подряд: в тень поедет последний)
+        self.assertEqual(save(store, '1', 2, run1, payload={'r': 2})[0], 200)
+        self.assertEqual(save(store, '1', 3, run1, payload={'r': 3})[0], 200)
         self.assertGreater(store.shadow.errors, 0)
+        self.assertEqual(len(store._pend_snaps), 1)      # дедуп по (run, seat): последний
         store.shadow.con = good_con                      # тень «ожила»
-        commit(store, '3', 'gate_enter', 's1', run1)     # полный re-mirror state
+        commit(store, '3', 'gate_enter', 's1', run1)     # re-mirror state + доезд снапшота
+        self.assertEqual(store._pend_snaps, [])
         problems = check_db_parity.check(self.tmp, self.db)
         self.assertEqual(problems, [])
+
+    def test_shadow_survives_sqlite_lock(self):
+        """Искусственная блокировка SQLite (чужой процесс держит write-lock): мутации
+        и чтение живут на файлах, ошибки тени глотаются; после разблокировки следующая
+        мутация самовосстанавливает и state, и удержанные снапшоты (находка 8)."""
+        store = self._reg(mk_store(self.tmp))
+        run1 = store.start_run('z1-kot')
+        commit(store, '1', 'gate_enter', 's1', run1)
+        store.shadow.con.execute('PRAGMA busy_timeout=100')   # тест не ждёт дефолтные 5 с
+        locker = sqlite3.connect(self.db)
+        locker.execute('BEGIN IMMEDIATE')                     # write-lock чужой «сессии»
+        try:
+            st, _ = commit(store, '2', 'gate_enter', 's1', run1)
+            self.assertEqual(st, 200)                         # контур жив на файлах
+            self.assertEqual(save(store, '2', 1, run1)[0], 200)
+            self.assertGreater(store.shadow.errors, 0)
+            self.assertEqual(len(store._pend_snaps), 1)       # снапшот удержан до успеха
+            st, view = lesson_state.api_restore(store, '2')   # чтение — файлы, тень не нужна
+            self.assertEqual(st, 200)
+            self.assertEqual(view['server_rev'], 1)
+        finally:
+            locker.rollback()
+            locker.close()
+        commit(store, '3', 'gate_enter', 's1', run1)          # разблокировано → re-mirror
+        self.assertEqual(store._pend_snaps, [])
+        problems = check_db_parity.check(self.tmp, self.db)
+        self.assertEqual(problems, [])
+
+    def test_parity_flags_broken_current_pointer(self):
+        """Битый lesson-current.json — расхождение, а не ложный зелёный: раньше
+        нечитаемый указатель превращался в None и при пустом meta.current_run parity
+        проходил (Codex-ревью 18.07, находка 2)."""
+        store = self._reg(mk_store(self.tmp))
+        full_scenario(store)
+        cur = os.path.join(self.tmp, 'lesson-current.json')
+        with open(cur, 'w', encoding='utf-8') as f:
+            f.write('{оборванный json')
+        problems = check_db_parity.check(self.tmp, self.db)
+        self.assertTrue(any('НЕЧИТАЕМ' in p for p in problems), problems)
+        # «оба пусты» остаётся легальным: нет файла и нет meta — ноль расхождений
+        os.remove(cur)
+        con = sqlite3.connect(self.db)
+        with con:
+            con.execute("DELETE FROM meta WHERE k='current_run'")
+        con.close()
+        problems = check_db_parity.check(self.tmp, self.db)
+        self.assertFalse(any('current_run' in p for p in problems), problems)
+        # файла нет, а тень указывает на run — расхождение
+        con = sqlite3.connect(self.db)
+        with con:
+            con.execute("INSERT INTO meta VALUES ('current_run', 'ghost-1')")
+        con.close()
+        problems = check_db_parity.check(self.tmp, self.db)
+        self.assertTrue(any('файла-указателя нет' in p for p in problems), problems)
 
     def test_env_flag_resolution(self):
         self.assertIsNone(lesson_db.db_path_from_env('/x'))

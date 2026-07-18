@@ -35,6 +35,7 @@
       "additionalProperties": false,
       "properties": {
         "frozen_at": { "type": "string", "format": "date" },
+        "params_rev": { "type": ["integer", "string"], "description": "V2 (аддитивно, ТЗ-платформа-v3 §3.1): ревизия frozen_params — уходит в identity модели (train_commit/probe_result/measure_result). Нет поля — клиент берёт frozen_at" },
         "embedder": { "type": "string", "description": "точная модель, напр. mobilenet_v3_small_embedder.tflite" },
         "k": {
           "oneOf": [

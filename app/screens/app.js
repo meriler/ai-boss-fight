@@ -219,10 +219,14 @@ function maybeAutoMeasureBefore() {
     if (ctx.payload.measures.before || !ctx.classifier.exampleCount()) return;
     const r = ctx.classifier.measure(step.measure.holdout);
     const mi = ctx.classifier.modelInfo();
-    // версия состава с замером: stale-«Было» после переразметки/restore инвалидируется (п.3)
+    // identity модели с замером (sig состава + engine + params_rev): stale-«Было» после
+    // переразметки/restore/смены движка инвалидируется (п.3 + Codex-ревью 18.07 п.5)
     ctx.j('measure_result', { phase: 'before', score: r.score, of: r.of, details: r.details,
-                              model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
-    ctx.tele.push('measure', { phase: 'before', score: r.score, of: r.of, model_sig: mi.sig });
+                              model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx),
+                              engine: mi.engine,
+                              ...(mi.params_rev != null ? { params_rev: mi.params_rev } : {}) });
+    ctx.tele.push('measure', { phase: 'before', score: r.score, of: r.of, model_sig: mi.sig,
+                               engine: mi.engine, params_rev: mi.params_rev });
     render();
   });
 }
@@ -449,18 +453,6 @@ async function boot() {
                           demo: ctx.demo, ws: QP.has('ws') }).attach();
   ctx.tele.cleanup();
   ctx.tele.resend();
-  // Движок (ТЗ-платформа-v3 §2.2): флаг ?engine= перекрывает манифест, дефолт — kNN.
-  // Детям — только движки, пилотированные на ЭТОМ банке (frozen_params.engines + knn);
-  // непилотированный движок честно откатывается на kNN, не ломая занятие
-  const wantEngine = QP.get('engine') || normalized.lesson.engine || 'knn';
-  ctx.engineId = allowedEngines(bankIndex.bank).includes(wantEngine) ? wantEngine : 'knn';
-  if (ctx.engineId !== wantEngine)
-    console.warn('движок «' + wantEngine + '» не пилотирован на банке — работаем на knn');
-  // vendorBase — АБСОЛЮТНАЯ база от URL страницы: внутри classifier.js идёт dynamic import,
-  // а относительный/голый спецификатор там резолвится от модуля (или падает сразу), не от страницы
-  ctx.classifier = createClassifier({ bankIndex, assetsBase: ctx.assetsBase, demo: ctx.demo,
-                                      vendorBase: new URL('.', location.href).href,
-                                      engine: ctx.engineId });
   ctx.overlays = createOverlays(ctx);
 
   // /restore: занятие могло ещё не начаться (no_run) — ждём старта ведущего
@@ -496,6 +488,31 @@ async function boot() {
   const { payload } = applyRestore(view, ctx.journal);
   ctx.payload = payload;
   ctx.ackedCommits = view.acked || {};
+
+  // Движок (ТЗ-платформа-v3 §2.2, identity модели §3.1 — Codex-ревью 18.07, находка 4):
+  // явный флаг ?engine= (осознанное перекрытие) > ДВИЖОК АКТИВНОЙ СТАБИЛЬНОЙ ВЕРСИИ
+  // (restore обязан пересобрать ту же модель: раньше F5 head-версии без флага молча
+  // переобучал её kNN-ом) > манифест > kNN. Детям — только движки, пилотированные на
+  // ЭТОМ банке; непилотированный честно откатывается на kNN, и это — событие
+  // телеметрии engine_fallback, не только console.warn (находка 5).
+  const restoredModel = activeStableModel(ctx.payload);
+  const wantEngine = QP.get('engine') || (restoredModel && restoredModel.engine)
+    || normalized.lesson.engine || 'knn';
+  ctx.engineId = allowedEngines(bankIndex.bank).includes(wantEngine) ? wantEngine : 'knn';
+  if (ctx.engineId !== wantEngine) {
+    console.warn('движок «' + wantEngine + '» не пилотирован на банке — работаем на knn');
+    ctx.tele.push('engine_fallback', {
+      want: wantEngine, used: ctx.engineId,
+      from: QP.get('engine') === wantEngine ? 'query'
+        : (restoredModel && restoredModel.engine === wantEngine ? 'restore' : 'manifest'),
+    });
+  }
+  // vendorBase — АБСОЛЮТНАЯ база от URL страницы: внутри classifier.js идёт dynamic import,
+  // а относительный/голый спецификатор там резолвится от модуля (или падает сразу), не от страницы
+  ctx.classifier = createClassifier({ bankIndex, assetsBase: ctx.assetsBase, demo: ctx.demo,
+                                      vendorBase: new URL('.', location.href).href,
+                                      engine: ctx.engineId });
+  screen.dataset.engine = ctx.engineId;   // машинное поле для e2e, людям не видно
 
   ctx.j = (type, args) => {
     const entry = ctx.journal.append(type, args);

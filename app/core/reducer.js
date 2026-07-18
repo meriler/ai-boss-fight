@@ -75,6 +75,7 @@ export function reduce(payload, action) {
                         composition: args.composition || [],
                         counts: args.counts || null,
                         engine: args.engine || 'knn',
+                        params_rev: args.params_rev != null ? args.params_rev : null,
                         volatile: !!args.volatile };
       const hist = payload.model_history || (payload.model_history = []);
       // composition хранится и в истории целиком (≤40 пар — дёшево): история переживает
@@ -82,6 +83,7 @@ export function reduce(payload, action) {
       hist.push({ version: args.version, sig: args.sig, n: args.n,
                   counts: args.counts || null,
                   engine: args.engine || 'knn',
+                  params_rev: args.params_rev != null ? args.params_rev : null,
                   volatile: !!args.volatile,
                   ts: action.ts || null,
                   composition: args.composition || [] });
@@ -122,7 +124,10 @@ export function reduce(payload, action) {
       payload.best_trap = args.img;
       break;
     case 'probe_result':
-      payload.probes[args.img] = { label: args.label, conf: args.conf, margin: args.margin };
+      // engine/params_rev — identity вердикта (V2, аддитивно): чем показанный ответ сделан
+      payload.probes[args.img] = { label: args.label, conf: args.conf, margin: args.margin,
+                                   ...(args.engine ? { engine: args.engine } : {}),
+                                   ...(args.params_rev != null ? { params_rev: args.params_rev } : {}) };
       break;
     case 'mistake_mark': {
       // страховка от старых снапшотов: mistakes появился позже initialPayload
@@ -136,6 +141,8 @@ export function reduce(payload, action) {
         details: args.details || null,                       // подписи каждой ошибки
         model_n: args.model_n, model_sig: args.model_sig,    // версия состава модели
         baskets_sig: args.baskets_sig,                       // раскладка на момент замера (stale-чек «Было»)
+        engine: args.engine || null,                         // identity замера (V2, аддитивно):
+        params_rev: args.params_rev != null ? args.params_rev : null,   // чем и на каких params мерили
       };
       break;
     default:

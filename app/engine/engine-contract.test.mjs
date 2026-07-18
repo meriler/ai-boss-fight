@@ -11,6 +11,7 @@ import url from 'node:url';
 import { indexBank } from '../core/manifest.js';
 import { createEngine, allowedEngines, ENGINE_IDS } from './index.js';
 import { trainHead, headClassify, weightsSig, DEF_HEAD } from './head.js';
+import { knnClassify } from './knn.js';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const read = p => JSON.parse(fs.readFileSync(path.join(HERE, '../../content', p), 'utf-8'));
@@ -93,6 +94,35 @@ test('head: T только в спектре — сырая маржа от T н
     'больший T обязан размягчать спектр');
 });
 
+/* ---------- юнит kNN: tie-break голосования (Codex-ревью 18.07, находка 8) ---------- */
+
+test('knn: ничья голосов — вердикт стабилен при любой пермутации состава примеров', () => {
+  // K=4, в top-4 по 2 примера каждого класса (2-2): победителя решает tie-break —
+  // класс БЛИЖАЙШЕГО соседа (порядок вставки Map = порядок соседей по близости, зеркало
+  // dict пилота). Вердикт целиком (label+margin+conf) обязан не зависеть от того,
+  // в каком порядке примеры лежали в составе
+  const unit = t => Float32Array.from([Math.cos(t), Math.sin(t)]);
+  const feat = t => ({ emb: unit(t), pix: unit(t) });
+  const examples = [
+    { class: 'cat', f: feat(0.10) },   // ближайший к запросу t=0 → tie-break отдаёт cat
+    { class: 'dog', f: feat(0.20) },
+    { class: 'cat', f: feat(0.30) },
+    { class: 'dog', f: feat(0.40) },
+  ];
+  const opts = { classIds: ['cat', 'dog'], K: 4, W: { embed: 0.65, pixel: 0.35 }, T: 0.03, scale: null };
+  const base = knnClassify(feat(0), examples, opts);
+  assert.equal(base.label, 'cat', 'при ничьей 2-2 побеждает класс ближайшего соседа');
+  const perms = [
+    [1, 0, 3, 2], [3, 2, 1, 0], [2, 3, 0, 1], [0, 2, 1, 3], [3, 0, 2, 1],
+  ];
+  for (const p of perms) {
+    const v = knnClassify(feat(0), p.map(i => examples[i]), opts);
+    assert.deepEqual({ l: v.label, m: v.margin, c: v.conf },
+                     { l: base.label, m: base.margin, c: base.conf },
+      'пермутация [' + p + '] изменила вердикт — tie-break зависит от порядка укладки');
+  }
+});
+
 /* ---------- conformance: единый контракт против каждого движка ---------- */
 
 test('реестр движков закрыт: knn + head; неизвестный движок — ошибка', () => {
@@ -115,6 +145,9 @@ for (const engine of ENGINE_IDS) {
     const b = engineOn(BANK, engine, ['train_core']);
     assert.equal(a.eng.modelInfo().sig, b.eng.modelInfo().sig);
     assert.equal(a.eng.modelInfo().engine, engine);
+    // identity модели (§3.1): params_rev — ревизия frozen_params банка
+    assert.equal(a.eng.modelInfo().params_rev, BANK.frozen_params.params_rev,
+      'modelInfo обязан нести params_rev банка');
     for (const p of a.bi.byRole.get('probe')) {
       const va = a.eng.classify(p.id), vb = b.eng.classify(p.id);
       assert.deepEqual({ l: va.label, c: va.conf, m: va.margin },

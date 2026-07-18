@@ -100,15 +100,27 @@ def check(data_dir, db_path):
             for d in _diff_paths(file_snaps[key], rebuilt, 'snap'):
                 problems.append('%s: %s' % (tag, d))
 
-    cur_file = None
-    try:
-        with open(os.path.join(data_dir, 'lesson-current.json'), encoding='utf-8') as f:
-            cur_file = json.load(f).get('run_id')
-    except Exception:   # noqa: BLE001 — указателя может не быть (ни одного запуска)
-        pass
+    # Указатель current: различаем «файла нет» (легально до первого запуска) и «файл
+    # есть, но нечитаем/битый». Раньше оба случая давали cur_file=None — битый указатель
+    # при пустом meta.current_run проходил зелёным (Codex-ревью 18.07, находка 2).
     cur_db = lesson_db.db_current_run(con)
-    if cur_file != cur_db:
-        problems.append('current_run: файл %r ≠ тень %r' % (cur_file, cur_db))
+    cur_path = os.path.join(data_dir, 'lesson-current.json')
+    if not os.path.exists(cur_path):
+        if cur_db is not None:
+            problems.append('current_run: файла-указателя нет, в тени %r' % cur_db)
+    else:
+        try:
+            with open(cur_path, encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError('не JSON-объект: %s' % type(data).__name__)
+            cur_file = data.get('run_id')
+        except Exception as e:   # noqa: BLE001
+            problems.append('current_run: lesson-current.json НЕЧИТАЕМ (%r) — '
+                            'parity указателя неопределим, это расхождение' % e)
+        else:
+            if cur_file != cur_db:
+                problems.append('current_run: файл %r ≠ тень %r' % (cur_file, cur_db))
 
     con.close()
     return problems

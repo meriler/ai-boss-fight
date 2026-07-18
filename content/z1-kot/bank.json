@@ -16,6 +16,7 @@
   "pilot_status": "frozen",
   "frozen_params": {
     "frozen_at": "2026-07-17",
+    "params_rev": 1,
     "embedder": "mobilenet_v3_small_embedder.tflite (MediaPipe ImageEmbedder, models/)",
     "k": {
       "small": 3,

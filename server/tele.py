@@ -37,6 +37,12 @@ _lock = threading.Lock()  # append из потоков — сериализуе�
 # демки (v5→v6) править В ОБОИХ местах. Параметры ?ws=1&seat=N обязательны (телеметрия по seat).
 WS_DEMO_URL = 'https://ws.meriler.cc/v5.html?ws=1&seat={seat}'
 LESSON_STORE = lesson_state.LessonStore(DIR)   # стейтфул-контур занятия (§4.1), файлы в DIR
+# Maintenance-пауза деплоя (Codex-ревью 18.07, находка 3): пока файл-флаг существует,
+# мутирующие POST-ручки контура занятия отвечают 503 {"error":"maintenance"} — клиент
+# ретраит их сам (offline-паттерн acked.js), дети видят «Отправляю…» пару секунд.
+# Чтение (/restore, /sync, /dash) живёт. Ставит/снимает deploy-server.sh вокруг tar
+# data-dir — закрывает TOCTOU между busy-проверкой и бэкапом.
+MAINT_FLAG = os.path.join(DIR, 'maintenance.flag')
 
 
 def valid(d):
@@ -79,6 +85,8 @@ class H(BaseHTTPRequestHandler):
         CSRF-гард по Referer, что у _admin (вызовы идут со страницы дашборда)."""
         if u.path.startswith('/host/') and '/dash' not in (self.headers.get('Referer') or ''):
             return self._json(403, {'ok': False, 'error': 'forbidden'})
+        if os.path.exists(MAINT_FLAG):   # пауза мутаций на время pre-deploy tar (см. MAINT_FLAG)
+            return self._json(503, {'ok': False, 'error': 'maintenance'})
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0 or n > MAX:
             return self._json(413, {'ok': False, 'error': 'too_large'})
@@ -210,6 +218,15 @@ class H(BaseHTTPRequestHandler):
         if u.path in ('/restore', '/sync'):        # контур занятия (§4.1): чтение по seat
             status, resp = lesson_state.handle_get(LESSON_STORE, u.path, parse_qs(u.query))
             return self._json(status, resp)
+        if u.path == '/busy':
+            # для deploy-server.sh: занятость КОНТУРА, включая чисто-памятные /sync
+            # (файлов они не трогают — mtime-проверка деплоя их не видит, находка 3)
+            la = LESSON_STORE.last_activity
+            return self._json(200, {
+                'ok': True,
+                'last_activity_s': None if la is None else round(time.time() - la, 1),
+                'maintenance': os.path.exists(MAINT_FLAG),
+            })
         if u.path.rstrip('/') != '/dash':          # /tele — только POST; наружу торчит лишь /dash (за basic auth)
             if STATIC_DIR:                         # локальный e2e: одна origin для статики и API
                 return self._static(u.path)

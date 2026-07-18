@@ -508,6 +508,19 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
      JSON.stringify(mdl && { v: mdl.version, hist: (snap1.payload.model_history || []).length }));
 }
 
+/* --- identity движка (Codex-ревью 18.07, находка 4): заход БЕЗ ?engine= обязан
+ *     восстановить модель ДВИЖКОМ ЕЁ ВЕРСИИ (train_commit.engine), а не молча
+ *     переобучить дефолтным kNN. В head-прогоне это и есть сценарий «F5 head-версии
+ *     без флага»; в kNN-прогоне чек сторожит сам механизм (dataset.engine) --- */
+{
+  await A.goto(`${BASE}/z1.html?ws=1&demo=1&seat=1`);   // URL сознательно без engine-флага
+  await waitState(A, s => !!s.step, 20000, 'boot после захода без флага движка');
+  const engRestored = await A.evaluate(() => document.getElementById('screen').dataset.engine);
+  const wantEng = process.env.ENGINE || 'knn';
+  ok(`restore: движок версии восстановлен без URL-флага (${engRestored})`,
+     engRestored === wantEng, `ждали ${wantEng}, получили ${engRestored}`);
+}
+
 // --- A: продолжение до конца занятия, F5-точка 3 после R2 внутри hook ---
 // счёт замера живёт и в growth-рядах (В-5), и в scoreCard (fallback) — читаем оба вида
 const scoresOf = (p) => p.evaluate(() =>
@@ -637,6 +650,22 @@ for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 
   ok('телеметрия: событие ' + t + ' в JSONL', evTypes.has(t));
 const measureEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'measure'));
 ok('телеметрия: замер несёт версию состава (model_sig)', measureEvents.some(e => e.model_sig));
+// identity модели в телеметрии (Codex-ревью 18.07, находка 5): каким движком и на каких
+// params сделаны замер/проба/обучение. КАЖДОЕ событие несёт engine+params_rev; события
+// движка прогона обязаны присутствовать (в head-прогоне RUN 3 на _test-variant банке
+// честно откатывается на knn — там head не пилотирован, поэтому не every по engRun)
+const engRun = ENGINE === '&engine=head' ? 'head' : 'knn';
+ok('телеметрия: каждый замер несёт engine+params_rev',
+   measureEvents.length > 0 && measureEvents.every(e => e.engine && e.params_rev != null),
+   JSON.stringify(measureEvents.map(e => [e.engine, e.params_rev]).slice(0, 3)));
+ok('телеметрия: есть замеры движка прогона (' + engRun + ')',
+   measureEvents.some(e => e.engine === engRun));
+const probeEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'probe'));
+ok('телеметрия: пробы несут engine движка вердикта', probeEvents.some(e => e.engine === engRun));
+const trainedEvents = jsonl.flatMap(r => (r.data.events || [])
+  .filter(e => e.type === 'trained' || e.type === 'retrained'));
+ok('телеметрия: trained/retrained несут engine+params_rev',
+   trainedEvents.length > 0 && trainedEvents.every(e => e.engine && e.params_rev != null));
 const gateEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'gate_enter'));
 ok('телеметрия: gate_enter с ok:false (неверный код)', gateEvents.some(e => e.ok === false));
 const hintEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'hint'));
@@ -717,6 +746,18 @@ await dash.waitForLoadState('networkidle');
 await waitState(V1, s => s.phase === vLast, 12000, 'reveal V1');
 await driveLesson(V1, man2, { code: '7' });
 ok('тест-вариант: полный проход ТЕМ ЖЕ кодом до done (критерий фазы 0)', (await state(V1)).done);
+if (ENGINE === '&engine=head') {
+  // находка 5: откат непилотированного движка — СОБЫТИЕ телеметрии, не console.warn.
+  // На _test-variant банке head не пилотирован → boot V1/V2 обязан дать engine_fallback
+  // (событие IMM — дамп улетает сразу; jsonl перечитываем, RUN 3 позже общего свода)
+  await V1.evaluate(() => new Promise(r => setTimeout(r, 500)));
+  const jsonl3 = readdirSync(dataDir).filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
+    .flatMap(f => readFileSync(path.join(dataDir, f), 'utf-8').trim().split('\n'))
+    .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+  const fb = jsonl3.flatMap(r => (r.data.events || []).filter(e => e.type === 'engine_fallback'));
+  ok('телеметрия: engine_fallback на непилотированном банке (want=head → used=knn)',
+     fb.some(e => e.want === 'head' && e.used === 'knn'), JSON.stringify(fb.slice(0, 2)));
+}
 await V1.close(); await V2.close();
 
 /* ---------- смоук широкого окна: ветка zoom ≥1400px (клики + настоящий drag) ---------- */

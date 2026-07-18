@@ -10,6 +10,7 @@ export function createTele({ url = '/tele', seat = null, demo = false, ws = fals
   const nav = typeof navigator !== 'undefined' ? navigator : { userAgent: '' };
   const IMM = new Set(['seat', 'gate_enter', 'version_committed', 'reveal_seen', 'measure',
                        'stuck_pressed', 'hint', 'override', 'artifact_saved', 'boot_fail',
+                       'engine_fallback',   // откат движка — диагностика, дамп сразу
                        ...immediateTypes]);
   const t = {
     sid: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),

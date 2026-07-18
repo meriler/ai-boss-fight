@@ -37,6 +37,10 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
                                engine = 'knn' } = {}) {
   if (!ENGINE_IDS.includes(engine)) throw new Error('неизвестный движок: ' + engine);
   const frozen = bankIndex.bank.frozen_params || {};
+  // ревизия frozen_params банка — часть identity модели (ТЗ-платформа-v3 §3.1):
+  // модель = чистая функция (состав, engine, params_rev); уходит в train_commit/
+  // probe_result/measure_result и телеметрию. Старый банк без params_rev → frozen_at
+  const paramsRev = frozen.params_rev != null ? frozen.params_rev : (frozen.frozen_at || null);
   const src = createFeatureSource({ bankIndex, assetsBase, demo, vendorBase });
 
   let composition = [];        // [{img, class}] — состав активной версии
@@ -87,10 +91,12 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
     },
     exampleCount: () => composition.length,
 
-    /** Версия состава обученной модели: {n, sig, engine} — уходит в журнал с замерами.
-     * Веса head НЕ хранятся: движок — чистая функция состава (§3.1), sig — по составу. */
+    /** Identity обученной модели: {n, sig, engine, params_rev} — уходит в журнал с
+     * замерами (§3.1: sig — подпись СОСТАВА, одна для всех движков; различает модели
+     * пара sig+engine). Веса НЕ хранятся: движок — чистая функция состава. */
     modelInfo() {
-      return { n: composition.length, sig: compositionSig(composition), engine };
+      return { n: composition.length, sig: compositionSig(composition), engine,
+               params_rev: paramsRev };
     },
 
     /** Вердикт {label, conf, margin, spectrum, ...}: сырой скор движка (kNN — d̄-маржа,

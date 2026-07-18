@@ -139,7 +139,10 @@ class Shadow:
 
     # ---- зеркало мутации: одна транзакция на state + снапшоты этой мутации ----
     def mirror_mutation(self, state, snaps=(), set_current=None):
-        """state=None → зеркалим только снапшоты. Никогда не бросает."""
+        """state=None → зеркалим только снапшоты. Никогда не бросает; возвращает
+        True/False — вызывающий обязан знать исход: state самовосстановится следующей
+        полной перезаписью run'а, а снапшоты полная перезапись НЕ трогает, их при
+        провале нужно удержать до успешного зеркала (Codex-ревью 18.07, находка 1)."""
         try:
             with self.con:
                 if state is not None:
@@ -149,8 +152,10 @@ class Shadow:
                 if set_current:
                     self.con.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',
                                      ('current_run', set_current))
+            return True
         except Exception as e:   # noqa: BLE001
             self._log_err('mirror_mutation', e)
+            return False
 
     def _replace_run(self, st):
         unknown = set(st) - STATE_KEYS

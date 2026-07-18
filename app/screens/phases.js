@@ -27,6 +27,12 @@ export function basketsSig(ctx) {
   return compositionSig(ctx.payload.baskets.map(b => ({ img: b.img, class: b.basket })));
 }
 
+/** Identity-хвост модели для журнала: {engine, params_rev?} из modelInfo() — sig считается
+ * по СОСТАВУ и одинаков у разных движков, различает модели пара sig+engine (§3.1,
+ * Codex-ревью 18.07 п.4–5). params_rev опускается, если банк его не несёт (старая форма). */
+const engineTag = (mi) => ({ engine: mi.engine,
+  ...(mi.params_rev != null ? { params_rev: mi.params_rev } : {}) });
+
 /* Детерминированная перемешка подачи (сид = seat + роль): банк хранит картинки
  * классами подряд — без перемешки ребёнок жмёт одну корзину 8 раз не глядя.
  * Свой порядок на seat (не спишешь у соседа), стабильный между рендерами и F5. */
@@ -191,14 +197,16 @@ function trainPhase(ctx, step, phase) {
     const examples = trainExamples(ctx);
     const n = ctx.classifier.train(examples);
     // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
-    // restore после F5 переобучает модель из composition последней версии.
-    // counts/engine — аддитивные поля V2 (состав словами для карточки версии В-1)
+    // restore после F5 переобучает модель из composition последней версии ЕЁ ЖЕ движком
+    // (identity §3.1: состав+engine+params_rev — Codex-ревью 18.07, находки 4/5).
+    // counts/engine/params_rev — аддитивные поля V2
     const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
     const mi = ctx.classifier.modelInfo();
     const sig = mi.sig;
     ctx.j('train_commit', { version, sig, n, composition: examples,
-                            counts: countsOf(ctx), engine: mi.engine });
-    ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained', { n, version, sig });
+                            counts: countsOf(ctx), ...engineTag(mi) });
+    ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained',
+                  { n, version, sig, engine: mi.engine, params_rev: mi.params_rev });
     setTimeout(() => {
       boxEl && boxEl.classList.remove('learning');
       ctx.advancePhase();
@@ -254,8 +262,11 @@ function probeFeed(ctx, step, phase) {
   const checkBtn = hasEl(phase, 'btn_check') && img && !verdict && bigBtn('Проверить', () => {
     const v = ctx.classifier.classify(current);
     if (!v) return;
-    ctx.j('probe_result', { img: current, label: v.label, conf: v.conf, margin: v.margin });
-    ctx.tele.push('probe', { img: current, label: v.label, conf: v.conf });
+    const mi = ctx.classifier.modelInfo();
+    ctx.j('probe_result', { img: current, label: v.label, conf: v.conf, margin: v.margin,
+                            ...engineTag(mi) });
+    ctx.tele.push('probe', { img: current, label: v.label, conf: v.conf,
+                             engine: mi.engine, params_rev: mi.params_rev });
     ctx.render();
   }, { id: 'btn_check' });
   if (checkBtn) ctx.modelGate(checkBtn);
@@ -389,11 +400,16 @@ function measureOutcome(before, after, beforeValid) {
   return 'Стало хуже — так бывает, можно добрать картинок';
 }
 
-/** Замер «после» честен только для ТЕКУЩЕЙ версии состава: после добора/переобучения
- * старый счёт принадлежит прошлой версии — его инвалидируем и меряем заново (фаза 0.5). */
+/** Замер «после» честен только для ТЕКУЩЕЙ версии модели: после добора/переобучения
+ * старый счёт принадлежит прошлой версии — его инвалидируем и меряем заново (фаза 0.5).
+ * sig — подпись СОСТАВА (одна у всех движков): при смене движка на том же составе замер
+ * тоже stale — сверяем и engine (identity §3.1, Codex-ревью 18.07). */
 function afterIsStale(ctx, m) {
-  return !!(m.after && m.after.model_sig && ctx.payload.model
-            && ctx.payload.model.sig !== m.after.model_sig);
+  const live = ctx.payload.model;
+  if (!m.after || !live) return false;
+  if (m.after.model_sig && live.sig !== m.after.model_sig) return true;
+  if (m.after.engine && (live.engine || 'knn') !== m.after.engine) return true;
+  return false;
 }
 
 function measurePhase(ctx, step, phase) {
@@ -401,8 +417,10 @@ function measurePhase(ctx, step, phase) {
   const out = [];
   if (m.after && !afterIsStale(ctx, m)) {
     // stale-«Было»: раскладка корзин менялась после замера «до» (restore/переразметка) —
-    // старый счёт сделан ДРУГОЙ моделью, сравнивать нечестно (Codex D1–D2)
-    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx));
+    // старый счёт сделан ДРУГОЙ моделью, сравнивать нечестно (Codex D1–D2). Разные движки
+    // «до»/«после» — тоже разные модели (identity §3.1), сравнение прячем
+    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx))
+      && (!m.before.engine || !m.after.engine || m.before.engine === m.after.engine);
     // сравнение честно только на одном holdout-наборе (В-5, §3.1); у старых записей
     // details может не быть — тогда набор неизвестен, показываем по-старому парой счётов
     const setKnown = !!(m.before && m.before.details && m.after.details);
@@ -457,8 +475,9 @@ function measurePhase(ctx, step, phase) {
         const mi = ctx.classifier.modelInfo();
         const sig = mi.sig;
         ctx.j('train_commit', { version, sig, n, composition,
-                                counts: countsFromComposition(ctx, composition), engine: mi.engine });
-        ctx.tele.push('retrained', { n, version, sig });
+                                counts: countsFromComposition(ctx, composition),
+                                ...engineTag(mi) });
+        ctx.tele.push('retrained', { n, version, sig, engine: mi.engine, params_rev: mi.params_rev });
         ctx.render();   // не-volatile версия активна — замер открылся
       }, { id: 'btn_train_stable' });
       ctx.modelGate(btn6);
@@ -468,8 +487,10 @@ function measurePhase(ctx, step, phase) {
         const r = ctx.classifier.measure(step.measure.holdout);
         const mi = ctx.classifier.modelInfo();
         ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of, details: r.details,
-                                  model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx) });
-        ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of, model_sig: mi.sig });
+                                  model_n: mi.n, model_sig: mi.sig, baskets_sig: basketsSig(ctx),
+                                  ...engineTag(mi) });
+        ctx.tele.push('measure', { phase: 'after', score: r.score, of: r.of, model_sig: mi.sig,
+                                   engine: mi.engine, params_rev: mi.params_rev });
         ctx.render();
       }, { id: 'btn_check' });
       ctx.modelGate(btn);
@@ -681,7 +702,8 @@ function forecastRun(ctx, step, phase) {
     const btn = bigBtn('Проверяем!', () => {
       const v = ctx.classifier.classify(f.img);
       if (!v) return;
-      ctx.j('probe_result', { img: f.img, label: v.label, conf: v.conf, margin: v.margin });
+      ctx.j('probe_result', { img: f.img, label: v.label, conf: v.conf, margin: v.margin,
+                              ...engineTag(ctx.classifier.modelInfo()) });
       const predictedClass = f.expected && ctx.payload.forecast.predict === f.expected.predict;
       // совпадение прогноза: выбранная опция predict → класс. Опции — данные; сопоставление
       // делаем по индексу против фактической метки через expected (валидатор гарантирует поля).

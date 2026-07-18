@@ -86,6 +86,53 @@ class TestTeleContractUntouched(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(TMP, 'lesson-state-2026-01-01.json')))
 
 
+class TestMaintenancePause(unittest.TestCase):
+    """Maintenance-пауза деплоя (Codex-ревью 18.07, находка 3): флаг-файл есть → мутации 503,
+    чтение живёт; /busy отдаёт памятную активность контура (мимо mtime файлов)."""
+
+    def tearDown(self):
+        try:
+            os.remove(tele.MAINT_FLAG)
+        except FileNotFoundError:
+            pass
+
+    def test_flag_pauses_mutations_reads_alive(self):
+        run = start_run()
+        with open(tele.MAINT_FLAG, 'w') as f:
+            f.write('deploy')
+        st, resp = req('POST', '/save', {
+            'seat': '77', 'run_id': run, 'client_instance_id': 'M',
+            'writer_generation': 1, 'lesson_id': 'z1-kot',
+            'state': {}, 'payload': {}, 'rev': 1, 'ts': 1})
+        self.assertEqual(st, 503)
+        self.assertEqual(resp['error'], 'maintenance')
+        st, _ = commit(run, '77', 'gate_enter', 's1')
+        self.assertEqual(st, 503)
+        st, view = req('GET', '/restore?seat=77')     # чтение живёт
+        self.assertEqual(st, 200)
+        st, view = req('GET', '/sync?seat=77')
+        self.assertEqual(st, 200)
+        st, busy = req('GET', '/busy')
+        self.assertTrue(busy['maintenance'])
+        os.remove(tele.MAINT_FLAG)
+        st, resp = req('POST', '/save', {              # флаг снят — мутации вернулись
+            'seat': '77', 'run_id': run, 'client_instance_id': 'M',
+            'writer_generation': 1, 'lesson_id': 'z1-kot',
+            'state': {}, 'payload': {}, 'rev': 1, 'ts': 1})
+        self.assertEqual(st, 200)
+
+    def test_busy_sees_in_memory_sync(self):
+        """/sync файлов не трогает (last_sync — только память) — /busy обязан его видеть."""
+        start_run()
+        st, busy0 = req('GET', '/busy')
+        self.assertEqual(st, 200)
+        req('GET', '/sync?seat=42')                    # чисто-памятная активность
+        st, busy = req('GET', '/busy')
+        self.assertIsNotNone(busy['last_activity_s'])
+        self.assertLess(busy['last_activity_s'], 5)
+        self.assertFalse(busy['maintenance'])
+
+
 class TestSaveRestore(unittest.TestCase):
     def test_restore_is_server_side_merge(self):
         """Склейка на СЕРВЕРЕ: F5 в окне «коммит принят, дебаунс-сейв не доехал»

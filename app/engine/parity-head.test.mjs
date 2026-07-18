@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { trainHead, headClassify, weightsSig, DEF_HEAD } from './head.js';
+import { bankImagesSig } from '../../pilot/bank_sig.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const FX = JSON.parse(fs.readFileSync(path.join(HERE, '../../pilot/parity-fixture.json'), 'utf-8'));
@@ -33,6 +34,15 @@ test('parity-head: банк и фикстура пилота согласова�
   }
   assert.deepEqual(bh.confidence_scale.anchors, HFX.anchors,
     'якоря шкалы головы в банке ≠ якорям контрольного перегона');
+});
+
+test('parity-head: пилот привязан к ТЕКУЩЕМУ банку (frozen_images_sig)', () => {
+  // подпись состава картинок (id+class+role+sha256 ассетов): пилот гонялся на этом банке —
+  // подменили картинку/класс/роль без перегона пилота → CI красный (находка 6, §2.4:
+  // «замена картинок = красный флаг, эскалация владельцу»)
+  assert.ok(HFX.frozen_images_sig, 'фикстура без frozen_images_sig — перегони пилот --fixture');
+  assert.equal(bankImagesSig(path.join(HERE, '../../content/z1-kot')), HFX.frozen_images_sig,
+    'банк картинок изменился после пилота головы — нужен перегон run_head_pilot.mjs');
 });
 
 test('parity-head: веса моделей R1/R2 бит-в-бит как в контрольном перегоне', () => {

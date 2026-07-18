@@ -22,6 +22,7 @@ import path from 'node:path';
 import url from 'node:url';
 import { trainHead, headClassify, weightsSig, DEF_HEAD } from '../app/engine/head.js';
 import { scaleConf } from '../app/engine/knn.js';
+import { bankImagesSig } from './bank_sig.mjs';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const FX = JSON.parse(fs.readFileSync(path.join(HERE, 'parity-fixture.json'), 'utf-8'));
@@ -215,6 +216,9 @@ if (WRITE_FIXTURE && allOk) {
              'CI переобучает head на этих фичах и сверяет веса/вердикты бит-в-бит',
     hyper: HYPER,
     anchors: ANCHORS,
+    // привязка пилота к БАНКУ (находка 6): подпись состава картинок (id+class+role+sha256
+    // ассетов) — подмена картинки банка без перегона пилота валит CI
+    frozen_images_sig: bankImagesSig(path.join(HERE, '../content/z1-kot')),
     models: { R1: train, R2: train.concat(traps) },
     weights_sig: { R1: weightsSig(R1), R2: weightsSig(R2) },
     cases,
