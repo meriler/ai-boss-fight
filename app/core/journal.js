@@ -12,26 +12,37 @@
 export function createJournal({ storageKey = 'z1_journal', storage, owner } = {}) {
   const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
   let entries = [];
+  let foreign = [];         // записи ДРУГИХ писателей в общем localStorage — не наша
+                            // собственность: persist/reset их не уничтожают (закалка 18.07,
+                            // high «offline-хвост при takeover стирался целиком»)
   let counter = 0;          // последний выданный rev
 
   const persist = () => {
     if (!store) return;
-    try { store.setItem(storageKey, JSON.stringify({ counter, entries })); } catch (e) { /* quota */ }
+    try { store.setItem(storageKey, JSON.stringify({ counter, entries: [...foreign, ...entries] })); } catch (e) { /* quota */ }
   };
 
   const mine = (e) => !owner || (e.inst === owner.inst && e.gen === owner.gen);
 
   const api = {
     /** Поднять хвост из localStorage (вызвать до restore — его rev участвуют в max).
-     * Чужие записи (другой instance/generation, включая записи старого формата без
-     * владельца) в replay не попадают, но их rev двигают счётчик. */
+     * Записи СТАРОГО ФОРМАТА без владельца (журнал до rolling deploy этого поля)
+     * усыновляются текущим писателем — накопленный прогресс не отбрасывается (закалка
+     * 18.07, critical rolling deploy). Чужие записи (другой instance/generation)
+     * в replay не попадают, но их rev двигают счётчик, а сами они сохраняются. */
     load() {
       if (!store) return api;
       try {
         const d = JSON.parse(store.getItem(storageKey) || 'null');
         if (d && Array.isArray(d.entries)) {
           counter = Math.max(d.counter || 0, ...d.entries.map(e => e.rev || 0), 0);
+          let adopted = false;
+          if (owner) for (const e of d.entries) {
+            if (e.inst == null && e.gen == null) { e.inst = owner.inst; e.gen = owner.gen; adopted = true; }
+          }
+          foreign = d.entries.filter(e => !mine(e));
           entries = d.entries.filter(mine);
+          if (adopted) persist();
         }
       } catch (e) { /* битый кэш — начинаем чисто */ }
       return api;
@@ -56,7 +67,9 @@ export function createJournal({ storageKey = 'z1_journal', storage, owner } = {}
       entries = entries.filter(e => e.rev > rev);
       persist();
     },
-    /** Сброс буфера (перехват «Продолжить здесь» в ДРУГОЙ вкладке: её буфер сбрасывается). */
+    /** Сброс СВОЕГО буфера (перехват «Продолжить здесь» в ДРУГОЙ вкладке: её буфер
+     * сбрасывается). Чужой хвост в общем localStorage физически не уничтожается —
+     * старый писатель ещё может дослать его своим /save (закалка 18.07). */
     reset(startRev = 0) {
       entries = [];
       counter = startRev;

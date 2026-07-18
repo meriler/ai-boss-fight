@@ -117,14 +117,26 @@ body {
 /* ---------- зоны коробки (правило 9: видимы всегда) ---------- */
 .zones { display: flex; flex-direction: column; gap: 10px; }
 .zone {
-  background: var(--c-card);
+  /* приглушение неактивной зоны — ФОНОМ и рамкой, НЕ opacity на весь блок:
+     opacity:.55 роняла контраст текста до ~2.15:1 (контраст-аудит 18.07, WCAG 4.5:1) */
+  background: #f6f9ff;
   border: 3px dashed var(--c-border);
   border-radius: var(--r);
   padding: 10px 14px 14px;
-  opacity: .55;
-  transition: opacity .2s;
+  transition: background .2s;
 }
-.zone-active { opacity: 1; border-style: solid; box-shadow: var(--shadow); }
+.zone-active { background: var(--c-card); border-style: solid; box-shadow: var(--shadow); }
+/* вспомогательный текст в неактивной зоне — затемнённый muted (≥4.5:1 на #f6f9ff) */
+.zone:not(.zone-active) .kidtext-small,
+.zone:not(.zone-active) .zone-title,
+.zone:not(.zone-active) .feedcount,
+.zone:not(.zone-active) .box-album-label,
+.zone:not(.zone-active) .box-album-more,
+.zone:not(.zone-active) .vshelf-cap,
+.zone:not(.zone-active) .vshelf-more,
+.zone:not(.zone-active) .vchip { color: #5b6774; }
+/* картинкам лёгкое приглушение допустимо — норма контраста про текст */
+.zone:not(.zone-active) img { opacity: .8; }
 .zone-title {
   font-size: 15px; font-weight: 900; text-transform: uppercase;
   letter-spacing: .04em; color: var(--c-muted); margin-bottom: 8px;
@@ -366,6 +378,23 @@ body {
   font-size: 14px; font-weight: 800; color: var(--c-primary-dark);
   background: #dbeafe; border-radius: 10px; padding: 4px 10px; text-align: center;
 }
+
+/* плашка ошибки эмбеддера (закалка 18.07): честный отказ + «Попробовать ещё раз» */
+.model-error {
+  background: #fef2f2; border: 3px solid #d64545; border-radius: var(--r);
+  padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: center;
+}
+.model-error .kidtext-small { color: #b83232; }
+
+/* «Нужны и коты, и собаки!» — обучение одним классом заперто (закалка 18.07) */
+.one-class-note {
+  font-size: 15px; font-weight: 800; color: var(--c-secondary-text);
+  background: #fef3c7; border-radius: 10px; padding: 6px 12px; text-align: center;
+}
+
+/* отвеченный квиз: варианты — разбор, не живые кнопки; подсветка ответа не блекнет */
+.quizopt-done:disabled { cursor: default; }
+.quizopt-done.kbtn-primary:disabled, .quizopt-done.kbtn-danger:disabled { opacity: 1; }
 
 /* акцент на ошибке пробы (аудит линзы 17.07): драматургия видна без голоса */
 .verdict-alert {

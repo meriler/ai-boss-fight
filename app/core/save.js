@@ -43,11 +43,16 @@ export async function claimInstanceId({ storage, key, locks,
   const tryHold = (name) => {
     if (!lockApi) return Promise.resolve(true);
     return new Promise(resolve => {
-      lockApi.request(name, { ifAvailable: true }, lock => {
-        if (!lock) { resolve(false); return; }
-        resolve(true);
-        return new Promise(() => {});   // держим лок до закрытия вкладки
-      }).catch(() => resolve(true));
+      // сбой Lock API — fail-SAFE (закалка 18.07): считаем лок НЕ взятым. Fail-open
+      // давал дублям вкладки один instanceId — сервер видел их одним писателем.
+      // Цена fail-safe — свежий id после F5 при сломанном API (честный other_tab)
+      try {
+        lockApi.request(name, { ifAvailable: true }, lock => {
+          if (!lock) { resolve(false); return; }
+          resolve(true);
+          return new Promise(() => {});   // держим лок до закрытия вкладки
+        }).catch(() => resolve(false));
+      } catch (e) { resolve(false); }
     });
   };
   let saved = null;

@@ -26,6 +26,13 @@ const ok = (name, cond, extra = '') => {
   log.push((cond ? 'PASS ' : 'FAIL ') + name + (extra && !cond ? ' — ' + extra : ''));
   if (!cond) fails += 1;
 };
+// крэш посреди матрицы не должен глотать накопленный лог — печатаем всё и падаем
+for (const sig of ['uncaughtException', 'unhandledRejection'])
+  process.on(sig, (e) => {
+    console.log(log.join('\n'));
+    console.error('\nCRASH (' + sig + '):', e && e.stack || e);
+    process.exit(1);
+  });
 
 /* ---------- сервер ---------- */
 const dataDir = mkdtempSync(path.join(tmpdir(), 'z1e2e-'));
@@ -349,11 +356,43 @@ ok('дашборд: гейт показывает 1 из 2 перешли', (awa
 // --- A: полный tap-проход с брейками ---
 let f5basketsDone = false, f5commitDone = false, f5measureDone = false, bufferChecked = false;
 let overlayEmptyOnTask = null, relayoutDone = false, backChecked = false;
+let quizLockChecked = false, reactHonestDone = false;
 
 const versionStep = man.lesson.steps.find(s => s.version);
 await driveLesson(A, man, {
   code: '4712',
   hook: async (st, p) => {
+    // отвеченный квиз: варианты гаснут (закалка 18.07, major «кнопки-пустышки») —
+    // клик и чтение disabled ОДНИМ evaluate: рендер синхронный, авто-переход не успевает
+    if (!quizLockChecked && !st.entry && man.stepById[st.step] &&
+        man.stepById[st.step].type === 'cards_quiz') {
+      const card = (man.stepById[st.step].cards || []).find(c => 'card_' + c.id === st.phase);
+      if (card && !card.multi) {
+        quizLockChecked = true;
+        const res = await p.evaluate((correct) => {
+          document.getElementById('quizopt' + correct).click();
+          return [...document.querySelectorAll('[id^=quizopt]')].map(b => b.disabled);
+        }, card.correct);
+        ok('квиз: после ответа варианты неактивны (разбор, не живые кнопки)',
+           res.length > 0 && res.every(Boolean), JSON.stringify(res));
+      }
+    }
+    // честное подтверждение реакции (закалка 18.07, major): /react не долетел —
+    // «Ведущий увидел» НЕ показывается, кнопка возвращается
+    if (!reactHonestDone && !st.entry && st.step === versionStep.id && st.phase === 'probe'
+        && await p.$('#btn_react:not(:disabled)')) {
+      reactHonestDone = true;
+      await p.route('**/react', r => r.abort());
+      await p.click('#btn_react');
+      await new Promise(r => setTimeout(r, 900));
+      const after = await p.evaluate(() => ({
+        note: !!document.querySelector('.reaction-note'),
+        btnActive: !!document.querySelector('#btn_react:not(:disabled)'),
+      }));
+      ok('реакция честная: недоставка — нет «Ведущий увидел», кнопка снова активна',
+         !after.note && after.btnActive, JSON.stringify(after));
+      await p.unroute('**/react');
+    }
     // «Разложить заново» (В-3): двухтактно — кнопка → крупное подтверждение; «Назад»
     // ничего не сбрасывает (конституция п.7). Доступна только до первого обучения
     if (!relayoutDone && !st.entry && st.step === versionStep.id && st.phase === 'train') {
@@ -497,6 +536,27 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   ok('В-1: чип v1 с числом картинок, активный подсвечен', /v1 · 16/.test(chipTxt), chipTxt);
   const capTxt = await A.evaluate(() => document.querySelector('.vshelf-cap')?.textContent || '');
   ok('И3 п.6: подпись полки «версии коробки:» перед чипами', capTxt.includes('версии коробки'), capTxt);
+  /* клавиатура и семантика модалки (закалка 18.07, major): полка отвечает на Enter,
+   * карточка версии — настоящий диалог (role=dialog, фокус внутрь, возврат фокуса) */
+  await A.focus('#version_shelf');
+  await A.keyboard.press('Enter');
+  const kbModal = await A.waitForSelector('.modalcard', { timeout: 5000 })
+    .then(() => true).catch(() => false);
+  ok('клавиатура: Enter на полке версий открывает карточку', kbModal);
+  if (kbModal) {
+    await new Promise(r => setTimeout(r, 150));   // фокус переводится после вставки
+    const dlg = await A.evaluate(() => {
+      const m = document.querySelector('.modalcard');
+      return { role: m.getAttribute('role'), focusInside: m.contains(document.activeElement) };
+    });
+    ok('модалка: role=dialog + фокус внутри', dlg.role === 'dialog' && dlg.focusInside,
+       JSON.stringify(dlg));
+    await A.click('#vcard_back');
+    await A.waitForSelector('.modalcard', { state: 'detached', timeout: 5000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 100));
+    const backFocus = await A.evaluate(() => document.activeElement && document.activeElement.id);
+    ok('модалка: закрытие возвращает фокус на полку', backFocus === 'version_shelf', String(backFocus));
+  }
   await A.click('#version_shelf');
   await A.waitForSelector('.modalcard', { timeout: 8000 });
   await domCheck(A, 'z1-kot:version-card');
@@ -529,8 +589,43 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   ok('В-2: бейдж «в корзинах уже по-другому» при расхождении с активной версией',
      /по-другому/.test(badge), badge);
   ok('В-2/В-1: полка на активном такте пассивна (не тапается)', !(await A.$('#version_shelf')));
-  // разложить 5 картинок и F5: позиция и модель v1 должны пережить перезагрузку
-  for (let i = 0; i < 5; i++) {
+  // контраст неактивных зон (закалка 18.07, major): приглушение НЕ opacity на блок,
+  // текст держит ≥4.5:1 против фактического фона зоны — считаем в браузере
+  {
+    const zoneCheck = await A.evaluate(() => {
+      const z = document.querySelector('.zone:not(.zone-active)');
+      const lum = (r, g, b) => {
+        const c = [r, g, b].map(v => v / 255)
+          .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      };
+      const parse = s => (s.match(/[\d.]+/g) || [255, 255, 255]).map(Number);
+      const txt = z.querySelector('.zone-title');
+      const l1 = lum(...parse(getComputedStyle(txt).color).slice(0, 3));
+      const l2 = lum(...parse(getComputedStyle(z).backgroundColor).slice(0, 3));
+      const [hi, lo] = [Math.max(l1, l2), Math.min(l1, l2)];
+      return { opacity: getComputedStyle(z).opacity,
+               ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100 };
+    });
+    ok('контраст: неактивная зона без opacity-глушения', zoneCheck.opacity === '1',
+       JSON.stringify(zoneCheck));
+    ok('контраст: текст неактивной зоны ≥4.5:1', zoneCheck.ratio >= 4.5, JSON.stringify(zoneCheck));
+  }
+  // разложить 5 картинок и F5: позиция и модель v1 должны пережить перезагрузку.
+  // Первая — С КЛАВИАТУРЫ (закалка 18.07, major): корзина role=button обязана
+  // отвечать на Enter; при провале докладываем кликом, чтобы матрица жила дальше
+  {
+    const imgId = await A.$eval('#img_current', el => el.dataset.img);
+    const img = man.byRole.train_core.find(x => x.id === imgId);
+    await A.focus('#basket_' + img.class);
+    await A.keyboard.press('Enter');
+    await new Promise(r => setTimeout(r, 150));
+    const c1 = await A.evaluate(() =>
+      [...document.querySelectorAll('.basket-count')].reduce((s, e) => s + (+e.textContent || 0), 0));
+    ok('клавиатура: Enter на корзине (role=button) кладёт картинку', c1 === 1, 'counts=' + c1);
+    if (c1 === 0) await A.click('#basket_' + img.class);
+  }
+  for (let i = 1; i < 5; i++) {
     const imgId = await A.$eval('#img_current', el => el.dataset.img);
     const img = man.byRole.train_core.find(x => x.id === imgId);
     await A.click('#basket_' + img.class);
@@ -604,6 +699,29 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   // И3 п.4 (фидбек #27): повторный заход на разгадку — иллюстрация миниатюрой, не дубль
   ok('разгадка повторно: иллюстрация миниатюрой (крупно — один раз)',
      !(await A.$('.revealcard .imgcard-big')) && !!(await A.$('.revealcard .imgcard')));
+  /* чат: входящее сообщение НЕ стирает черновик (закалка 18.07, major): chat_delta
+   * пересоздаёт панель — недописанный текст и фокус обязаны пережить ререндер */
+  {
+    await A.click('.chaticon');
+    await A.waitForSelector('#chat_input', { timeout: 5000 });
+    await A.fill('#chat_input', 'недописанный черновик');
+    await B.click('.chaticon');
+    await B.waitForSelector('#chat_input', { timeout: 5000 });
+    await B.fill('#chat_input', 'сообщение от Б');
+    await B.click('#btn_chat_send');
+    await A.waitForFunction(() => [...document.querySelectorAll('.chatmsg')]
+      .some(m => m.textContent.includes('сообщение от Б')), null, { timeout: 12000 });
+    const draft = await A.evaluate(() => ({
+      value: (document.getElementById('chat_input') || {}).value || '',
+      focused: document.activeElement && document.activeElement.id === 'chat_input',
+    }));
+    ok('чат: черновик пережил входящее сообщение', draft.value === 'недописанный черновик',
+       JSON.stringify(draft));
+    ok('чат: фокус в поле ввода сохранён', draft.focused === true, JSON.stringify(draft));
+    // свернуть чат у обоих: открытая панель не должна влиять на дальнейшие DOM-чеки
+    await A.click('.chaticon');
+    await B.click('.chaticon');
+  }
   // версия состава — в серверном снапшоте seat-save (журнал localStorage подрезается после /save)
   await new Promise(r => setTimeout(r, 700));
   const snap1 = readdirSync(dataDir).filter(f => /^lesson-save-.*-seat1\.json$/.test(f))
@@ -799,13 +917,42 @@ ok('оверлеи: на активном такте раскладки буфе
     await clickIf(C, '#btn_next');
     await new Promise(r => setTimeout(r, 150));
   }
-  let picked = 0;                                                    // 2 ловушки — модель ТОЛЬКО из них
-  for (let guard = 0; guard < 30 && picked < 2; guard++) {
-    if (await clickIf(C, '#btn_pick')) picked += 1;
+  let cats = 0;                       // сперва — 2 ловушки ОДНОГО класса (только коты)
+  for (let guard = 0; guard < 40 && cats < 2; guard++) {
+    const cur = await C.$eval('#img_current', el => el.dataset.img).catch(() => null);
+    if (!cur) break;
+    if (man.byId[cur].class === 'cat') { await C.click('#btn_pick'); cats += 1; }
+    else await C.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }
   await clickIf(C, '#btn_next');                                    // «Хватит, проверяем»
   await waitState(C, s => s.phase === 'retrain', 8000, 'C → научить');
+  /* обучение одним классом заблокировано (закалка 18.07, major): у догоняющего корзины
+   * пусты, в коробке только коты — «Научить» заперта с детским текстом и путём добора */
+  const oneClass = await C.evaluate(() => ({
+    disabled: (document.getElementById('btn_train') || {}).disabled === true,
+    note: (document.getElementById('one_class_note') || {}).textContent || '',
+    more: !!document.getElementById('btn_more_traps'),
+  }));
+  ok('один класс: «Научить» заперта, пока в коробке только коты', oneClass.disabled,
+     JSON.stringify(oneClass));
+  ok('один класс: детский текст «нужны и коты, и собаки»',
+     /коты/.test(oneClass.note) && /собаки/.test(oneClass.note), oneClass.note);
+  ok('один класс: есть путь добора («Добрать картинок»)', oneClass.more, JSON.stringify(oneClass));
+  await C.click('#btn_more_traps');
+  await waitState(C, s => s.phase === 'traps', 8000, 'C → добор второго класса');
+  let dogs = 0;
+  for (let guard = 0; guard < 40 && dogs < 1; guard++) {
+    const cur = await C.$eval('#img_current', el => el.dataset.img).catch(() => null);
+    if (!cur) break;
+    if (man.byId[cur].class === 'dog') { await C.click('#btn_pick'); dogs += 1; }
+    else await C.click('#btn_skip');
+    await new Promise(r => setTimeout(r, 80));
+  }
+  await clickIf(C, '#btn_next');                                    // «Хватит, проверяем»
+  await waitState(C, s => s.phase === 'retrain', 8000, 'C → научить (оба класса)');
+  ok('оба класса набраны: «Научить» ожила',
+     await C.$eval('#btn_train', b => !b.disabled).catch(() => false));
   await C.click('#btn_train');
   await waitState(C, s => s.phase === 'measure_after', 10000, 'C → замер');
   await clickIf(C, '#btn_check');
@@ -842,9 +989,15 @@ ok('оверлеи: на активном такте раскладки буфе
     await clickIf(D, '#btn_next');
     await new Promise(r => setTimeout(r, 150));
   }
-  let picked = 0;
-  for (let guard = 0; guard < 30 && picked < 2; guard++) {
-    if (await clickIf(D, '#btn_pick')) picked += 1;
+  // по одной ловушке каждого класса: состав из двух классов — «Научить» не заперта
+  let gotCat = 0, gotDog = 0;
+  for (let guard = 0; guard < 40 && (gotCat < 1 || gotDog < 1); guard++) {
+    const cur = await D.$eval('#img_current', el => el.dataset.img).catch(() => null);
+    if (!cur) break;
+    const cls = man.byId[cur].class;
+    if (cls === 'cat' && gotCat < 1) { await D.click('#btn_pick'); gotCat += 1; }
+    else if (cls === 'dog' && gotDog < 1) { await D.click('#btn_pick'); gotDog += 1; }
+    else await D.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }
   await clickIf(D, '#btn_next');                                    // «Хватит, проверяем»
@@ -1061,6 +1214,159 @@ ok('дашборд: meta-refresh снят (умный таймер вместо 
 await A.close(); await B.close();
 
 /* ================================================================== */
+/* RUN Z: закалка 18.07 — reset_version из поллинга (обычный такт / entry / резерв),  */
+/* повторный баннер резерва, отказ эмбеддера, fallback-identity движка              */
+/* ================================================================== */
+{
+  await dash.reload();
+  dash.once('dialog', d => d.accept());
+  await dash.click('button:has-text("▶ Запустить заново")');
+  await dash.waitForLoadState('networkidle');
+  await host('/host/gate', { action: 'code', step: gateStepId, code: '4712', show: true });
+
+  const Z1 = await mkChild(1);
+  const Z2 = await mkChild(2);
+  const zWaiting = { code: '4712', stopWhen: (st) => !st.entry && st.step === versionStep.id &&
+    (versionStep.phases.find(ph => ph.id === st.phase) || {}).elements?.length === 0 };
+  await driveLesson(Z1, man, zWaiting);
+  await driveLesson(Z2, man, zWaiting);
+
+  // --- reset на обычном такте: Z2 с waiting возвращается на первый слот и пересобирает ---
+  // (reset_version на сервере активен ТОЛЬКО до reveal — все reset-кейсы идут до раскрытия)
+  await host('/host/reset_version', { step: versionStep.id, seat: '2' });
+  await waitState(Z2, s => !s.entry && s.step === versionStep.id && s.phase === 'version_slot1',
+    12000, 'reset у Z2 (поллинг)');
+  ok('reset: Z2 вернулся на пересборку версии (первый слот)', true);
+  await driveLesson(Z2, man, zWaiting);
+  ok('reset: Z2 пересобрал и закоммитил версию заново (epoch принят)', true);
+
+  // --- CRITICAL reset В РЕЗЕРВЕ: Z2 входит в r2 с waiting — экран резерва жив,
+  //     выход ведёт на пересборку версии ---
+  await host('/host/gate', { action: 'reserve', which: 'trainer' });
+  await Z2.waitForSelector('#reservebar button', { timeout: 12000 });
+  await Z2.click('#reservebar button');
+  const rid = man.lesson.reserve_steps.find(s => s.kind === 'trainer').id;
+  await waitState(Z2, s => s.step === rid && !s.entry, 15000, 'Z2 вошёл в r2');
+  await host('/host/reset_version', { step: versionStep.id, seat: '2' });
+  await new Promise(r => setTimeout(r, 3500));   // ≥2 демо-поллинга: reset доехал
+  const inR = await state(Z2);
+  ok('CRITICAL reset в резерве: экран резерва жив (машина резерва не тронута)',
+     inR.step === rid && !!inR.phase, JSON.stringify(inR));
+  for (let guard = 0; guard < 40 && (await state(Z2)).step === rid; guard++) {
+    if (!await clickIf(Z2, '#btn_pick'))
+      if (!await clickIf(Z2, '#btn_train'))
+        if (!await clickIf(Z2, '#btn_check'))
+          await clickIf(Z2, '#btn_next');
+    await new Promise(r => setTimeout(r, 250));
+  }
+  const afterR = await state(Z2);
+  ok('reset в резерве: выход из резерва ведёт на пересборку версии (suspended переписан)',
+     afterR.step === versionStep.id && afterR.phase === 'version_slot1', JSON.stringify(afterR));
+  await host('/host/gate', { action: 'reserve', which: 'none' });
+
+  // --- повторное включение ТОГО ЖЕ резерва снова показывает баннер (major, закалка):
+  //     Z1 на waiting видел баннер и не входил — после выключения и включения баннер
+  //     обязан вернуться (раньше застревал dataset.which) ---
+  await Z1.waitForFunction(() => !document.querySelector('#reservebar button'), null, { timeout: 12000 });
+  await host('/host/gate', { action: 'reserve', which: 'trainer' });
+  await Z1.waitForSelector('#reservebar button', { timeout: 12000 });
+  await host('/host/gate', { action: 'reserve', which: 'none' });
+  await Z1.waitForFunction(() => !document.querySelector('#reservebar button'), null, { timeout: 12000 });
+  await host('/host/gate', { action: 'reserve', which: 'trainer' });
+  const bannerAgain = await Z1.waitForSelector('#reservebar button', { timeout: 12000 })
+    .then(() => true).catch(() => false);
+  ok('резерв: повторное включение того же блока снова показывает баннер', bannerAgain);
+  await host('/host/gate', { action: 'reserve', which: 'none' });
+
+  // --- CRITICAL reset на ENTRY: свежее место стоит на экране входа (гейт s1 с кодом) —
+  //     вход отменяется, машина не ломается, экран уходит на пересборку версии ---
+  const Z3 = await mkChild(5);
+  await waitState(Z3, s => s.entry, 15000, 'Z3 на гейте s1 (entry)');
+  await host('/host/reset_version', { step: versionStep.id, seat: '5' });
+  await waitState(Z3, s => !s.entry && s.step === versionStep.id && s.phase === 'version_slot1',
+    12000, 'reset на entry у Z3');
+  ok('CRITICAL reset на entry: вход отменён, машина цела, экран на пересборке версии', true);
+  await Z3.close();
+  await Z1.close(); await Z2.close();
+
+  /* --- fallback-identity движка (major): v1 обучена head, перезаход с ?engine=knn —
+   *     пересборка ЧУЖИМ движком морозит новую версию, полка не двоит, проба живая --- */
+  {
+    const c3 = await browser.newContext({ viewport: { width: 640, height: 760 } });
+    const F = await c3.newPage();
+    F.setDefaultTimeout(30000);
+    await F.goto(`${BASE}/z1.html?ws=1&demo=1&seat=3&engine=head`);
+    await driveLesson(F, man, { code: '4712',
+      stopWhen: (st) => !st.entry && st.step === versionStep.id && st.phase === 'probe' });
+    await F.goto(`${BASE}/z1.html?ws=1&demo=1&seat=3&engine=knn`);
+    await waitState(F, s => !!s.step && !s.entry, 20000, 'boot F с engine=knn');
+    await F.waitForFunction(() => document.querySelectorAll('.vchip').length >= 2, null, { timeout: 10000 })
+      .catch(() => {});
+    const shelf = await F.evaluate(() => ({
+      chips: [...document.querySelectorAll('.vchip')].map(e => e.textContent),
+      active: document.querySelectorAll('.vchip-active').length,
+    }));
+    ok('fallback identity: пересборка чужим движком дала НОВУЮ версию (v2 на полке)',
+       shelf.chips.length === 2, JSON.stringify(shelf));
+    ok('полка: активный чип ровно один (пара sig+engine, не только sig)',
+       shelf.active === 1, JSON.stringify(shelf));
+    await clickIf(F, '#btn_check');
+    const verdictOk = await F.waitForSelector('.verdict', { timeout: 8000 })
+      .then(() => true).catch(() => false);
+    ok('fallback identity: проба после смены движка работает (не вечный stale)', verdictOk);
+    await F.close(); await c3.close();
+  }
+
+  /* --- CRITICAL отказ эмбеддера (не-demo): кнопки модели НЕ оживают, честная плашка,
+   *     «Попробовать ещё раз» после возврата сети реально чинит --- */
+  {
+    const c4 = await browser.newContext({ viewport: { width: 640, height: 760 } });
+    const E = await c4.newPage();
+    E.setDefaultTimeout(45000);
+    await E.route('**/vendor/mediapipe/**', r => r.abort());
+    await E.goto(`${BASE}/z1.html?ws=1&seat=4`);   // БЕЗ demo: настоящий warmup
+    await driveLesson(E, man, { code: '4712',
+      stopWhen: (st) => !st.entry && st.step === versionStep.id && st.phase === 'train' });
+    await E.waitForSelector('.model-error', { timeout: 15000 });
+    const embFail = await E.evaluate(() => ({
+      banner: !!document.querySelector('.model-error'),
+      retry: !!document.getElementById('btn_model_retry'),
+      trainDisabled: (document.getElementById('btn_train') || {}).disabled === true,
+      trainText: (document.getElementById('btn_train') || {}).textContent || '',
+    }));
+    ok('CRITICAL эмбеддер упал: «Научить» НЕ разблокирована', embFail.trainDisabled,
+       JSON.stringify(embFail));
+    ok('эмбеддер упал: честная плашка + кнопка восстановления', embFail.banner && embFail.retry,
+       JSON.stringify(embFail));
+    ok('эмбеддер упал: кнопка честно говорит про отказ', /не загрузилась/.test(embFail.trainText),
+       embFail.trainText);
+    // «сеть вернулась»: вместо реального MediaPipe (в headless валит браузер) отдаём
+    // fake-модуль с тем же контрактом — тест проверяет ПУТЬ восстановления приложения.
+    // Красный без фикса cache-busting: упавший import() закэширован в module map
+    // навсегда, и retry без ?retry=N получил бы старую ошибку даже при живой сети
+    await E.unroute('**/vendor/mediapipe/**');
+    await E.route('**/vendor/mediapipe/vision_bundle.mjs*', r => r.fulfill({
+      status: 200, contentType: 'application/javascript',
+      body: `export const FilesetResolver = { forVisionTasks: async () => ({}) };
+export class ImageEmbedder {
+  static async createFromOptions() { return new ImageEmbedder(); }
+  embed() { const v = new Float32Array(64); v[0] = 1; return { embeddings: [{ floatEmbedding: v }] }; }
+}`,
+    }));
+    const t0e = Date.now();
+    await E.click('#btn_model_retry');
+    const revived = await E.waitForFunction(() => {
+      const b = document.getElementById('btn_train');
+      return b && !b.disabled;
+    }, null, { timeout: 30000 }).then(() => true).catch(() => false);
+    ok('эмбеддер восстановился: «Научить» ожила после retry (' +
+       Math.round((Date.now() - t0e) / 1000) + ' c)', revived);
+    ok('после восстановления плашка ошибки исчезла', !(await E.$('.model-error')));
+    await E.close(); await c4.close();
+  }
+}
+
+/* ================================================================== */
 /* RUN 2: override — «раскрыть без отвалившегося» с подтверждением и логом */
 /* ================================================================== */
 await dash.reload();
@@ -1189,6 +1495,39 @@ await V1.close(); await V2.close();
   });
   ok('живое сужение <1100px: активная зона докручена в кадр', narrow.visible,
      JSON.stringify(narrow));
+  /* пороговые вьюпорты (закалка 18.07): конвейер включается media-порогом ≥1100px —
+   * проверяем обе стороны порога, не только 1512 */
+  for (const [wpx, wantWide] of [[1101, true], [1100, true], [1099, false]]) {
+    await W.setViewportSize({ width: wpx, height: 900 });
+    await new Promise(r => setTimeout(r, 350));
+    const g = await W.evaluate(() => {
+      const z = document.querySelector('.zones');
+      const disp = getComputedStyle(z).display;
+      const cols = disp === 'grid'
+        ? getComputedStyle(z).gridTemplateColumns.split(' ').filter(Boolean).length : 1;
+      const zones = [...document.querySelectorAll('.zone')];
+      const tops = zones.map(e => Math.round(e.getBoundingClientRect().top));
+      return { disp, cols, sameRow: new Set(tops).size === 1 };
+    });
+    ok('порог ' + wpx + 'px: ' + (wantWide ? 'конвейер (3 колонки в ряд)' : 'столбик'),
+       wantWide ? (g.cols === 3 && g.sameRow) : (g.cols === 1 && !g.sameRow), JSON.stringify(g));
+  }
+  /* низкое узкое окно рядом со звонком (683×750): активная зона достижима, страница
+   * не расползается горизонтально; DOM-чек конституции на этом вьюпорте */
+  await W.setViewportSize({ width: 683, height: 750 });
+  await new Promise(r => setTimeout(r, 400));
+  const low = await W.evaluate(() => {
+    const act = document.querySelector('.zone-active .kbtn:not(:disabled)')
+      || document.querySelector('.zone-active');
+    act.scrollIntoView({ block: 'center' });
+    const r = act.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight,
+             visible: r.top < innerHeight && r.bottom > 0,
+             hscroll: document.documentElement.scrollWidth > innerWidth + 1 };
+  });
+  ok('низкое окно 683×750: активная зона достижима, без горизонтального скролла',
+     low.visible && !low.hscroll, JSON.stringify(low));
+  await domCheck(W, 'low683x750:baskets');
   await W.close(); await c.close();
 }
 

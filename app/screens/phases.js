@@ -11,7 +11,7 @@ import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom, conf
 import { compositionSig } from '../engine/classifier.js';
 import { trainExamples, countsOf, countsFromComposition, versionShelf, growthCells,
          sameMeasureSet } from './versions.js';
-import { stableComposition, trainAlreadyCommitted } from '../core/reducer.js';
+import { stableComposition, trainAlreadyCommitted, activeStableModel } from '../core/reducer.js';
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
 
@@ -113,7 +113,7 @@ function boxAlbum(ctx) {
  * ровно столько, сколько считается градиентный спуск. kNN мгновенен и полоски не
  * получает — мгновенность и есть видимая разница движков (решение владельца 18.07).
  * dataset.trainbar на #screen — машинный след для e2e (в demo эпохи долетают за кадр). */
-async function trainWithProgress(ctx, examples) {
+async function trainWithProgress(ctx, examples, opts) {
   const boxEl = document.querySelector('.zone-box');
   boxEl && boxEl.classList.add('learning');
   let bar = null, fill = null, label = null;
@@ -125,6 +125,8 @@ async function trainWithProgress(ctx, examples) {
     if (host) host.append(bar);
     document.getElementById('screen').dataset.trainbar = '1';
   }
+  // opts.shouldPublish — guard места запуска (закалка 18.07, critical «публикация
+  // в чужое состояние»): движок сам не публикует модель, если место ушло (null)
   const n = await ctx.classifier.trainAsync(examples, (ep, total) => {
     if (!bar || !total) return;
     if (!document.contains(bar)) {
@@ -134,16 +136,30 @@ async function trainWithProgress(ctx, examples) {
     }
     fill.style.width = Math.round(100 * ep / total) + '%';
     label.textContent = 'коробка учится… эпоха ' + ep + ' из ' + total;
-  });
+  }, opts);
   const boxNow = document.querySelector('.zone-box');
   boxNow && boxNow.classList.remove('learning');
   if (bar) bar.remove();
   return n;
 }
 
+/** Откат движка к активной стабильной версии payload — на случай, когда публикация
+ * обучения прошла guard движка, но место ушло в самое узкое окно (между microtask'ами):
+ * движок не должен остаться обученным составу, которого нет в журнале. */
+function retrainToPayload(ctx) {
+  const stable = stableModelOf(ctx);
+  ctx.classifier.train(stable ? stable.composition : []);
+}
+const stableModelOf = (ctx) => {
+  const m = activeStableModel(ctx.payload);
+  return m && (m.composition || []).length ? m : null;
+};
+
 function boxStatus(ctx) {
   const n = ctx.classifier.exampleCount();
-  if (!ctx.classifier.ready) return ctx.ui.restoring || 'Коробка вспоминает…';
+  if (!ctx.classifier.ready)
+    return ctx.classifier.error ? 'Коробка не загрузилась'
+                                : (ctx.ui.restoring || 'Коробка вспоминает…');
   return n ? ('Знает картинок: ' + n) : 'Пока ничему не научена';
 }
 
@@ -183,6 +199,10 @@ function basketsFeed(ctx, step, phase) {
       const el = h('div', {
         class: 'basket', id: 'basket_' + bid, role: 'button', tabindex: '0',
         onclick: () => assign(bid),
+        // role=button обязан отвечать на Enter/Space (закалка 18.07, major «клавиатура»)
+        onkeydown: (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); assign(bid); }
+        },
       },
         h('div', { class: 'basket-lid' }),
         h('div', { class: 'basket-label' }, classLabel(ctx, bid)),
@@ -233,9 +253,18 @@ function countsByClass(ctx) {
 
 function trainPhase(ctx, step, phase) {
   ctx.local.reactionOk = false;   // до обучения «Получилось!» безусловна — не показываем
+  // обучение одному классу — не обучение (закалка 18.07, major «обучить одним классом»):
+  // оба движка вернули бы единственную метку с 50%, а экран врал бы «Знает картинок: N».
+  // Кнопка заперта с детским объяснением, пока в составе нет хотя бы двух классов
+  const examplesNow = trainExamples(ctx);
+  const classesNow = new Set(examplesNow.map(e => e.class));
+  const missingClasses = classesNow.size < 2;
+  const classWords = (ctx.bankIndex.bank.classes || [])
+    .map(c => (c.label || c.id).toLowerCase());
   const btn = bigBtn('Научить!', async (ev) => {
     ev.currentTarget.disabled = true;
     const examples = trainExamples(ctx);
+    if (new Set(examples.map(e => e.class)).size < 2) { ctx.render(); return; }
     // F5 сразу после «Научить» (Codex-ревью И3, находка 2): train_commit уже в журнале,
     // а phase_enter следующего такта не успел — restore возвращает на этот такт.
     // Повторный тап того же состава тем же движком НЕ плодит новую версию: модель
@@ -245,10 +274,14 @@ function trainPhase(ctx, step, phase) {
     // разложил идентично v1 — sig совпадает, но это осознанное обучение, не F5-повтор
     const dup = !(ctx.payload.experiments || {})[step.id]
       && trainAlreadyCommitted(ctx.payload, compositionSig(examples), ctx.classifier.engineId);
-    // переход — только если ребёнок всё ещё на этом такте (guarded против version reset
-    // и прочих смен состояния за время счёта эпох)
+    // guard МЕСТА запуска (закалка 18.07, critical): и переход, и ПУБЛИКАЦИЯ модели/
+    // train_commit принадлежат месту клика — reset, вход в резерв или смена такта
+    // за время счёта эпох отменяют всё целиком, а не только переход
+    const place = ctx.guarded(() => true);
     const go = ctx.guarded(() => ctx.advancePhase());
-    const n = await trainWithProgress(ctx, examples);
+    const n = await trainWithProgress(ctx, examples, { shouldPublish: () => place() === true });
+    if (n == null) return;                       // место ушло до публикации — движок не тронут
+    if (place() !== true) { retrainToPayload(ctx); return; }   // узкое окно после публикации
     if (!dup) {
       // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
       // restore после F5 переобучает модель из composition последней версии ЕЁ ЖЕ движком
@@ -264,8 +297,24 @@ function trainPhase(ctx, step, phase) {
     }
     go();
   }, { id: 'btn_train' });
-  ctx.modelGate(btn);
-  const box = [kidText(boxStatus(ctx), { small: true }), btn];
+  if (missingClasses) {
+    btn.disabled = true;   // modelGate не подключаем: недостаток классов сильнее готовности
+  } else ctx.modelGate(btn);
+  const box = [kidText(boxStatus(ctx), { small: true })];
+  if (missingClasses)
+    box.push(h('div', { class: 'one-class-note', 'data-kid': '1', id: 'one_class_note' },
+      'Нужны и ' + classWords.join(', и ') + ' — добавь картинки другой корзины!'));
+  box.push(btn);
+  if (missingClasses) {
+    // путь из тупика: «Хватит, проверяем» с одноклассовым набором привёл сюда —
+    // без возврата к подаче ребёнок был бы заперт на запертой кнопке
+    const trapsPhase = step.phases.find(p => (p.elements || []).includes('btn_pick'));
+    const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
+    const restN = pool.filter(i => !ctx.payload.traps.includes(i.id)).length;
+    if (trapsPhase && restN > 0)
+      box.push(bigBtn('Добрать картинок', () => ctx.jumpToPhase(step.id, trapsPhase.id),
+        { kind: 'secondary', id: 'btn_more_traps' }));
+  }
   // «Разложить заново» (В-3): ТОЛЬКО до первого обучения — после первого train_commit
   // переукладка идёт по рельсам (ловушки) или через эксперимент после reveal (В-4).
   // Двухтактно (конституция п.7: необратимое = выбор → крупное подтверждение)
@@ -312,8 +361,9 @@ function probeFeed(ctx, step, phase) {
   const ptr = ctx.local[lkey];
   const current = ids[ptr];
   const img = current && ctx.bankIndex.byId.get(current);
-  const verdict = current && ctx.payload.probes[current];
-  const judged = current && (ctx.payload.probe_judgements || {})[current];
+  // вердикт другой identity модели (движок/params сменились) — не показываем как текущий
+  const verdict = current && verdictOfLiveModel(ctx, current);
+  const judged = current && verdict && (ctx.payload.probe_judgements || {})[current];
 
   const input = [];
   if (img) {
@@ -483,7 +533,37 @@ function afterIsStale(ctx, m) {
   if (!m.after || !live) return false;
   if (m.after.model_sig && live.sig !== m.after.model_sig) return true;
   if (m.after.engine && (live.engine || 'knn') !== m.after.engine) return true;
+  // полная identity модели (§3.1, закалка 18.07): обновились frozen_params банка —
+  // старый замер сделан другой функцией, показывать его как текущий нечестно
+  if (m.after.params_rev != null && live.params_rev != null
+      && live.params_rev !== m.after.params_rev) return true;
   return false;
+}
+
+/** Пара «Было → Стало» честна, только если «до» снят той же identity, что «после»:
+ * та же раскладка (baskets_sig), тот же движок, те же params_rev (закалка 18.07 —
+ * раньше финальная карточка не проверяла даже engine). */
+function beforePairValid(ctx, m) {
+  if (!m.before) return false;
+  if (m.before.baskets_sig && m.before.baskets_sig !== basketsSig(ctx)) return false;
+  if (m.before.engine && m.after && m.after.engine
+      && m.before.engine !== m.after.engine) return false;
+  if (m.before.params_rev != null && m.after && m.after.params_rev != null
+      && m.before.params_rev !== m.after.params_rev) return false;
+  return true;
+}
+
+/** Показанный вердикт пробы принадлежит модели, которой сделан: смена движка или
+ * params_rev (fallback, ?engine=, обновление банка) делает его чужим — экран честно
+ * предлагает проверить заново, а не выдаёт старый ответ за текущий (закалка 18.07). */
+function verdictOfLiveModel(ctx, imgId) {
+  const v = ctx.payload.probes[imgId];
+  if (!v) return null;
+  const live = ctx.payload.model;
+  if (!live) return v;
+  if (v.engine && (live.engine || 'knn') !== v.engine) return null;
+  if (v.params_rev != null && live.params_rev != null && live.params_rev !== v.params_rev) return null;
+  return v;
 }
 
 function measurePhase(ctx, step, phase) {
@@ -492,9 +572,8 @@ function measurePhase(ctx, step, phase) {
   if (m.after && !afterIsStale(ctx, m)) {
     // stale-«Было»: раскладка корзин менялась после замера «до» (restore/переразметка) —
     // старый счёт сделан ДРУГОЙ моделью, сравнивать нечестно (Codex D1–D2). Разные движки
-    // «до»/«после» — тоже разные модели (identity §3.1), сравнение прячем
-    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx))
-      && (!m.before.engine || !m.after.engine || m.before.engine === m.after.engine);
+    // или params_rev «до»/«после» — тоже разные модели (identity §3.1), сравнение прячем
+    const beforeValid = beforePairValid(ctx, m);
     // сравнение честно только на одном holdout-наборе (В-5, §3.1); у старых записей
     // details может не быть — тогда набор неизвестен, показываем по-старому парой счётов
     const setKnown = !!(m.before && m.before.details && m.after.details);
@@ -547,8 +626,13 @@ function measurePhase(ctx, step, phase) {
       const btn6 = bigBtn('Научить без фотки', async (ev) => {
         ev.currentTarget.disabled = true;
         const composition = stableComposition(live.composition);
+        // guard места запуска — как у «Научить!» (закалка 18.07, critical): публикация
+        // модели и train_commit отменяются целиком, если место ушло за время обучения
+        const place = ctx.guarded(() => true);
         const go = ctx.guarded(() => ctx.render());   // не-volatile версия активна — замер открылся
-        const n = await trainWithProgress(ctx, composition);
+        const n = await trainWithProgress(ctx, composition, { shouldPublish: () => place() === true });
+        if (n == null) return;
+        if (place() !== true) { retrainToPayload(ctx); return; }
         const version = live.version + 1;
         const mi = ctx.classifier.modelInfo();
         const sig = mi.sig;
@@ -639,7 +723,9 @@ function freeTextPhase(ctx, step, phase) {
       backBtn(ctx, step, phase),
       bigBtn('Дальше', () => {
         const text = input.value.trim();
-        if (text) ctx.j('free_text_set', { text });
+        // очистка — тоже правка (закалка 18.07, минор): пустое поле при непустом
+        // сохранённом тексте журналируется, старый текст не воскресает после F5
+        if (text !== (ctx.payload.version.free_text || '')) ctx.j('free_text_set', { text });
         ctx.advancePhase();
       }, { id: 'btn_skip' })));
 }
@@ -794,15 +880,17 @@ function revealPhase(ctx, step, phase) {
 function forecastRun(ctx, step, phase) {
   const f = step.forecast;
   const img = ctx.bankIndex.byId.get(f.img);
-  const done = ctx.payload.probes[f.img];
+  const done = verdictOfLiveModel(ctx, f.img);
   const out = [];
   ctx.local.reactionOk = !!done;   // «Получилось!» — только после фактического результата
   if (img) out.push(imgCard(ctx.assetsBase + img.src, { id: 'img_current' }));
   if (done) {
     out.push(verdictCard('Это ' + classLabel(ctx, done.label) + '!', done.conf, { margin: done.margin }));
-    const matchPredict = ctx.local['fr_match_' + step.id];
-    if (matchPredict != null)
-      out.push(kidText(matchPredict ? 'Твой прогноз сбылся!' : 'Коробка ответила иначе — интересно почему?'));
+    // «прогноз сбылся» — деривация из payload (вердикт + выбранный predict + expected),
+    // а не локальный флаг вкладки: восстановленный экран самодостаточен после F5
+    // (закалка 18.07, major «результат прогноза терялся»)
+    const matchPredict = optionMatchesLabel(ctx, f, ctx.payload.forecast.predict, done.label);
+    out.push(kidText(matchPredict ? 'Твой прогноз сбылся!' : 'Коробка ответила иначе — интересно почему?'));
     if (hasEl(phase, 'btn_next'))
       out.push(bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(), { id: 'btn_next' }));
   } else {
@@ -811,12 +899,10 @@ function forecastRun(ctx, step, phase) {
       if (!v) return;
       ctx.j('probe_result', { img: f.img, label: v.label, conf: v.conf, margin: v.margin,
                               ...engineTag(ctx.classifier.modelInfo()) });
-      const predictedClass = f.expected && ctx.payload.forecast.predict === f.expected.predict;
       // совпадение прогноза: выбранная опция predict → класс. Опции — данные; сопоставление
       // делаем по индексу против фактической метки через expected (валидатор гарантирует поля).
       const matchPredict = optionMatchesLabel(ctx, f, ctx.payload.forecast.predict, v.label);
       const matchReason = ctx.payload.forecast.reason === f.expected.reason;
-      ctx.local['fr_match_' + step.id] = matchPredict;
       ctx.tele.push('forecast_result', { match_predict: matchPredict, match_reason: matchReason });
       ctx.render();
     }, { id: 'btn_check' });
@@ -852,13 +938,17 @@ function quizCard(ctx, step, phase) {
   body.push(h('div', { class: 'row' }, ...card.options.map((opt, i) => {
     let kind = 'secondary';
     if (answered != null) kind = i === card.correct ? 'primary' : (i === answered ? 'danger' : 'ghost');
-    return bigBtn(opt, () => {
+    const b = bigBtn(opt, () => {
       if (answered != null) return;
       ctx.j('quiz_answer', { card: card.id, answer: i });
       ctx.tele.push('quiz_click', { card: card.id, answer: i, correct: i === card.correct });
       ctx.render();
       setTimeout(ctx.guarded(() => ctx.advancePhase() || ctx.finishStep()), ctx.demo ? 250 : 900);
     }, { kind, id: 'quizopt' + i });
+    // отвеченная карточка: варианты — подсветка разбора, не живые кнопки (закалка 18.07,
+    // major «кнопки-пустышки»): не фокусируются и не тапаются, после F5 — тоже
+    if (answered != null) { b.disabled = true; b.classList.add('quizopt-done'); }
+    return b;
   })));
   if (answered != null) {
     body.push(kidText(answered === card.correct ? 'Верно!' : 'Правильный ответ подсвечен', { small: true }));
@@ -934,7 +1024,11 @@ function talkPhase(ctx, step, phase) {
     body.push(bigBtn('Начать думать (' + (step.think_sec || 30) + ' сек)', () => {
       ctx.local[key] = Date.now();
       ctx.render();
+      // таймер принадлежит месту запуска (закалка 18.07, минор): ушли с такта
+      // (резерв, reset, переход) — гаснет сам и НЕ рендерит чужой экран через 30 с
+      const alive = ctx.guarded(() => true);
       const tick = setInterval(() => {
+        if (alive() !== true) { clearInterval(tick); return; }
         const left = thinkSec - Math.floor((Date.now() - ctx.local[key]) / 1000);
         const el = document.getElementById('think_left');
         if (el) el.textContent = left > 0 ? String(left) : '';
@@ -973,8 +1067,9 @@ function finalPhase(ctx, step, phase) {
     const rstep = findRevealStep(ctx);
     const assisted = ctx.overlays.assisted();
     // итог ПО ФАКТУ, не безусловный успех (план-правок п.6): лучше / держит идеал /
-    // без изменений / хуже; stale-«Было» — сравнения нет
-    const beforeValid = !!m.before && (!m.before.baskets_sig || m.before.baskets_sig === basketsSig(ctx));
+    // без изменений / хуже; stale-«Было» — сравнения нет. Пара валидна только при
+    // полной identity (раскладка + движок + params_rev — закалка 18.07)
+    const beforeValid = beforePairValid(ctx, m);
     const outcome = measureOutcome(m.before, m.after, beforeValid);
     const mistakes = (ctx.payload.mistakes || []).length;
     // версии состава обучения (фаза 0.5): сколько раз коробку учили и на скольких картинках

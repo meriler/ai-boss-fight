@@ -89,6 +89,7 @@ function render() {
     (phase.elements || []).every(e => e === 'btn_next');
   screen.replaceChildren(
     phase && phase.text && !introOnly ? h('div', { class: 'phasetext', 'data-kid': '1' }, phase.text) : '',
+    modelErrorBanner(),
     content || '');
   ctx.overlays.refreshOverlays();
   // узкий режим (столбик зон): при входе в такт кнопка действия видна сразу — автоскролл
@@ -152,11 +153,14 @@ function renderEntry() {
 }
 
 async function submitEntry(data) {
-  const { req, advance } = ctx.entering;
+  const myEntering = ctx.entering;   // замораживаем: reset из поллинга мог отменить вход,
+                                     // поздний ack не должен двигать уже сброшенную машину
+  const { req, advance } = myEntering;
   const btn = document.getElementById('btn_gate');
   if (btn) btn.disabled = true;
   try {
     await ctx.acked.commit(req.ack, req.step, data);
+    if (ctx.entering !== myEntering) return;   // вход отменён (handleVersionReset)
     if (req.ack === 'gate_enter') ctx.tele.push('gate_enter', { step: req.step, ok: true });
     ctx.entering = null;
     if (advance) ctx.machine.advanceStepAcked();
@@ -168,6 +172,7 @@ async function submitEntry(data) {
     maybeAutoMeasureBefore();   // R1 «до» — автозамер при входе в шаг с measure.before=auto
     render();
   } catch (e) {
+    if (ctx.entering !== myEntering) return;   // вход уже отменён — ошибку не показываем
     const err = e && e.resp && e.resp.error;
     if (err === 'bad_code') {
       ctx.tele.push('gate_enter', { step: req.step, ok: false });
@@ -260,6 +265,7 @@ function maybeAutoMeasureBefore() {
   const bind = { machine: ctx.machine, stepId: step.id,
                  modelVersion: ctx.payload.model ? ctx.payload.model.version : null };
   ctx.classifier.whenReady().then(() => {
+    if (!ctx.classifier.ready) return;   // whenReady резолвится и на ошибке эмбеддера
     const cur = ctx.machine.done ? null : ctx.machine.step();
     if (!measureBindingIntact(bind, { machine: ctx.machine, stepId: cur && cur.id,
           modelVersion: ctx.payload.model ? ctx.payload.model.version : null })) return;
@@ -287,15 +293,50 @@ ctx.modelGate = (btn) => {
   btn.disabled = true;
   btn.classList.add('waitmodel');
   const old = btn.textContent;
-  btn.textContent = ctx.ui.restoring || 'Коробка вспоминает…';
+  // ошибка эмбеддера уже известна к моменту рендера — честный текст сразу
+  btn.textContent = (ctx.classifier.error ? 'Коробка не загрузилась'
+    : (ctx.ui.restoring || 'Коробка вспоминает…'));
   ctx.classifier.whenReady().then(() => {
     if (!document.contains(btn)) return;
+    // ошибка эмбеддера НЕ разблокирует кнопку (закалка 18.07, critical embedder):
+    // модель не готова — обучение/замер упали бы на отсутствующих фичах. Путь
+    // восстановления — плашка с «Попробовать ещё раз» (render), не эта кнопка
+    if (!ctx.classifier.ready) {
+      btn.textContent = 'Коробка не загрузилась';
+      return;
+    }
     btn.disabled = false;
     btn.classList.remove('waitmodel');
     btn.textContent = old;
   });
   return btn;
 };
+
+/** Плашка ошибки эмбеддера с рабочим путём восстановления (закалка 18.07): повторный
+ * warmup; при успехе модель тихо пересобирается и кнопки оживают штатным modelGate. */
+ctx.retryWarmup = () => {
+  if (ctx.classifier.ready) return;
+  ctx.overlays.showPill('Пробую загрузить…', 'info', true);
+  ctx.classifier.warmup(() => {}).then(() => {
+    ctx.overlays.hidePill();
+    rebuildModelIfTrained();
+    maybeAutoMeasureBefore();
+    render();
+  }).catch(() => {
+    ctx.tele.push('boot_fail', { what: 'embedder_retry' });
+    ctx.overlays.showPill('Опять не вышло — проверь интернет и попробуй ещё', 'warn', true);
+    render();
+  });
+};
+
+function modelErrorBanner() {
+  if (ctx.demo || !ctx.classifier || ctx.classifier.ready || !ctx.classifier.error) return '';
+  const step = ctx.machine && !ctx.machine.done && ctx.machine.step();
+  if (!step || step.type !== 'trainer_act') return '';   // модель нужна только тренажёру
+  return h('div', { class: 'model-error' },
+    kidText('Коробка-модель не загрузилась — обучение и проверки пока не работают', { small: true }),
+    bigBtn('Попробовать ещё раз', () => ctx.retryWarmup(), { kind: 'secondary', id: 'btn_model_retry' }));
+}
 
 /** Тихо восстановить обученность после F5: «Научить» — журнальный факт (train_commit,
  * фаза 0.5), поэтому восстановление модели идёт ИЗ COMPOSITION версии состава,
@@ -307,7 +348,21 @@ function rebuildModelIfTrained() {
   const model = activeStableModel(ctx.payload);
   if (!model || !(model.composition || []).length) return;
   ctx.classifier.whenReady().then(() => {
+    if (!ctx.classifier.ready) return;   // ошибка эмбеддера — пересборки нет (плашка + retry)
     ctx.classifier.train(model.composition);
+    // движок пересборки разошёлся с движком версии (fallback непилотированного банка
+    // или осознанный ?engine=): модель РЕАЛЬНО другая — identity §3.1 различает пары
+    // sig+engine. Морозим новой версией, иначе каждый новый замер вечно stale против
+    // старого engine и «Дальше» не появляется (закалка 18.07, major fallback)
+    const mi = ctx.classifier.modelInfo();
+    if ((model.engine || 'knn') !== mi.engine) {
+      const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
+      ctx.j('train_commit', { version, sig: mi.sig, n: mi.n, composition: model.composition,
+                              counts: model.counts || null, engine: mi.engine,
+                              ...(mi.params_rev != null ? { params_rev: mi.params_rev } : {}) });
+      ctx.tele.push('retrained', { n: mi.n, version, sig: mi.sig, engine: mi.engine,
+                                   params_rev: mi.params_rev, reason: 'engine_fallback_rebuild' });
+    }
     maybeAutoMeasureBefore();
     render();
   });
@@ -419,6 +474,22 @@ function handleVersionReset() {
   ctx.payload.version = { slots: {}, free_text: null };
   const first = step.phases.find(p => (p.elements || []).some(e => /^frag[1-9]$/.test(e)))
     || step.phases[0];
+  // reset на экране входа в шаг (закалка 18.07, critical reset): вход отменяется —
+  // submitEntry сверяет ссылку и поздний ack не двигает уже сброшенную машину
+  ctx.entering = null;
+  if (ctx.inReserve) {
+    // в резерве ctx.machine — ДРУГАЯ машина, version-шага в ней нет (jumpTo бросал бы).
+    // Резерв не рвём: прыгает ОСНОВНАЯ машина, точка возврата — пересборка версии;
+    // suspended уезжает в снапшот, phase_enter запишет exitReserve
+    if (mainMachine) {
+      try { mainMachine.jumpTo(step.id, first.id); } catch (e) { /* нет такта — старт шага */ }
+      ctx.suspendedMain = { step: step.id, phase: first.id };
+    }
+    ctx.overlays.showPill('Ведущий сбросил твою версию — соберёшь заново после доп-задания', 'warn');
+    ctx.seatSave.flushNow();
+    render();
+    return;
+  }
   ctx.machine.jumpTo(step.id, first.id);
   ctx.j('phase_enter', { phase: first.id });
   ctx.overlays.showPill('Ведущий сбросил твою версию — собери заново', 'warn');
@@ -433,6 +504,9 @@ function renderReserveBanner() {
   const which = ctx.syncData && ctx.syncData.reserve_active;
   if (!which || which === 'none' || ctx.inReserve || (ctx.machine && ctx.machine.done)) {
     holder.replaceChildren();
+    // повторное включение ТОГО ЖЕ резерва обязано снова показать баннер (закалка 18.07):
+    // застрявший dataset.which делал второй показ невозможным
+    delete holder.dataset.which;
     return;
   }
   const step = ctx.normalized.reserve.find(s => s.kind === (which === 'talk' ? 'talk' : 'trainer'));
@@ -662,7 +736,8 @@ async function boot() {
   if (!ctx.demo) {
     ctx.classifier.warmup(() => {}).catch(() => {
       ctx.tele.push('boot_fail', { what: 'embedder' });
-      ctx.overlays.showPill('Модель не загрузилась — обнови страницу', 'warn', true);
+      ctx.overlays.showPill('Модель не загрузилась', 'warn', true);
+      render();   // плашка с «Попробовать ещё раз» (закалка 18.07: честный отказ + восстановление)
     });
   }
 

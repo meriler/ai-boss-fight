@@ -88,13 +88,21 @@ export function createFeatureSource({ bankIndex, assetsBase = '', demo = false, 
   const features = new Map();   // imgId -> {emb, pix}
   let ready = demo;             // demo готов сразу; real — после warmup()
   let warmErr = null;
+  let attempts = 0;             // счётчик warmup-попыток (cache-busting повторного импорта)
   const readyWaiters = [];
 
   async function warmup(onProgress = () => {}) {
     if (ready) { onProgress(1); return; }
+    warmErr = null;   // повторная попытка (retryWarmup) — с чистого листа
+    attempts += 1;
     try {
       onProgress(0.05);
-      const { ImageEmbedder, FilesetResolver } = await import(vendorBase + 'vendor/mediapipe/vision_bundle.mjs');
+      // упавший import() браузер кэширует в module map НАВСЕГДА — повторный import
+      // того же URL возвращает старую ошибку без сети. «Попробовать ещё раз» обязан
+      // реально повторить загрузку → повторные попытки идут с cache-busting query
+      // (закалка 18.07, critical embedder: рабочий путь восстановления)
+      const bust = attempts > 1 ? '?retry=' + attempts : '';
+      const { ImageEmbedder, FilesetResolver } = await import(vendorBase + 'vendor/mediapipe/vision_bundle.mjs' + bust);
       const vision = await FilesetResolver.forVisionTasks(vendorBase + 'vendor/mediapipe/wasm');
       const opt = (d) => ({
         baseOptions: { modelAssetPath: vendorBase + 'models/mobilenet_v3_small_embedder.tflite', delegate: d },
@@ -139,8 +147,12 @@ export function createFeatureSource({ bankIndex, assetsBase = '', demo = false, 
     get ready() { return ready; },
     get error() { return warmErr; },
     warmup,
+    /** Резолвится и при ошибке warmup (закалка 18.07): потребитель ОБЯЗАН проверить
+     * ready — ожидание «до готовности» при мёртвом эмбеддере было бы вечным зависанием,
+     * а разблокировать кнопки по одному лишь резолву нельзя. */
     whenReady() {
-      return ready ? Promise.resolve() : new Promise(res => readyWaiters.push(res));
+      return (ready || warmErr) ? Promise.resolve()
+        : new Promise(res => readyWaiters.push(res));
     },
     featureOf,
   };

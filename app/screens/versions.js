@@ -44,13 +44,26 @@ export function countsFromComposition(ctx, composition) {
   return counts;
 }
 
-/** Версия, по которой коробка думает СЕЙЧАС: sig фактически обученной модели;
- * до готовности эмбеддера — последняя стабильная (её и пересоберёт restore). */
-function activeSig(ctx) {
-  if (ctx.classifier.ready && ctx.classifier.exampleCount())
-    return ctx.classifier.modelInfo().sig;
-  const stable = activeStableModel(ctx.payload);
-  return stable ? stable.sig : (ctx.payload.model ? ctx.payload.model.sig : null);
+/** Identity версии, по которой коробка думает СЕЙЧАС: пара sig+engine фактически
+ * обученной модели (§3.1 — sig считается по составу и одинаков у разных движков,
+ * различает модели именно пара); до готовности эмбеддера — последняя стабильная. */
+function activeIdentity(ctx) {
+  if (ctx.classifier.ready && ctx.classifier.exampleCount()) {
+    const mi = ctx.classifier.modelInfo();
+    return { sig: mi.sig, engine: mi.engine };
+  }
+  const m = activeStableModel(ctx.payload) || ctx.payload.model;
+  return m ? { sig: m.sig, engine: m.engine || 'knn' } : null;
+}
+
+/** Индекс АКТИВНОЙ версии на полке: последняя запись истории с той же парой sig+engine.
+ * Одного sig мало (закалка 18.07, major «полка врёт»): допустимая v2 с тем же составом
+ * пометила бы активными обе. */
+function activeIndex(hist, act) {
+  if (!act) return -1;
+  for (let i = hist.length - 1; i >= 0; i--)
+    if (hist[i].sig === act.sig && (hist[i].engine || 'knn') === act.engine) return i;
+  return -1;
 }
 
 /** В-2: черновик ≠ учёное — состав корзин/ловушек разошёлся с активной версией. */
@@ -77,11 +90,18 @@ function compositionWords(ctx, rec) {
   return parts.length ? parts.join(' · ') : 'картинок: ' + rec.n;
 }
 
-/** Замер этой версии (по sig): показанный счёт из payload.measures, если он её. */
+/** Замер этой версии: полная identity (sig + engine + params_rev), не только sig —
+ * иначе один замер приписывался бы двум версиям одинакового состава (закалка 18.07). */
 function measureOfVersion(ctx, rec) {
   const m = ctx.payload.measures;
-  for (const key of ['after', 'before'])
-    if (m[key] && m[key].model_sig === rec.sig) return m[key];
+  for (const key of ['after', 'before']) {
+    const rec2 = m[key];
+    if (!rec2 || rec2.model_sig !== rec.sig) continue;
+    if (rec2.engine && (rec.engine || 'knn') !== rec2.engine) continue;
+    if (rec2.params_rev != null && rec.params_rev != null
+        && rec2.params_rev !== rec.params_rev) continue;
+    return rec2;
+  }
   return null;
 }
 
@@ -92,11 +112,12 @@ function measureOfVersion(ctx, rec) {
 export function versionShelf(ctx, { tappable = false } = {}) {
   const hist = ctx.payload.model_history || [];
   if (!hist.length) return null;
-  const shown = hist.slice(-SHELF_CAP);
-  const act = activeSig(ctx);
+  const shownFrom = Math.max(0, hist.length - SHELF_CAP);
+  const shown = hist.slice(shownFrom);
+  const actIdx = activeIndex(hist, activeIdentity(ctx));
   const draft = isDraft(ctx);
-  const chips = shown.map(rec => {
-    const isActive = rec.sig === act;
+  const chips = shown.map((rec, i) => {
+    const isActive = shownFrom + i === actIdx;   // ровно ОДИН активный чип (пара sig+engine)
     return h('span', {
       class: 'vchip' + (isActive ? ' vchip-active' : '') +
              (rec.volatile ? ' vchip-volatile' : '') +
@@ -127,6 +148,10 @@ export function versionShelf(ctx, { tappable = false } = {}) {
   const shelf = h('div', {
     class: 'vshelf vshelf-tap', id: 'version_shelf', role: 'button', tabindex: '0',
     onclick: () => openVersionCard(ctx),
+    // role=button без клавиатуры — пустышка (закалка 18.07, major «клавиатурные пути»)
+    onkeydown: (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openVersionCard(ctx); }
+    },
   }, h('div', { class: 'row vshelf-row' }, ...rows), badge, v2note);
   return shelf;
 }
@@ -139,14 +164,20 @@ export function openVersionCard(ctx, startIdx) {
   let idx = startIdx != null ? startIdx : hist.length - 1;
   const show = () => {
     const rec = hist[idx];
-    const act = activeSig(ctx);
+    const actIdx = activeIndex(hist, activeIdentity(ctx));
     const measured = measureOfVersion(ctx, rec);
     const when = rec.ts ? new Date(rec.ts).toLocaleTimeString('ru-RU',
       { hour: '2-digit', minute: '2-digit' }) : null;
+    // движок — часть identity версии: показываем, когда в истории они разные
+    // (иначе версии одинакового состава неотличимы — закалка 18.07)
+    const engines = new Set(hist.map(r => r.engine || 'knn'));
+    const engWord = { knn: 'по соседям', head: 'обучаемая голова' };
     const body = [
       h('div', { class: 'modal-title', 'data-kid': '1' },
-        'Версия v' + rec.version + (rec.sig === act ? ' — активная' : '')),
+        'Версия v' + rec.version + (idx === actIdx ? ' — активная' : '')),
       kidText(compositionWords(ctx, rec)),
+      engines.size > 1 ? kidText('Способ обучения: ' +
+        (engWord[rec.engine || 'knn'] || rec.engine), { small: true }) : null,
       when ? kidText('Научена в ' + when, { small: true }) : null,
       rec.volatile ? kidText('📷 С твоей фоткой — в проверки не идёт', { small: true }) : null,
       measured ? kidText('Её проверка: ' + measured.score + ' из ' + measured.of, { small: true })

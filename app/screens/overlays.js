@@ -31,17 +31,27 @@ export function createOverlays(ctx) {
   function hidePill() { if (pillTimer) clearTimeout(pillTimer); pill.className = 'pill'; }
 
   /* ---------- модалки ---------- */
+  let lastFocus = null;   // возврат фокуса при закрытии (закалка 18.07, клавиатура)
   function openModal(...children) {
-    modal.replaceChildren(h('div', { class: 'modalcard' }, ...children));
+    if (!modal.classList.contains('on')) lastFocus = document.activeElement;
+    const card = h('div', { class: 'modalcard', role: 'dialog', 'aria-modal': 'true',
+                            tabindex: '-1' }, ...children);
+    modal.replaceChildren(card);
     modal.classList.add('on');
     document.getElementById('screen').setAttribute('inert', '');
     bar.setAttribute('inert', '');
+    // фокус — внутрь диалога (первый интерактив, иначе сама карточка)
+    const target = card.querySelector('button:not(:disabled), input') || card;
+    setTimeout(() => { if (document.contains(target)) target.focus(); }, 0);
   }
   function closeModal() {
     modal.classList.remove('on');
     modal.replaceChildren();
     document.getElementById('screen').removeAttribute('inert');
     bar.removeAttribute('inert');
+    if (lastFocus && document.contains(lastFocus) && typeof lastFocus.focus === 'function')
+      lastFocus.focus();
+    lastFocus = null;
   }
 
   function showOtherTab(onTakeover) {
@@ -154,13 +164,25 @@ export function createOverlays(ctx) {
     wrap.append(bigBtn(ui.reaction_btn || 'Получилось!', async (ev) => {
       const btn = ev.currentTarget;
       btn.disabled = true;
-      reacted.add(key);
-      // микрофидбек (И3-Т п.5, фидбек #28): анимация + «Ведущий увидел 👍» + счётчик
-      // группы из reactions_count (/sync) — «уже N!» на момент нажатия
-      reactionNotes[key] = ((ctx.syncData && ctx.syncData.reactions_count) || 0) + 1;
-      refreshOverlays();
-      ctx.tele.push('reaction', { step: pos.step });
-      try { await ctx.postSeat('/react', { step: pos.step }); } catch (e) { /* офлайн — не страшно */ }
+      btn.textContent = ui.sending || 'Отправляю…';
+      // «Ведущий увидел 👍» — ТОЛЬКО после ack сервера (закалка 18.07, major «ложное
+      // подтверждение»): до ответа — «Отправляю…», ошибка возвращает кнопку и честно
+      // говорит, что не долетело
+      try {
+        await ctx.postSeat('/react', { step: pos.step });
+        reacted.add(key);
+        // микрофидбек (И3-Т п.5, фидбек #28): анимация + «Ведущий увидел 👍» + счётчик
+        // группы из reactions_count (/sync) — «уже N!» на момент нажатия
+        reactionNotes[key] = ((ctx.syncData && ctx.syncData.reactions_count) || 0) + 1;
+        ctx.tele.push('reaction', { step: pos.step });
+        refreshOverlays();
+      } catch (e) {
+        if (document.contains(btn)) {
+          btn.disabled = false;
+          btn.textContent = ui.reaction_btn || 'Получилось!';
+        }
+        showPill('Не долетело — попробуй ещё раз', 'warn');
+      }
     }, { kind: 'primary', id: 'btn_react', disabled: reacted.has(key) }));
     if (reacted.has(key)) {
       const n = reactionNotes[key];
@@ -185,26 +207,61 @@ export function createOverlays(ctx) {
     const list = h('div', { class: 'chatlist' },
       ...ctx.chatLog.map(m => h('div', { class: 'chatmsg' + (String(m.seat) === String(ctx.seat) ? ' mine' : '') },
         h('span', { class: 'chatwho' }, 'место ' + m.seat + ': '), m.text)));
+    // черновик переживает ререндер (закалка 18.07, major «чат стирает черновик»):
+    // входящий chat_delta пересоздаёт панель — недописанный текст, фокус и состояние
+    // отправки восстанавливаются из ctx.local, а не пропадают. Признак фокуса —
+    // устойчивый флаг (activeElement в момент пересборки — гонка: второй подряд
+    // ререндер видит фокус уже на body и терял бы его насовсем)
+    if (document.activeElement && document.activeElement.id === 'chat_input')
+      ctx.local.chatFocusWanted = true;
+    const wantFocus = !!ctx.local.chatFocusWanted;
     const input = h('input', { class: 'chatinput', id: 'chat_input', maxlength: '200', placeholder: 'Напиши в чат…' });
+    if (ctx.local.chatDraft) input.value = ctx.local.chatDraft;
+    input.addEventListener('input', () => { ctx.local.chatDraft = input.value; });
+    input.addEventListener('focus', () => { ctx.local.chatFocusWanted = true; });
+    input.addEventListener('blur', () => {
+      // отличаем «пользователь ушёл сам» от blur'а пересборки: Chrome диспатчит blur
+      // ДО отсоединения узла (contains ещё true) — решаем отложенно, когда пересборка
+      // уже удалила узел из DOM. Живой узел после blur = настоящий уход, флаг снимаем
+      queueMicrotask(() => {
+        if (document.contains(input) && document.activeElement !== input)
+          ctx.local.chatFocusWanted = false;
+      });
+    });
     const send = bigBtn('Отправить', async () => {
       const text = input.value.trim();
-      if (!text) return;
+      if (!text || ctx.local.chatSending) return;
+      ctx.local.chatSending = true;
       send.disabled = true;
       const step = ctx.machine.position().step;
       try {
         await ctx.postSeat('/chat', { step, text });
         ctx.tele.push('chat_msg', { step, len: text.length });
-        input.value = '';
+        ctx.local.chatSending = false;
+        ctx.local.chatDraft = '';
+        if (document.contains(input)) input.value = '';
         if (!ctx.local['chat_sent_' + step]) {
           ctx.local['chat_sent_' + step] = true;
           ctx.render();          // в talk_chat после первого сообщения появляется «Дальше»
           return;
         }
-      } catch (e) { showPill(ui.offline_retry || 'Нет связи — повторю сам', 'warn'); }
-      send.disabled = false;
+      } catch (e) {
+        ctx.local.chatSending = false;
+        showPill(ui.offline_retry || 'Нет связи — повторю сам', 'warn');
+      }
+      if (document.contains(send)) send.disabled = false;
     }, { kind: 'secondary', id: 'btn_chat_send' });
+    if (ctx.local.chatSending) send.disabled = true;
     const panel = h('div', { class: 'chatpanel' }, list, h('div', { class: 'row' }, input, send));
     setTimeout(() => { list.scrollTop = list.scrollHeight; }, 0);
+    // фокус — микротаском, не setTimeout: панель уже вставлена (render синхронен до
+    // конца), а таймеры фоновой вкладки троттлятся — фокус «возвращался» с опозданием
+    queueMicrotask(() => {
+      if (wantFocus && document.contains(input) && document.activeElement !== input) {
+        input.focus();
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
+      }
+    });
     return panel;
   }
 

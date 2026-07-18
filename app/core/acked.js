@@ -31,11 +31,12 @@ export function createAcked({ url = '/commit', seat, runId, instanceId,
   const attempt = async (op) => {
     const body = {
       seat, run_id: runId,
-      // замороженные при создании op права; у операций старого формата (до фикса)
-      // их нет — те честно идут с текущими (хуже не становится)
-      client_instance_id: op.instance != null ? op.instance : instanceId,
-      writer_generation: op.generation != null ? op.generation : getGeneration(),
-      epoch: op.epoch != null ? op.epoch : getEpoch(),
+      // ТОЛЬКО замороженные права операции — никаких фолбэков на текущие: оп без
+      // identity мигрирует в resendPending, а ретрай, подобравший свежий epoch после
+      // reset/takeover, воскресил бы отменённый коммит (закалка 18.07, high 3)
+      client_instance_id: op.instance,
+      writer_generation: op.generation,
+      epoch: op.epoch,
       op_id: op.op_id, type: op.type, step: op.step, payload: op.data,
     };
     const r = await doFetch(url, {
@@ -82,12 +83,19 @@ export function createAcked({ url = '/commit', seat, runId, instanceId,
       return runOp(op);
     },
     /** После F5: дослать неподтверждённые операции с ИХ ЖЕ op_id и ИХ ЖЕ замороженными
-     * правами (сервер дедупит; операция из отменённой эпохи получает stale_epoch). */
+     * правами (сервер дедупит; операция из отменённой эпохи получает stale_epoch).
+     * Миграция rolling deploy (закалка 18.07): оп СТАРОГО формата без identity
+     * замораживается к правам момента загрузки (сразу после restore) и персистится —
+     * свежие права от будущего reset/takeover ему уже не достанутся. */
     resendPending() {
       if (store) {
         try {
           const d = JSON.parse(store.getItem(storageKey) || '[]');
-          if (Array.isArray(d)) pending = d;
+          if (Array.isArray(d)) {
+            pending = d.map(op => op.instance != null ? op :
+              { ...op, instance: instanceId, generation: getGeneration(), epoch: getEpoch() });
+            persist();
+          }
         } catch (e) {}
       }
       return Promise.allSettled(pending.map(runOp));

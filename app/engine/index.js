@@ -27,10 +27,12 @@ export const ENGINE_IDS = ['knn', 'head'];
 
 /** Движки, которым можно доверить детей на ЭТОМ банке: kNN пилотирован фазой 0
  * (pilot_status: frozen — про него), остальные — только из frozen_params.engines
- * (появляются там после своего мини-пилота §6). */
+ * (появляются там после своего мини-пилота §6). Ключ, которого нет в реестре кода
+ * (опечатка в банке), отклоняется здесь же — иначе он прошёл бы в createEngine и
+ * уронил boot вместо честного отката на kNN (закалка 18.07, major 15). */
 export function allowedEngines(bank) {
   const extra = Object.keys((bank.frozen_params && bank.frozen_params.engines) || {});
-  return ['knn', ...extra.filter(e => e !== 'knn')];
+  return ['knn', ...extra.filter(e => e !== 'knn' && ENGINE_IDS.includes(e))];
 }
 
 export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorBase = '',
@@ -96,9 +98,15 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
      * лишь нарезанный по времени; тест в engine-contract). kNN мгновенен — эквивалент
      * train(), onProgress не зовётся (полоска — видимая разница движков). Модель и
      * состав публикуются АТОМАРНО по завершении: до конца обучения classify/modelInfo
-     * отвечают прежней версией. */
-    async trainAsync(list, onProgress) {
-      if (engine !== 'head') return this.train(list);
+     * отвечают прежней версией. shouldPublish — guard МЕСТА ЗАПУСКА (закалка 18.07,
+     * critical 2): за время счёта эпох ребёнок мог уйти (reset, резерв, смена такта) —
+     * тогда результат НЕ публикуется вовсе (возврат null), движок остаётся прежней
+     * версией и никакой train_commit писать нельзя. */
+    async trainAsync(list, onProgress, { shouldPublish } = {}) {
+      if (engine !== 'head') {
+        if (shouldPublish && !shouldPublish()) return null;
+        return this.train(list);
+      }
       const examples = list.map(p => ({ img: p.img, class: p.class, f: src.featureOf(p.img) }));
       const tr = createHeadTrainer(examples, bankIndex.classIds, headHyper);
       const CHUNK_MS = 12;   // бюджет порции — меньше кадра, полоска дышит
@@ -108,6 +116,7 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
         if (onProgress) onProgress(tr.epoch, tr.total);
         if (!tr.done) await new Promise(r => setTimeout(r, 0));
       }
+      if (shouldPublish && !shouldPublish()) return null;
       headModel = tr.model();
       composition = list.map(x => ({ img: x.img, class: x.class }));
       return composition.length;

@@ -108,11 +108,12 @@ test('журнал critical 4: чужой хвост (другой instance/gene
   // тот же instance, но СТАРАЯ generation (запись до takeover) — не реплеится
   const jA2 = createJournal({ storage, owner: { inst: 'A', gen: 2 } }).load();
   assert.equal(jA2.entries().length, 0);
-  // записи старого формата (без владельца) — консервативно не реплеятся, но двигают счётчик
+  // записи старого формата (без владельца) — УСЫНОВЛЯЮТСЯ текущим владельцем (закалка
+  // 18.07, rolling deploy: прогресс старых открытых клиентов не отбрасывается)
   storage.setItem('legacy', JSON.stringify({ counter: 0, entries: [
     { type: 'trap_add', args: {}, rev: 7 }] }));
   const jC = createJournal({ storage, storageKey: 'legacy', owner: { inst: 'C', gen: 1 } }).load();
-  assert.equal(jC.entries().length, 0);
+  assert.equal(jC.entries().length, 1);
   assert.equal(jC.maxRev(), 7);
 });
 
