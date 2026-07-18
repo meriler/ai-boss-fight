@@ -119,6 +119,12 @@ async function domCheck(p, tag) {
   domViolations.set(tag, v);
 }
 
+/* ---------- одноразовые проверки И3-Т, живущие в generic-драйвере ---------- */
+let trainbarSeen = null;        // была ли полоска эпох при первом «Научить» (head vs kNN)
+let probeGateChecked = false;   // «Дальше» заперта до ответа «Коробка права?»
+let reactionChecked = null;     // текст микрофидбека «Ведущий увидел 👍»
+let entryOverlayLeak = 0;       // оверлеи на экранах входа в шаг (гейтах) — быть не должно
+
 /* ---------- generic-драйвер занятия по манифесту (identity-agnostic — DoD п.2) ---------- */
 function loadManifestNode(variant) {
   const lesson = JSON.parse(readFileSync(path.join(ROOT, 'content', variant, 'lesson.json'), 'utf-8')).lesson;
@@ -145,6 +151,11 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     const step = man.stepById[st.step];
 
     if (st.entry) {
+      // расписание оверлеев (И3-Т п.5, фидбек #28): на экране входа (гейт/step_enter)
+      // полоса оверлеев обязана быть пустой — «Получилось!» с прошлого такта не течёт
+      const leak = await p.evaluate(() =>
+        !document.getElementById('overlaybar').classList.contains('empty'));
+      if (leak) entryOverlayLeak += 1;
       if (step && step.gate && step.gate.kind === 'code') {
         if (await p.$('#gate_code')) {
           await p.fill('#gate_code', code || '');
@@ -210,13 +221,31 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     } else if (els.includes('btn_pick')) {
       if (!await clickIf(p, '#btn_pick')) await clickIf(p, '#btn_next');
     } else if (els.includes('btn_train')) {
-      await clickIf(p, '#btn_train');
+      const clicked = await clickIf(p, '#btn_train');
+      // видимая разница движков (И3-Т): head — полоска эпох, kNN — мгновенен без неё.
+      // Фиксируем только по НАСТОЯЩЕМУ клику (после relayout-хука драйвер бывает
+      // со stale-фазой — кнопки нет, это не «обучение без полоски»)
+      if (clicked && trainbarSeen === null) trainbarSeen = !!(await p.$('.trainbar'));
       await waitState(p, s2 => s2.phase !== st.phase, 15000, 'после train');
     } else if (phase.probe_set) {
-      // на показанном вердикте — отметка «она ошиблась!» (наблюдение ребёнка, п.4 плана),
-      // потом «Дальше»; кнопка есть только при вердикте, clickIf безопасен
+      // обязательный вопрос «Коробка права?» на каждом вердикте (И3-Т п.8):
+      // «Дальше» заперта до ответа; драйвер отвечает «Ошиблась!»
       if (!await clickIf(p, '#btn_check')) {
-        await clickIf(p, '#btn_mistake');
+        if (await p.$('#btn_mistake')) {
+          if (!probeGateChecked) {
+            probeGateChecked = true;
+            const gated = await p.$eval('#btn_next', e => e.disabled).catch(() => true);
+            ok('пробы: «Дальше» заперта до ответа «Коробка права?»', gated);
+            await p.screenshot({ path: '/tmp/z1-probe-question.png' });   // ревью вопроса
+          }
+          await clickIf(p, '#btn_mistake');
+        }
+        // микрофидбек «Получилось!» (И3-Т п.5): жмём один раз, читаем отклик
+        if (reactionChecked === null && await p.$('#btn_react:not(:disabled)')) {
+          await clickIf(p, '#btn_react');
+          reactionChecked = await p.waitForSelector('.reaction-note', { timeout: 3000 })
+            .then(e => e.textContent()).catch(() => '');
+        }
         await clickIf(p, '#btn_next');
       }
     } else if (els.some(e => /^frag[1-9]$/.test(e))) {
@@ -300,7 +329,7 @@ ok('дашборд: гейт показывает 1 из 2 перешли', (awa
 
 // --- A: полный tap-проход с брейками ---
 let f5basketsDone = false, f5commitDone = false, f5measureDone = false, bufferChecked = false;
-let overlayEmptyOnTask = null, relayoutDone = false;
+let overlayEmptyOnTask = null, relayoutDone = false, backChecked = false;
 
 const versionStep = man.lesson.steps.find(s => s.version);
 await driveLesson(A, man, {
@@ -348,6 +377,17 @@ await driveLesson(A, man, {
       ok('F5 раскладка: 3 разложенные картинки целы (дебаунс-сейв + журнал)', counts === 3, 'counts=' + counts);
       const fc = await p.$eval('.feedcount', e => e.textContent);
       ok('F5 раскладка: лента продолжает с 4-й картинки', /4 из/.test(fc), fc);
+    }
+    // «← Назад» по тактам версии до коммита (И3-Т п.2, фидбек #24): со слота 2
+    // возвращаемся на слот 1, потом драйвер своим ходом снова доходит вперёд
+    // (слот-такты после хука безопасны: драйвер жмёт clickIf по одинаковым id)
+    if (!backChecked && !st.entry && st.step === versionStep.id &&
+        (versionStep.phases.find(ph => ph.id === st.phase) || {}).slot > 1) {
+      backChecked = true;
+      const prevPhase = versionStep.phases[versionStep.phases.findIndex(ph => ph.id === st.phase) - 1].id;
+      await p.click('#btn_back');
+      await waitState(p, s2 => s2.phase === prevPhase, 8000, '«Назад» к прошлому такту');
+      ok('«← Назад»: со слота 2 вернулись на предыдущий такт (до коммита)', true);
     }
     // «застрял» → подсказки l1/l2 (события hint в телеметрию)
     if (st.phase && !p.__stuckDone && st.step === versionStep.id) {
@@ -415,6 +455,16 @@ await waitState(A, s => s.phase === lastPhase, 12000, 'reveal у A');
 ok('A: reveal открыт поллингом, ожидание сменилось разгадкой', true);
 const anonN = await A.evaluate(() => document.querySelectorAll('.anonitem').length);
 ok('A: анонимная подборка версий группы видна (≥2)', anonN >= 2, 'anon=' + anonN);
+// И3-Т п.4/п.10: первый показ — иллюстрация крупно, слова разгадки ПЕРЕД картинкой
+ok('разгадка: иллюстрация крупно при первом показе', !!(await A.$('.revealcard .imgcard-big')));
+await A.screenshot({ path: '/tmp/z1-reveal.png', fullPage: true });   // ревью порядка текстов
+{
+  const order = await A.evaluate(() => [...document.querySelector('.revealcard').children]
+    .map(e => e.className.split(' ')[0]));
+  ok('разгадка: текст разгадки идёт до иллюстрации (ревизия #25)',
+     order.indexOf('kidtext') > -1 && order.indexOf('kidtext') < order.indexOf('imgcard'),
+     order.join(','));
+}
 await domCheck(A, 'z1-kot:reveal');
 await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
 
@@ -426,6 +476,8 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   ok('В-1: полка версий видна на разгадке', !!(await A.$('#version_shelf')));
   const chipTxt = await A.evaluate(() => [...document.querySelectorAll('.vchip')].map(e => e.textContent).join(' | '));
   ok('В-1: чип v1 с числом картинок, активный подсвечен', /v1 · 16/.test(chipTxt), chipTxt);
+  const capTxt = await A.evaluate(() => document.querySelector('.vshelf-cap')?.textContent || '');
+  ok('И3 п.6: подпись полки «версии коробки:» перед чипами', capTxt.includes('версии коробки'), capTxt);
   await A.click('#version_shelf');
   await A.waitForSelector('.modalcard', { timeout: 8000 });
   await domCheck(A, 'z1-kot:version-card');
@@ -486,18 +538,29 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   await waitState(A, s => s.phase === 'train', 8000, 'эксперимент → научить');
   await A.click('#btn_train');
   await waitState(A, s => s.phase === 'probe', 10000, 'эксперимент → пробы');
+  // И3 п.6: строка при первом появлении v2 — на том же такте, где версия родилась
+  const v2note = await A.evaluate(() => document.querySelector('.vshelf-v2note')?.textContent || '');
+  ok('И3 п.6: строка при первом v2 «научил заново — старая на полке»', /версия 2/.test(v2note), v2note);
   let alertSeen = false;   // акцент на ошибке пробы (аудит линзы): «Стоп… она уверена — и ошибается!»
+  let alertBeforeAnswer = false;
   for (let i = 0; i < 4; i++) {
     await clickIf(A, '#btn_check');
     await A.waitForSelector('.verdict', { timeout: 8000 });
+    // обязательный вопрос (И3 п.8): акцент не подсказывает ДО ответа; отвечаем «Права»
+    if (await A.$('.verdict-alert')) alertBeforeAnswer = true;
+    await clickIf(A, '#btn_right');
     if (await A.$('.verdict-alert')) alertSeen = true;
     await clickIf(A, '#btn_next');
     await new Promise(r => setTimeout(r, 120));
   }
+  ok('внимательность: акцент-текст НЕ виден до ответа «Коробка права?»', !alertBeforeAnswer);
   ok('линза: акцент-текст на неверном вердикте пробы (драматургия без голоса)', alertSeen);
   await clickIf(A, '#btn_next');   // «все проверки пройдены» → возврат к разгадке
   await waitState(A, s => s.phase === lastPhase, 8000, 'эксперимент → назад к разгадке');
   ok('эксперимент: после проб вернулись к разгадке (такты версии не перепоказаны)', true);
+  // И3 п.4 (фидбек #27): повторный заход на разгадку — иллюстрация миниатюрой, не дубль
+  ok('разгадка повторно: иллюстрация миниатюрой (крупно — один раз)',
+     !(await A.$('.revealcard .imgcard-big')) && !!(await A.$('.revealcard .imgcard')));
   // версия состава — в серверном снапшоте seat-save (журнал localStorage подрезается после /save)
   await new Promise(r => setTimeout(r, 700));
   const snap1 = readdirSync(dataDir).filter(f => /^lesson-save-.*-seat1\.json$/.test(f))
@@ -629,8 +692,76 @@ ok('оверлеи: на активном такте раскладки буфе
      growth.rows === 2 && growth.cells === 8, JSON.stringify(growth));
   ok('В-5: стрелки на изменившихся ячейках есть', growth.arrows >= 1, JSON.stringify(growth));
   ok('В-5: счёт — подписью, не крупным числом (П4)', growth.bigNum === 0, JSON.stringify(growth));
-  await driveLesson(B, man, { code: '4712' });                  // добить занятие до конца
+  // карточка дела: пара «до → после» честная (баг #33) — «до» = авто-замер v1,
+  // который ребёнок видел строкой «Было», «после» — итог добора
+  await driveLesson(B, man, { code: '4712',
+    stopWhen: (st) => !st.entry && st.phase === 'card_view' });
+  const factB = await B.evaluate(() =>
+    [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
+  if (ENGINE !== '&engine=head')
+    ok('карточка дела B: точность «0 → 4 из 4» — та же пара, что на экране замера',
+       factB.includes('0 → 4 из 4'), factB.slice(0, 160));
+  else
+    ok('карточка дела B (head): пара «до → после» присутствует и честна',
+       /\d+ → 4 из 4/.test(factB), factB.slice(0, 160));
+  // финал (И3 п.7): путь детектива — «Дело №1 ✓» + серые будущие дела из данных курса
+  let casesInfo = null;
+  await driveLesson(B, man, { code: '4712', hook: async (st, p) => {
+    if (!casesInfo && !st.entry && st.phase === 'next_block') {
+      await p.screenshot({ path: '/tmp/z1-cases.png', fullPage: true });   // ревью пути детектива
+      casesInfo = await p.evaluate(() => ({
+        done: document.querySelectorAll('.casechip-done').length,
+        future: document.querySelectorAll('.casechip-future').length,
+        first: (document.querySelector('.casechip-done') || {}).textContent || '',
+      }));
+    }
+  } });
+  ok('финал: «Дело №1 ✓» + 4 серых будущих дела (плашки из данных курса)',
+     !!casesInfo && casesInfo.done === 1 && casesInfo.future === 4 && casesInfo.first.includes('✓'),
+     JSON.stringify(casesInfo));
   ok('B: занятие пройдено до конца после цикла добора', (await state(B)).done);
+}
+
+/* --- C: догоняющий приходит сразу на s6 (без своей v1-модели) — честность
+ *     авто-замера «до» (БАГ #33: карточка «3 → 3 из 4»). До фикса отложенный
+ *     авто-«до» мерил УЖЕ ПОЧИНЕННУЮ модель — «Было» совпадало со «Стало» --- */
+{
+  const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
+  await host('/host/gate', { action: 'step', step: fixStep.id });   // группа уже на s6
+  const C = await mkChild(3);
+  await C.waitForSelector('#btn_catchup_go', { timeout: 15000 });   // карточка догоняющего
+  await C.click('#btn_catchup_go');
+  await waitState(C, s => s.entry, 15000, 'гейт C (checkin)');
+  await C.click('#btn_gate');                                       // «Я тут!»
+  await waitState(C, s => !s.entry && s.step === fixStep.id, 15000, 'C вошёл в s6');
+  for (let guard = 0; guard < 10 && (await state(C)).phase !== 'traps'; guard++) {
+    await clickIf(C, '#btn_next');
+    await new Promise(r => setTimeout(r, 150));
+  }
+  let picked = 0;                                                    // 2 ловушки — модель ТОЛЬКО из них
+  for (let guard = 0; guard < 30 && picked < 2; guard++) {
+    if (await clickIf(C, '#btn_pick')) picked += 1;
+    await new Promise(r => setTimeout(r, 80));
+  }
+  await clickIf(C, '#btn_next');                                    // «Хватит, проверяем»
+  await waitState(C, s => s.phase === 'retrain', 8000, 'C → научить');
+  await C.click('#btn_train');
+  await waitState(C, s => s.phase === 'measure_after', 10000, 'C → замер');
+  await clickIf(C, '#btn_check');
+  await C.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
+  const txtC = await C.evaluate(() => document.getElementById('screen').textContent);
+  ok('баг #33: у догоняющего нет фальшивого «Было» (авто-«до» с починенной модели не пишется)',
+     !txtC.includes('Было'), txtC.slice(0, 140));
+  ok('баг #33: рост-рядов нет — только честное «Стало»', !(await C.$('.growth')));
+  await driveLesson(C, man, { code: '4712',
+    stopWhen: (st) => !st.entry && st.phase === 'card_view' });
+  const factC = await C.evaluate(() =>
+    [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
+  ok('баг #33: карточка дела догоняющего — «— → N из 4», а не «N → N из 4»',
+     /— → \d из 4/.test(factC), factC.slice(0, 160));
+  await driveLesson(C, man, { code: '4712' });
+  ok('C: догоняющий дошёл до конца занятия', (await state(C)).done);
+  await C.close();
 }
 
 // --- телеметрия: связки в JSONL реального прогона (DoD п.6) ---
@@ -639,7 +770,7 @@ const jsonl = readdirSync(dataDir).filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test
   .flatMap(f => readFileSync(path.join(dataDir, f), 'utf-8').trim().split('\n'))
   .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
 const evTypes = new Set(jsonl.flatMap(r => (r.data.events || []).map(e => e.type)));
-for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 'mistake_marked',
+for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 'probe_judgement',
                  'version_committed',
                  'version_choice', 'reveal_seen', 'captcha_commit', 'trap_added', 'retrained',
                  'measure', 'forecast_committed', 'forecast_result', 'hint', 'stuck_pressed',
@@ -662,6 +793,14 @@ ok('телеметрия: есть замеры движка прогона (' +
    measureEvents.some(e => e.engine === engRun));
 const probeEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'probe'));
 ok('телеметрия: пробы несут engine движка вердикта', probeEvents.some(e => e.engine === engRun));
+// внимательность (И3 п.8): обязательный ответ «Коробка права?» на КАЖДОМ вердикте пробы,
+// каждый ответ несёт correct (совпал ли с фактом) и saw_mistake (что ответил ребёнок)
+const pjEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'probe_judgement'));
+ok('телеметрия внимательности: probe_judgement на каждой пробе',
+   pjEvents.length >= probeEvents.length && pjEvents.length > 0,
+   pjEvents.length + ' ответов на ' + probeEvents.length + ' проб');
+ok('телеметрия внимательности: каждый ответ несёт correct и saw_mistake',
+   pjEvents.every(e => typeof e.correct === 'boolean' && typeof e.saw_mistake === 'boolean'));
 const trainedEvents = jsonl.flatMap(r => (r.data.events || [])
   .filter(e => e.type === 'trained' || e.type === 'retrained'));
 ok('телеметрия: trained/retrained несут engine+params_rev',
@@ -760,7 +899,9 @@ if (ENGINE === '&engine=head') {
 }
 await V1.close(); await V2.close();
 
-/* ---------- смоук широкого окна: ветка zoom ≥1400px (клики + настоящий drag) ---------- */
+/* ---------- смоук широкого окна 1512px: раскладка-«конвейер» (И3-Т раздел B) ----------
+ * Зоны «вход → коробка → выход» тремя колонками в один ряд (grid 40/30/30);
+ * клики и настоящий drag работают; DOM-чек конституции на широком экране. */
 {
   const firstGate = man.lesson.steps.find(s => s.type === 'gate' && s.gate.kind === 'code').id;
   await host('/host/gate', { action: 'code', step: firstGate, code: '4712', show: true });
@@ -768,25 +909,43 @@ await V1.close(); await V2.close();
   const W = await c.newPage();
   W.setDefaultTimeout(30000);
   await W.goto(`${BASE}/z1.html?ws=1&demo=1&seat=9` + ENGINE);
-  const zoomVal = await W.evaluate(() => getComputedStyle(document.body).zoom);
-  ok('широкий экран: zoom-ветка активна (' + zoomVal + ')', parseFloat(zoomVal) === 1.5);
   const trainer = man.lesson.steps.find(s => s.type === 'trainer_act').id;
   await driveLesson(W, man, { code: '4712',
     stopWhen: (st) => st.step === trainer && st.phase === 'baskets' && !st.entry });
-  const target = await W.evaluate(() => {
-    const img = document.querySelector('#img_current');
-    return img ? 'basket_cat' : null;
+  const grid = await W.evaluate(() => {
+    const z = document.querySelector('.zones');
+    const cols = z ? getComputedStyle(z).gridTemplateColumns.split(' ').filter(Boolean).length : 0;
+    const zones = [...document.querySelectorAll('.zone')];
+    const tops = zones.map(e => Math.round(e.getBoundingClientRect().top));
+    const order = zones.map(e => e.dataset.zone);
+    const lefts = zones.map(e => Math.round(e.getBoundingClientRect().left));
+    return { cols, sameRow: new Set(tops).size === 1, order,
+             ltr: lefts[0] < lefts[1] && lefts[1] < lefts[2] };
   });
-  ok('широкий экран: гейт и квиз пройдены кликами до раскладки', !!target);
+  ok('конвейер: три колонки зон в один ряд', grid.cols === 3 && grid.sameRow, JSON.stringify(grid));
+  ok('конвейер: поток слева направо «вход → коробка → выход»',
+     grid.order.join(',') === 'in,box,out' && grid.ltr, JSON.stringify(grid));
+  await W.screenshot({ path: '/tmp/z1-wide.png', fullPage: true });   // ревью конвейера
+  await domCheck(W, 'wide1512:baskets');
   const countBefore = await W.evaluate(() =>
     parseInt(document.querySelector('#basket_cat .basket-count')?.textContent || '0', 10) || 0);
   await W.dragAndDrop('#img_current', '#basket_cat');
   const countAfter = await W.evaluate(() =>
     parseInt(document.querySelector('#basket_cat .basket-count')?.textContent || '0', 10) || 0);
-  ok('широкий экран: настоящий drag в корзину при zoom работает (счёт ' +
+  ok('конвейер: настоящий drag в корзину на широком окне (счёт ' +
      countBefore + '→' + countAfter + ')', countAfter === countBefore + 1);
   await W.close(); await c.close();
 }
+
+/* ---------- свод одноразовых проверок И3-Т ---------- */
+if (ENGINE === '&engine=head')
+  ok('движки различимы: head показывает полоску эпох при «Научить»', trainbarSeen === true);
+else
+  ok('движки различимы: kNN мгновенен — полоски эпох нет', trainbarSeen === false);
+ok('микрофидбек «Получилось!»: «Ведущий увидел 👍» после нажатия',
+   typeof reactionChecked === 'string' && reactionChecked.includes('👍'), String(reactionChecked));
+ok('расписание оверлеев: на экранах входа в шаг (гейтах) оверлеи не текут',
+   entryOverlayLeak === 0, 'утечек: ' + entryOverlayLeak);
 
 /* ---------- DOM-чек: свод ---------- */
 let domFails = 0;

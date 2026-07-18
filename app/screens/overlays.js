@@ -59,7 +59,7 @@ export function createOverlays(ctx) {
     openModal(
       h('div', { class: 'modal-title', 'data-kid': '1' }, ui.catchup_title || 'Что уже было'),
       kidText(text),
-      bigBtn('Понятно, вперёд!', () => { closeModal(); onGo && onGo(); }));
+      bigBtn('Понятно, вперёд!', () => { closeModal(); onGo && onGo(); }, { id: 'btn_catchup_go' }));
   }
 
   /* ---------- «Застрял» + подсказки ---------- */
@@ -142,16 +142,32 @@ export function createOverlays(ctx) {
   }
 
   /* ---------- кнопка-реакция ---------- */
+  let reactionNotes = {};           // такт -> счётчик группы на момент нажатия
   function renderReaction() {
     const pos = ctx.machine.position();
     const key = pos.step + '.' + pos.phase;
-    return bigBtn(ui.reaction_btn || 'Получилось!', async (ev) => {
+    const wrap = h('div', { class: 'reactwrap' });
+    // подпись роли при первом показе (И3-Т п.5, фидбек #34): кнопка объясняет, куда
+    // уходит сигнал; после первого нажатия за занятие подпись больше не нужна
+    if (!reacted.size && !(key in reactionNotes))
+      wrap.append(kidText('Жми, когда получится — ведущий это видит', { small: true }));
+    wrap.append(bigBtn(ui.reaction_btn || 'Получилось!', async (ev) => {
       const btn = ev.currentTarget;
       btn.disabled = true;
       reacted.add(key);
+      // микрофидбек (И3-Т п.5, фидбек #28): анимация + «Ведущий увидел 👍» + счётчик
+      // группы из reactions_count (/sync) — «уже N!» на момент нажатия
+      reactionNotes[key] = ((ctx.syncData && ctx.syncData.reactions_count) || 0) + 1;
+      refreshOverlays();
       ctx.tele.push('reaction', { step: pos.step });
       try { await ctx.postSeat('/react', { step: pos.step }); } catch (e) { /* офлайн — не страшно */ }
-    }, { kind: 'primary', disabled: reacted.has(key) });
+    }, { kind: 'primary', id: 'btn_react', disabled: reacted.has(key) }));
+    if (reacted.has(key)) {
+      const n = reactionNotes[key];
+      wrap.append(h('div', { class: 'reaction-note', 'data-kid': '1' },
+        'Ведущий увидел 👍' + (n > 1 ? ' · в группе уже ' + n + '!' : '')));
+    }
+    return wrap;
   }
 
   /* ---------- чат ---------- */
@@ -194,6 +210,14 @@ export function createOverlays(ctx) {
 
   /* ---------- сборка полосы оверлеев по декларации такта ---------- */
   function refreshOverlays() {
+    // экран входа в шаг (гейт/step_enter) — БЕЗ оверлеев (И3-Т п.5, фидбек #28):
+    // машина ещё стоит на такте ПРОШЛОГО шага, его расписание сюда не относится —
+    // «Получилось!» на гейте-чекине выглядела бессмыслицей
+    if (ctx.entering) {
+      bar.replaceChildren();
+      bar.classList.add('empty');
+      return;
+    }
     const phase = ctx.machine.phase();
     const over = (phase && phase.overlays) || [];
     const parts = [];

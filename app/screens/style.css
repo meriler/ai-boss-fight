@@ -333,6 +333,40 @@ body {
 .growtharrow { width: 64px; text-align: center; font-size: 18px; font-weight: 900; color: transparent; }
 .growtharrow.on { color: var(--c-accent-text); }
 
+/* полоска эпох обучения головы (И3-Т): честная анимация «коробка учится…» */
+.trainbar { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.trainbar-label { font-size: 14px; font-weight: 800; color: var(--c-primary-dark); }
+.trainbar-track { width: 100%; height: 14px; border-radius: 999px; background: #e2e8f0; border: 2px solid var(--c-border); overflow: hidden; }
+.trainbar-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--c-primary), var(--c-accent)); }
+
+/* микрофидбек «Получилось!» (И3-Т п.5): отклик с анимацией + счётчик группы */
+.reactwrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.reaction-note {
+  font-size: 16px; font-weight: 900; color: var(--c-primary-dark);
+  background: #dbeafe; border: 2px solid var(--c-primary); border-radius: 999px;
+  padding: 8px 16px; animation: reactpop .45s cubic-bezier(.2, 1.6, .4, 1);
+}
+@keyframes reactpop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* путь детектива на финале (И3-Т п.7): «Дело №1 ✓» + серые будущие дела */
+.casepath { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.casechip {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  border-radius: 14px; border: 2px solid var(--c-border); padding: 10px 14px;
+  font-size: 16px; font-weight: 800;
+}
+.casechip-done { background: #ecfdf5; border-color: #2fa14e; color: #14532d; }
+.casechip-future { background: #f1f5f9; color: var(--c-muted); opacity: .75; }
+.casechip-mark { font-size: 18px; }
+.casechip-done .casechip-mark { color: #2fa14e; font-weight: 900; }
+
+/* подпись полки версий + строка первого v2 (И3-Т п.6) */
+.vshelf-cap { font-size: 14px; font-weight: 800; color: var(--c-muted); }
+.vshelf-v2note {
+  font-size: 14px; font-weight: 800; color: var(--c-primary-dark);
+  background: #dbeafe; border-radius: 10px; padding: 4px 10px; text-align: center;
+}
+
 /* акцент на ошибке пробы (аудит линзы 17.07): драматургия видна без голоса */
 .verdict-alert {
   font-size: 17px; font-weight: 900; color: var(--c-accent-text);
@@ -344,10 +378,22 @@ body {
 .chatpanel-preview { opacity: .55; }
 .chatpanel-preview .chatinput { background: #f1f5f9; }
 
-/* широкое окно (полноэкранный просмотр, большой монитор) — масштабируем всё
-   пропорционально; узкая половина 13" (конституция п.13) остаётся как есть */
-@media (min-width: 1400px) {
-  body { zoom: 1.5; }   /* body, не #app: «Застрял» и модалки должны масштабироваться вместе со всем */
+/* ---------- широкая раскладка-«конвейер» (И3-Т, план итерации 3 раздел B) ----------
+   На широких окнах (≥1100px CSS) зоны коробки выстраиваются горизонтально:
+   «Картинки — вход → Коробка — учится → Ответ — выход» (40/30/30) — поток слева
+   направо повторяет саму модель, кнопка действия всегда на экране без скролла.
+   Узкие окна (половина 13" рядом со звонком) — прежний столбик; конституция и
+   DOM-чеки не меняются. Прежняя zoom-ветка (≥1400px) снята: zoom сжимал CSS-ширину
+   и отменял бы конвейер. */
+@media (min-width: 1100px) {
+  #app { max-width: 1200px; }
+  .zones { display: grid; grid-template-columns: 4fr 3fr 3fr; gap: 14px; align-items: stretch; }
+  .zone { margin: 0; }
+  /* не-зонные экраны (квизы, разгадка, финал, чат) остаются колонкой по центру */
+  #screen > .taskcard, #screen > .phasetext, #overlaybar, #reservebar {
+    max-width: 640px; margin-left: auto; margin-right: auto;
+  }
+  #overlaybar { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

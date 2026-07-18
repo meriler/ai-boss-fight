@@ -107,6 +107,27 @@ function boxAlbum(ctx) {
   return h('div', { class: 'box-album' }, ...rows);
 }
 
+/** Полоска эпох обучения головы (И3-Т, решение владельца 18.07): «коробка учится…»
+ * с бегущим счётчиком эпох ~0.5–1 с. Честная: head реально учится итеративно
+ * (modelInfo().epochs — full-batch GD), анимация визуализирует уже посчитанные эпохи.
+ * kNN полоску не получает — мгновенность и есть видимая разница движков. */
+function trainEpochBar(ctx, durMs) {
+  const epochs = ctx.classifier.modelInfo().epochs || 0;
+  const fill = h('div', { class: 'trainbar-fill' });
+  const label = h('div', { class: 'trainbar-label' }, 'коробка учится…');
+  const bar = h('div', { class: 'trainbar' }, label, h('div', { class: 'trainbar-track' }, fill));
+  const t0 = performance.now();
+  const tick = () => {
+    if (!document.contains(bar)) return;
+    const k = Math.min(1, (performance.now() - t0) / durMs);
+    fill.style.width = (k * 100) + '%';
+    if (epochs) label.textContent = 'коробка учится… эпоха ' + Math.round(k * epochs) + ' из ' + epochs;
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return bar;
+}
+
 function boxStatus(ctx) {
   const n = ctx.classifier.exampleCount();
   if (!ctx.classifier.ready) return ctx.ui.restoring || 'Коробка вспоминает…';
@@ -181,6 +202,16 @@ function basketsFeed(ctx, step, phase) {
   });
 }
 
+/** Ответ ребёнка на «Коробка права?» — журнал + телеметрия внимательности (И3-Т п.8).
+ * correct — совпал ли ответ с фактом; модель не меняет, mistakes пополняет редьюсер. */
+function judgeProbe(ctx, imgId, verdict, sawMistake, wasWrong) {
+  ctx.j('probe_judgement', { img: imgId, saw_mistake: sawMistake, correct: sawMistake === wasWrong });
+  ctx.tele.push('probe_judgement', { img: imgId, saw_mistake: sawMistake,
+                                     correct: sawMistake === wasWrong,
+                                     label: verdict.label, was_wrong: wasWrong });
+  ctx.render();
+}
+
 function countsByClass(ctx) {
   const out = {};
   for (const b of ctx.payload.baskets) out['n_' + b.basket] = (out['n_' + b.basket] || 0) + 1;
@@ -196,6 +227,13 @@ function trainPhase(ctx, step, phase) {
     boxEl && boxEl.classList.add('learning');
     const examples = trainExamples(ctx);
     const n = ctx.classifier.train(examples);
+    // видимая разница движков (И3-Т, решение владельца): у head — честная полоска эпох
+    // (обучение реально итеративное, full-batch GD), kNN — мгновенен, без полоски
+    const waitMs = ctx.demo ? (ctx.classifier.engineId === 'head' ? 400 : 150) : 900;
+    if (ctx.classifier.engineId === 'head') {
+      const box = boxEl && boxEl.querySelector('.zone-body');
+      if (box) box.append(trainEpochBar(ctx, waitMs));
+    }
     // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
     // restore после F5 переобучает модель из composition последней версии ЕЁ ЖЕ движком
     // (identity §3.1: состав+engine+params_rev — Codex-ревью 18.07, находки 4/5).
@@ -210,7 +248,7 @@ function trainPhase(ctx, step, phase) {
     setTimeout(() => {
       boxEl && boxEl.classList.remove('learning');
       ctx.advancePhase();
-    }, ctx.demo ? 150 : 900);
+    }, waitMs);
   }, { id: 'btn_train' });
   ctx.modelGate(btn);
   const box = [kidText(boxStatus(ctx), { small: true }), btn];
@@ -243,15 +281,18 @@ function trainPhase(ctx, step, phase) {
 function probeFeed(ctx, step, phase) {
   const ids = phase.probe_set || [];
   // указатель ленты: после F5 встаёт на первую картинку БЕЗ показанного вердикта
+  // ИЛИ без ответа «Коробка права?» (вопрос обязателен — F5 его не обходит, И3-Т п.8)
   const lkey = 'probeptr_' + step.id + '_' + phase.id;
   if (ctx.local[lkey] == null) {
-    const firstOpen = ids.findIndex(id => !(id in ctx.payload.probes));
+    const firstOpen = ids.findIndex(id => !(id in ctx.payload.probes)
+      || !((ctx.payload.probe_judgements || {})[id]));
     ctx.local[lkey] = firstOpen < 0 ? ids.length : firstOpen;
   }
   const ptr = ctx.local[lkey];
   const current = ids[ptr];
   const img = current && ctx.bankIndex.byId.get(current);
   const verdict = current && ctx.payload.probes[current];
+  const judged = current && (ctx.payload.probe_judgements || {})[current];
 
   const input = [];
   if (img) {
@@ -274,26 +315,31 @@ function probeFeed(ctx, step, phase) {
   const out = [];
   if (verdict) {
     out.push(verdictCard('Это ' + classLabel(ctx, verdict.label) + '!', verdict.conf, { margin: verdict.margin }));
-    // акцент на ошибке пробы (аудит линзы, решение владельца 17.07): драматургия
-    // «уверена — и ошибается» видна без голоса ведущего
-    if (img && verdict.label !== img.class) {
-      const { word } = confWord(verdict.conf);
-      out.push(h('div', { class: 'verdict-alert', 'data-kid': '1' },
-        verdict.conf >= 75 ? 'Стоп… она ' + word + ' — и ошибается!'
-                           : 'Она ошиблась — и сама сомневалась'));
+    const wasWrong = !!img && verdict.label !== img.class;
+    if (!judged) {
+      // ОБЯЗАТЕЛЬНЫЙ вопрос на каждом вердикте (И3-Т п.8, решение владельца): ребёнок
+      // судит сам ДО подсказок экрана — телеметрия внимательности; «Дальше» заперта
+      out.push(kidText('Коробка права?'));
+      out.push(h('div', { class: 'row' },
+        bigBtn('Права', () => judgeProbe(ctx, current, verdict, false, wasWrong),
+          { kind: 'secondary', id: 'btn_right' }),
+        bigBtn('Ошиблась!', () => judgeProbe(ctx, current, verdict, true, wasWrong),
+          { kind: 'secondary', id: 'btn_mistake' })));
+    } else {
+      // акцент на ошибке — ПОСЛЕ ответа ребёнка (иначе он подсказывал бы ответ):
+      // драматургия «уверена — и ошибается» видна без голоса ведущего
+      if (wasWrong) {
+        const { word } = confWord(verdict.conf);
+        out.push(h('div', { class: 'verdict-alert', 'data-kid': '1' },
+          verdict.conf >= 75 ? 'Стоп… она ' + word + ' — и ошибается!'
+                             : 'Она ошиблась — и сама сомневалась'));
+      }
+      out.push(kidText(judged.saw_mistake ? 'Записано: ты считаешь — ошиблась'
+                                          : 'Записано: ты считаешь — права', { small: true }));
     }
-    // отметка «она ошиблась!» — НАБЛЮДЕНИЕ ребёнка (план-правок п.4): сам решает, был ли
-    // ответ верным; модель не меняет, уходит в телеметрию и карточку дела.
-    const marked = (ctx.payload.mistakes || []).includes(current);
-    if (marked) out.push(kidText('Записано: коробка тут ошиблась!', { small: true }));
-    else out.push(bigBtn('Она ошиблась!', () => {
-      ctx.j('mistake_mark', { img: current });
-      ctx.tele.push('mistake_marked', { img: current, label: verdict.label,
-                                        was_wrong: !!img && verdict.label !== img.class });
-      ctx.render();
-    }, { kind: 'ghost', id: 'btn_mistake' }));
   } else if (img) out.push(kidText('Жми «Проверить» — что скажет коробка?', { small: true }));
-  ctx.local.reactionOk = !!verdict;   // «Получилось!» — только когда на такте есть результат
+  // «Получилось!» — только когда результат есть И ребёнок ответил на вопрос
+  ctx.local.reactionOk = !!(verdict && judged);
 
   const nextBtn = hasEl(phase, 'btn_next') && bigBtn('Дальше', () => {
     if (current) { ctx.local[lkey] = ptr + 1; ctx.render(); return; }
@@ -304,7 +350,7 @@ function probeFeed(ctx, step, phase) {
       return;
     }
     ctx.advancePhase();
-  }, { id: 'btn_next', disabled: !!current && !verdict });
+  }, { id: 'btn_next', disabled: !!current && !(verdict && judged) });
 
   return zones(ctx, step, {
     input: { content: input, active: !!img },
@@ -521,6 +567,18 @@ function versionSentence(ctx, step) {
   return parts.join('');
 }
 
+/** «← Назад» по тактам версии (И3-Т п.2, фидбек #24): журнальный прыжок на предыдущий
+ * такт шага. Только ДО acked-коммита версии (места вызова это гарантируют) — после
+ * коммита ввод не перепоказывается. Лимиты ≤5 держатся: back добавляется на тактах
+ * с ≤4 интерактивами. */
+function backBtn(ctx, step, phase) {
+  const idx = step.phases.findIndex(p => p.id === phase.id);
+  if (idx <= 0) return null;
+  const prev = step.phases[idx - 1];
+  return bigBtn('← Назад', () => ctx.jumpToPhase(step.id, prev.id),
+    { kind: 'ghost', id: 'btn_back' });
+}
+
 function fragPhase(ctx, step, phase) {
   const slotIdx = phase.slot;
   const frags = step.version.template.slots[slotIdx - 1] || [];
@@ -533,7 +591,8 @@ function fragPhase(ctx, step, phase) {
   return h('div', { class: 'taskcard private' },
     h('div', { class: 'private-mark' }, '🔒 видно только тебе'),
     kidText(versionSentence(ctx, step)),
-    h('div', { class: 'col' }, ...btns));
+    h('div', { class: 'col' }, ...btns),
+    slotIdx > 1 ? backBtn(ctx, step, phase) : null);
 }
 
 function freeTextPhase(ctx, step, phase) {
@@ -544,11 +603,13 @@ function freeTextPhase(ctx, step, phase) {
     h('div', { class: 'private-mark' }, '🔒 видно только тебе'),
     kidText(versionSentence(ctx, step)),
     input,
-    bigBtn('Дальше', () => {
-      const text = input.value.trim();
-      if (text) ctx.j('free_text_set', { text });
-      ctx.advancePhase();
-    }, { id: 'btn_skip' }));
+    h('div', { class: 'row' },
+      backBtn(ctx, step, phase),
+      bigBtn('Дальше', () => {
+        const text = input.value.trim();
+        if (text) ctx.j('free_text_set', { text });
+        ctx.advancePhase();
+      }, { id: 'btn_skip' })));
 }
 
 function commitPhase(ctx, step, phase) {
@@ -591,6 +652,8 @@ function commitPhase(ctx, step, phase) {
     }
   }, { id: 'btn_commit' });
   body.push(btn);
+  // «← Назад» до отправки версии (И3-Т п.2): у прогноза свои такты — back только у версии
+  if (!isForecast) body.push(backBtn(ctx, step, phase));
   return h('div', { class: 'taskcard private' }, ...body);
 }
 
@@ -642,9 +705,21 @@ function waitingPhase(ctx, step, phase) {
 function revealPhase(ctx, step, phase) {
   const r = step.reveal || {};
   const info = ctx.revealInfo(step.id);
+  // «крупно — один раз» (И3-Т п.4, фидбек #27): первый визит на такт разгадки показывает
+  // иллюстрацию большой; повторные заходы (возврат после эксперимента/проб) — миниатюрой,
+  // чтобы не выглядело дублем. Визит держит счётчик render() (_posVisit) — поллинг-
+  // ререндеры того же визита картинку не сжимают; начатый эксперимент — признак
+  // повтора, переживающий F5 (локальные флаги перезагрузка стирает)
+  const revisit = !!(ctx.payload.experiments || {})[step.id];
+  const vkey = 'reveal_big_visit_' + step.id;
+  if (!revisit && ctx.local[vkey] == null && !ctx.local['reveal_seen_' + step.id])
+    ctx.local[vkey] = ctx.local._posVisit;
+  const firstView = !revisit && ctx.local[vkey] === ctx.local._posVisit;
+  // ревизия порядка (И3-Т п.10, фидбек #25): сначала СЛОВА разгадки, потом иллюстрация,
+  // потом версии группы — раньше картинка шла до текста и читалась «подписью не к тому»
   const body = [h('div', { class: 'reveal-title', 'data-kid': '1' }, 'Разгадка!')];
-  for (const c of r.cards || []) body.push(imgCard(ctx.assetsBase + c, { big: true }));
   if (r.text) body.push(kidText(r.text));
+  for (const c of r.cards || []) body.push(imgCard(ctx.assetsBase + c, { big: firstView }));
   if (r.show_anon_versions && info && (info.anon_versions || []).length) {
     body.push(h('div', { class: 'anon-title', 'data-kid': '1' }, 'Версии группы (без имён):'));
     body.push(h('div', { class: 'anonlist' },
@@ -919,11 +994,19 @@ function finalPhase(ctx, step, phase) {
         }, { id: 'btn_pick' }),
         bigBtn('Дальше', () => { ctx.local[lkey] = ptr + 1; ctx.render(); }, { kind: 'secondary', id: 'btn_next' })));
   }
-  // next_block: «что дальше» — контент, не прайс; у каждой карточки — подпись из манифеста
+  // next_block: «что дальше» — контент, не прайс; у каждой карточки — подпись из манифеста.
+  // Путь детектива (И3-Т п.7, фидбек #30): плашки дел из ДАННЫХ курса — первое «✓»
+  // (пройдено), остальные серые с замком — видимое будущее без усложнения интерфейса
+  const cases = (step.next_block && step.next_block.cases) || [];
   const cards = (step.next_block && step.next_block.cards) || [];
   const captions = (step.next_block && step.next_block.captions) || [];
   return h('div', { class: 'taskcard' },
     h('div', { class: 'quiz-title', 'data-kid': '1' }, 'Что дальше'),
+    cases.length ? h('div', { class: 'casepath' },
+      ...cases.map((t, i) => h('div', {
+        class: 'casechip ' + (i === 0 ? 'casechip-done' : 'casechip-future'),
+      }, h('span', { class: 'casechip-mark' }, i === 0 ? '✓' : '🔒'),
+         h('span', { class: 'casechip-text', 'data-kid': '1' }, t)))) : null,
     ...cards.map((c, i) => h('div', { class: 'nextcard' },
       imgCard(ctx.assetsBase + c),
       captions[i] ? kidText(captions[i], { small: true }) : null)),

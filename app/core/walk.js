@@ -84,8 +84,9 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
           j('probe_result', { img: pid,
             label: img.expected_flip ? otherClass(img.class) : img.class,
             conf: 88, margin: 0.05 });
-          // ребёнок замечает уверенный флип — отметка «она ошиблась!» (план-правок п.4)
-          if (img.expected_flip) j('mistake_mark', { img: pid });
+          // обязательный вопрос «Коробка права?» на КАЖДОМ вердикте (И3-Т п.8):
+          // эталонный ребёнок отвечает честно — на флипе «Ошиблась!», иначе «Права»
+          j('probe_judgement', { img: pid, saw_mistake: !!img.expected_flip, correct: true });
         }
       }
 
@@ -196,6 +197,10 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
   }
   if (hasMeasure) need(payload.measures.before && payload.measures.after,
                        'замеры before/after не записаны');
+  // обязательный вопрос на пробах (И3-Т п.8): у каждого вердикта probe_set есть ответ
+  const probeIds = steps.flatMap(s => s.phases.flatMap(p => p.probe_set || []));
+  need(probeIds.every(id => (payload.probe_judgements || {})[id]),
+       'не на каждом вердикте пробы есть probe_judgement («Коробка права?»)');
   if (hasFinal) need(payload.best_trap !== null, 'лучшая ловушка не отмечена');
   const trainTacts = steps.reduce((s, st) =>
     s + st.phases.filter(p => (p.elements || []).includes('btn_train')).length, 0);

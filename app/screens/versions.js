@@ -104,18 +104,30 @@ export function versionShelf(ctx, { tappable = false } = {}) {
     }, 'v' + rec.version + ' · ' + rec.n + (rec.volatile ? ' 📷' : ''));
   });
   const rows = [
+    // подпись полки (И3-Т п.6, фидбек #29): чипы «v1, v2» без слов читались шифром
+    h('span', { class: 'vshelf-cap' }, 'версии коробки:'),
     hist.length > SHELF_CAP ? h('span', { class: 'vshelf-more' }, '…ещё ' + (hist.length - SHELF_CAP)) : null,
     ...chips,
   ];
   const badge = draft ? h('div', { class: 'vshelf-badge', 'data-kid': '1' },
     'В корзинах уже по-другому — коробка думает по-старому') : null;
+  // строка при ПЕРВОМ появлении второй версии (И3-Т п.6): объясняет механику полки
+  // один раз — пока ребёнок на том же такте, где v2 появилась (визит держит render())
+  let v2note = null;
+  if (hist.length >= 2 && !ctx.local.v2IntroDone) {
+    if (ctx.local.v2IntroPos == null) ctx.local.v2IntroPos = ctx.local._posKey;
+    if (ctx.local.v2IntroPos === ctx.local._posKey)
+      v2note = h('div', { class: 'vshelf-v2note', 'data-kid': '1' },
+        'Научил заново — это версия 2. Старая осталась на полке');
+    else ctx.local.v2IntroDone = true;
+  }
   if (!tappable) {
-    return h('div', { class: 'vshelf' }, h('div', { class: 'row vshelf-row' }, ...rows), badge);
+    return h('div', { class: 'vshelf' }, h('div', { class: 'row vshelf-row' }, ...rows), badge, v2note);
   }
   const shelf = h('div', {
     class: 'vshelf vshelf-tap', id: 'version_shelf', role: 'button', tabindex: '0',
     onclick: () => openVersionCard(ctx),
-  }, h('div', { class: 'row vshelf-row' }, ...rows), badge);
+  }, h('div', { class: 'row vshelf-row' }, ...rows), badge, v2note);
   return shelf;
 }
 

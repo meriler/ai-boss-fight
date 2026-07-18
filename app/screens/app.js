@@ -14,7 +14,7 @@
 
 import { loadManifest } from '../core/manifest.js';
 import { createMachine } from '../core/machine.js';
-import { initialPayload, reduce, activeStableModel } from '../core/reducer.js';
+import { initialPayload, reduce, activeStableModel, beforeMeasureHonest } from '../core/reducer.js';
 import { createJournal } from '../core/journal.js';
 import { fetchRestore, applyRestore, createSeatSave, newInstanceId } from '../core/save.js';
 import { createAcked } from '../core/acked.js';
@@ -70,6 +70,14 @@ function render() {
   screen.dataset.phase = ctx.entering || pos.done ? '' : pos.phase;
   screen.dataset.entry = ctx.entering ? '1' : '';
   screen.dataset.done = pos.done ? '1' : '';
+  // счётчик визитов такта: «первый показ» отличим от повторного захода на тот же такт
+  // (миниатюра разгадки, строка о первом v2) — поллинг-ререндеры визит не меняют
+  const posKey = screen.dataset.step + '|' + screen.dataset.phase + '|' + screen.dataset.entry;
+  const posChanged = posKey !== ctx.local._posKey;
+  if (posChanged) {
+    ctx.local._posKey = posKey;
+    ctx.local._posVisit = (ctx.local._posVisit || 0) + 1;
+  }
   if (ctx.entering) { renderEntry(); return; }
   if (ctx.machine.done) { renderDone(); return; }
   const content = renderPhase(ctx);
@@ -81,6 +89,17 @@ function render() {
     phase && phase.text && !introOnly ? h('div', { class: 'phasetext', 'data-kid': '1' }, phase.text) : '',
     content || '');
   ctx.overlays.refreshOverlays();
+  // узкий режим (столбик зон): при входе в такт кнопка действия видна сразу — автоскролл
+  // к активной зоне (план И3 п.1: «Проверить» пряталась под сгибом). Широкий конвейер
+  // (≥1100px) весь на экране — скроллить нечего
+  if (posChanged && !(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches)) {
+    requestAnimationFrame(() => {
+      const act = document.querySelector('.zone-active .kbtn:not(:disabled)')
+        || document.querySelector('.zone-active');
+      if (act) act.scrollIntoView({ block: 'center' });
+      else window.scrollTo(0, 0);
+    });
+  }
 }
 ctx.render = render;
 
@@ -215,8 +234,17 @@ function maybeAutoMeasureBefore() {
   const step = ctx.machine.step();
   if (!step || !step.measure || step.measure.before !== 'auto') return;
   if (ctx.payload.measures.before) return;
+  // пул починки шага (ловушки/добор) — для честности «до» (beforeMeasureHonest)
+  const hasPick = step.phases.some(p => (p.elements || []).includes('btn_pick'));
+  const poolIds = (step.images_from_role || hasPick)
+    ? (ctx.bankIndex.byRole.get(step.images_from_role || 'trap') || []).map(i => i.id)
+    : [];
   ctx.classifier.whenReady().then(() => {
     if (ctx.payload.measures.before || !ctx.classifier.exampleCount()) return;
+    // БАГ #33 (прогон 18.07, карточка «3 → 3 из 4»): колбэк отложен на whenReady и мог
+    // замерить «до» УЖЕ ПОЧИНЕННОЙ моделью (догоняющий без v1, «Сделай за меня до
+    // точки», рестарт run) — модель с ловушками этого шага не годится как «до»
+    if (!beforeMeasureHonest(ctx.payload, poolIds)) return;
     const r = ctx.classifier.measure(step.measure.holdout);
     const mi = ctx.classifier.modelInfo();
     // identity модели с замером (sig состава + engine + params_rev): stale-«Было» после

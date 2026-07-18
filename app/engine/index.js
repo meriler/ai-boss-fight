@@ -96,7 +96,10 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
      * пара sig+engine). Веса НЕ хранятся: движок — чистая функция состава. */
     modelInfo() {
       return { n: composition.length, sig: compositionSig(composition), engine,
-               params_rev: paramsRev };
+               params_rev: paramsRev,
+               // head: число эпох GD — для честной анимации обучения (И3-Т, решение
+               // владельца: полоска эпох у head; kNN мгновенен — без анимации)
+               ...(engine === 'head' ? { epochs: headHyper.epochs } : {}) };
     },
 
     /** Вердикт {label, conf, margin, spectrum, ...}: сырой скор движка (kNN — d̄-маржа,

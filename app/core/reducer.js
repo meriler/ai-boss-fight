@@ -1,10 +1,13 @@
-/* ЕДИНЫЙ редьюсер журнала действий (ТЗ-демка-з1 §1.1, словарь ЗАКРЫТ на 19 типах —
+/* ЕДИНЫЙ редьюсер журнала действий (ТЗ-демка-з1 §1.1, словарь ЗАКРЫТ на 20 типах —
  * аннекс ТЗ-демка-з1-схема-манифеста §2, машинная форма content/schema/journal.schema.json).
  * Осознанное расширение фазы 0.5 (план-правок 17.07): baskets_clear («разложить заново»),
  * train_commit (версия состава обучения v1/v2/... с историей — обучение стало журнальным
  * фактом, восстановление модели после F5 идёт из composition, не из эвристики позиции),
  * experiment_start («проверить другую раскладку» после reveal), trap_skip (настоящий
  * выбор ловушек — пропущенная не добавляется, но остаётся доступной в цикле добора).
+ * Осознанное расширение И3-Т (план итерации 3, 18.07): probe_judgement — обязательный
+ * ответ ребёнка «Коробка права?» на каждом вердикте пробы; mistake_mark остаётся
+ * легаси-алиасом (реплей старых журналов), новые записи его не создают.
  *
  * Одна функция — два входа: живое применение действий ребёнка И replay журнала при restore.
  * Отдельной merge-машинерии нет by design. Payload мутируется копией (структурное шарение
@@ -29,6 +32,7 @@ export function initialPayload() {
     probes: {},                     // показанные вердикты: {img: {label, conf, margin}} — F5 не перепоказывает
     measures: { before: null, after: null },   // показанные счёты замеров (+версия состава, детали)
     mistakes: [],                   // пробы, где ребёнок отметил «она ошиблась!» (наблюдение, модель не меняет)
+    probe_judgements: {},           // обязательный ответ «Коробка права?»: {img: {saw_mistake, correct}}
     trap_skips: [],                 // ловушки, отложенные «Пропустить» (доступны в цикле добора)
     model: null,                    // текущая версия состава обучения: {version, sig, n, composition}
     model_history: [],              // история версий: [{version, sig, n}] — карточка дела, телеметрия
@@ -97,6 +101,8 @@ export function reduce(payload, action) {
       ex[args.step] = true;
       payload.baskets = [];
       payload.probes = {};
+      // ответы «Коробка права?» принадлежат показанным вердиктам — обнуляются вместе с ними
+      payload.probe_judgements = {};
       break;
     }
     case 'frag_pick':
@@ -130,9 +136,22 @@ export function reduce(payload, action) {
                                    ...(args.params_rev != null ? { params_rev: args.params_rev } : {}) };
       break;
     case 'mistake_mark': {
-      // страховка от старых снапшотов: mistakes появился позже initialPayload
+      // ЛЕГАСИ-алиас (до И3-Т): кнопка «она ошиблась!» без вопроса. Новые записи не
+      // создаются — тип остаётся ради реплея старых журналов/снапшотов
       const list = payload.mistakes || (payload.mistakes = []);
       if (!list.includes(args.img)) list.push(args.img);
+      break;
+    }
+    case 'probe_judgement': {
+      // обязательный ответ «Коробка права?» на вердикте пробы (И3-Т п.8): наблюдение
+      // ребёнка, модель не меняет; saw_mistake=true пополняет mistakes (тот же счётчик
+      // карточки дела, что у легаси mistake_mark)
+      const pj = payload.probe_judgements || (payload.probe_judgements = {});
+      pj[args.img] = { saw_mistake: !!args.saw_mistake, correct: !!args.correct };
+      if (args.saw_mistake) {
+        const list = payload.mistakes || (payload.mistakes = []);
+        if (!list.includes(args.img)) list.push(args.img);
+      }
       break;
     }
     case 'measure_result':
@@ -178,6 +197,22 @@ export function activeStableModel(payload) {
  * train того же состава минус local-примеры даёт не-volatile версию, замер открывается. */
 export function stableComposition(composition) {
   return (composition || []).filter(c => !String(c.img).startsWith('local:'));
+}
+
+/** Честен ли авто-замер «до» для шага починки (диагноз бага #33, прогон 18.07:
+ * карточка дела «3 → 3 из 4»). «До» обязан мерить модель, обученную ДО починки этого
+ * шага. Авто-замер отложен на whenReady и может сработать поздно — когда ребёнок уже
+ * переучил коробку с ловушками (догоняющий без своей v1-модели, «Сделай за меня до
+ * точки», рестарт run посреди занятия): тогда «Было» снимается с уже починенной модели
+ * и совпадает со «Стало». Правило по данным: активная модель, уже содержащая картинки
+ * из пула починки шага (ловушки/добор), — НЕ модель «до»; такой замер не пишем,
+ * карточка честно показывает «— → N» (у догоняющего «до» не существует). */
+export function beforeMeasureHonest(payload, poolIds) {
+  const m = payload.model;
+  if (!m) return true;                      // модели нет — сторожит гейт exampleCount
+  if (!poolIds || !poolIds.length) return true;
+  const pool = new Set(poolIds);
+  return !(m.composition || []).some(c => pool.has(c.img));
 }
 
 /** Производные представления (view-хелперы поверх журнальной формы). */

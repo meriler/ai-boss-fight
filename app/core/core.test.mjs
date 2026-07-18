@@ -10,7 +10,7 @@ import url from 'node:url';
 
 import { normalizeLesson, indexBank } from './manifest.js';
 import { reduce, initialPayload, replay, basketsByImg, activeStableModel,
-         stableComposition } from './reducer.js';
+         stableComposition, beforeMeasureHonest } from './reducer.js';
 import { createMachine } from './machine.js';
 import { createJournal } from './journal.js';
 import { applyRestore, createSeatSave } from './save.js';
@@ -59,6 +59,50 @@ test('редьюсер: mistake_mark дедупится, measure_result хран
   delete old.mistakes;
   reduce(old, { type: 'mistake_mark', args: { img: 'p2' } });
   assert.deepEqual(old.mistakes, ['p2']);
+});
+
+test('редьюсер И3-Т: probe_judgement — обязательный ответ, mistakes пополняется, эксперимент чистит', () => {
+  const p = initialPayload();
+  // «Права» — в mistakes не попадает, ответ записан
+  reduce(p, { type: 'probe_judgement', args: { img: 'p1', saw_mistake: false, correct: true } });
+  assert.deepEqual(p.probe_judgements.p1, { saw_mistake: false, correct: true });
+  assert.deepEqual(p.mistakes, []);
+  // «Ошиблась!» — тот же счётчик карточки дела, что у легаси mistake_mark
+  reduce(p, { type: 'probe_judgement', args: { img: 'p2', saw_mistake: true, correct: true } });
+  assert.deepEqual(p.mistakes, ['p2']);
+  // легаси-алиас mistake_mark живёт рядом (реплей старых журналов)
+  reduce(p, { type: 'mistake_mark', args: { img: 'p3' } });
+  assert.deepEqual(p.mistakes, ['p2', 'p3']);
+  // старый снапшот без probe_judgements — replay не падает
+  const old = initialPayload();
+  delete old.probe_judgements;
+  reduce(old, { type: 'probe_judgement', args: { img: 'p4', saw_mistake: true, correct: false } });
+  assert.equal(old.probe_judgements.p4.correct, false);
+  // «проверить другую раскладку»: ответы принадлежат вердиктам — обнуляются вместе
+  reduce(p, { type: 'probe_result', args: { img: 'p1', label: 'cat', conf: 80, margin: 0.04 } });
+  reduce(p, { type: 'experiment_start', args: { step: 's2' } });
+  assert.deepEqual(p.probes, {});
+  assert.deepEqual(p.probe_judgements, {});
+});
+
+test('редьюсер И3-Т: beforeMeasureHonest — «до» не мерится уже починенной моделью (баг #33)', () => {
+  const pool = ['t1', 't2', 't3'];
+  // модели нет — гейт по exampleCount, функция не запрещает
+  assert.equal(beforeMeasureHonest(initialPayload(), pool), true);
+  // v1 без ловушек — честное «до»
+  const p = initialPayload();
+  reduce(p, { type: 'train_commit', args: { version: 1, sig: 'v1', n: 2,
+    composition: [{ img: 'c1', class: 'cat' }, { img: 'd1', class: 'dog' }] } });
+  assert.equal(beforeMeasureHonest(p, pool), true);
+  // модель уже содержит ловушку из пула шага (догоняющий / подсказка l3 / рестарт run):
+  // «до» с неё дало бы карточку «3 → 3 из 4» — запрещено
+  reduce(p, { type: 'trap_add', args: { img: 't1' } });
+  reduce(p, { type: 'train_commit', args: { version: 2, sig: 'v2', n: 3,
+    composition: [{ img: 'c1', class: 'cat' }, { img: 'd1', class: 'dog' },
+                  { img: 't1', class: 'cat' }] } });
+  assert.equal(beforeMeasureHonest(p, pool), false);
+  // пустой пул (шаг без починки) — ограничения нет
+  assert.equal(beforeMeasureHonest(p, []), true);
 });
 
 test('редьюсер фазы 0.5: baskets_clear, train_commit (версии), experiment_start, trap_skip', () => {
