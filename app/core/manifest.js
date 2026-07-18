@@ -70,6 +70,14 @@ export function normalizeLesson(rawManifest) {
   // полка версий + «Проверить другую раскладку», на card_view — тапабельная полка
   const norm = steps => steps.map(s => {
     const phases = derivePhases(s);
+    // дубли phase id внутри шага (аудит 18.07, п.14): журнал хранит только ID такта,
+    // jumpTo/restore нашли бы всегда ПЕРВЫЙ одноимённый — дубль (включая derived
+    // card_<id> из совпавших card.id) отклоняется на нормализации
+    const seenPhase = new Set();
+    for (const p of phases) {
+      if (seenPhase.has(p.id)) throw new Error('дубль id такта: ' + s.id + '.' + p.id);
+      seenPhase.add(p.id);
+    }
     if (s.reveal && phases.length) phases[phases.length - 1].limitCount += 2;
     if (s.type === 'final_card')
       for (const p of phases) if (p.id === 'card_view') p.limitCount += 1;
@@ -84,6 +92,27 @@ export function normalizeLesson(rawManifest) {
   }
   return { lesson, steps, reserve, stepById,
            ui: lesson.ui_texts || {}, hints: lesson.hints || {} };
+}
+
+/** Экранные семантики такта trainer_act — ОБЩИЙ классификатор walk/валидатора
+ * (аудит 18.07, п.11): живой рендер выбирает ОДНУ ветку по приоритету, walk раньше
+ * исполнял все подходящие независимо — такт с двумя семантиками проходил CI, но
+ * часть интерактива была недоступна детям. Валидатор требует ≤1 семантики на такт,
+ * walk исполняет ровно её. Вспомогательные элементы (btn_next/btn_undo/btn_skip/
+ * btn_relayout/img_current) и оверлеи семантику не несут. */
+export function phaseSemantics(phase) {
+  const els = phase.elements || [];
+  const sem = [];
+  if (phase.probe_set) sem.push('probe');
+  if (els.some(e => e.startsWith('basket_'))) sem.push('baskets');
+  if (els.includes('btn_pick')) sem.push('pick');
+  if (els.includes('btn_train')) sem.push('train');
+  if (els.some(e => /^frag[1-9]$/.test(e))) sem.push('frag');
+  if (els.includes('free_text')) sem.push('free_text');
+  if (els.includes('btn_commit')) sem.push('commit');
+  if (els.some(e => /^opt[1-9]$/.test(e))) sem.push('opt');
+  if (!sem.length && els.includes('btn_check')) sem.push('check');
+  return sem;
 }
 
 /** Индекс банка: картинки по id и по роли, классы. */

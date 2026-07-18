@@ -23,7 +23,7 @@ import re
 import sqlite3
 import sys
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2: snapshot.suspended (позиция основной машины при уходе в резерв)
 
 # Точная форма state фазы 0 (_blank_state в lesson_state.py). Новый ключ в state
 # без правки тени → лог-ошибка тени + расхождение в parity, НЕ молчаливая потеря.
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS op_ledger (
 CREATE TABLE IF NOT EXISTS snapshot (
   run_id TEXT NOT NULL, seat TEXT NOT NULL, rev INTEGER NOT NULL,
   writer_generation INTEGER NOT NULL, lesson_id TEXT, state TEXT NOT NULL,
-  payload TEXT NOT NULL, ts INTEGER, PRIMARY KEY (run_id, seat));
+  payload TEXT NOT NULL, ts INTEGER, suspended TEXT, PRIMARY KEY (run_id, seat));
 """
 
 SAVE_RE = re.compile(r'^lesson-save-(.+)-seat([^-]+)\.json$')
@@ -208,10 +208,13 @@ class Shadow:
                             (rid, op_id, pos, _j(st['ops'][op_id])))
 
     def _put_snapshot(self, run_id, seat, snap):
-        self.con.execute('INSERT OR REPLACE INTO snapshot VALUES (?,?,?,?,?,?,?,?)',
+        # suspended: SQL NULL = ключа в файле НЕТ (старые снапшоты до v2); JSON-строка
+        # (включая 'null') = ключ есть — parity восстанавливает файл байт-в-байт
+        self.con.execute('INSERT OR REPLACE INTO snapshot VALUES (?,?,?,?,?,?,?,?,?)',
                          (run_id, seat, snap['rev'], snap['writer_generation'],
                           snap['lesson_id'], _j(snap['state']), _j(snap['payload']),
-                          snap.get('ts')))
+                          snap.get('ts'),
+                          _j(snap['suspended']) if 'suspended' in snap else None))
 
     # ---- backfill при старте: тень догоняет файлы на диске ----
     def backfill(self, data_dir, current_run=None):
@@ -304,13 +307,16 @@ def rebuild_state(con, run_id):
 
 
 def rebuild_snapshot(con, run_id, seat):
-    row = con.execute('SELECT rev, writer_generation, lesson_id, state, payload, ts'
+    row = con.execute('SELECT rev, writer_generation, lesson_id, state, payload, ts, suspended'
                       ' FROM snapshot WHERE run_id=? AND seat=?', (run_id, seat)).fetchone()
     if row is None:
         return None
-    return {'seat': seat, 'run_id': run_id, 'writer_generation': row[1], 'rev': row[0],
+    snap = {'seat': seat, 'run_id': run_id, 'writer_generation': row[1], 'rev': row[0],
             'lesson_id': row[2], 'state': json.loads(row[3]), 'payload': json.loads(row[4]),
             'ts': row[5]}
+    if row[6] is not None:   # SQL NULL = ключа в файле не было (снапшот до v2)
+        snap['suspended'] = json.loads(row[6])
+    return snap
 
 
 def db_runs(con):

@@ -27,7 +27,7 @@ def mk_store(tmp, db=True):
 
 def save(store, seat, rev, run, payload=None, instance=None, gen=1, **kw):
     body = {'seat': seat, 'run_id': run, 'client_instance_id': instance or ('inst-' + seat),
-            'writer_generation': gen, 'lesson_id': 'z1-kot',
+            'writer_generation': gen, 'epoch': 0, 'lesson_id': 'z1-kot',
             'state': {'step': 's2'}, 'payload': payload or {'r': rev}, 'rev': rev, 'ts': 1}
     body.update(kw)
     return lesson_state.api_save(store, body)

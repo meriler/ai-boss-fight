@@ -256,32 +256,55 @@ def api_save(store, body):
     instance = str(body.get('client_instance_id', ''))
     generation = body.get('writer_generation', 0)
     rev = body.get('rev')
-    if not seat or not instance or not isinstance(rev, int):
+    if not seat or not instance:
+        return 400, {'ok': False, 'error': 'bad_request'}
+    takeover = bool(body.get('takeover'))
+    if not takeover and not isinstance(rev, int):
         return 400, {'ok': False, 'error': 'bad_request'}
 
     def fn(state):
         rec = _seat_rec(state, seat)
-        if body.get('takeover'):
-            # атомарный перехват «Продолжить здесь»: generation+1, право у нового инстанса
+        if takeover:
+            # CLAIM-ONLY перехват «Продолжить здесь» (аудит ядра 18.07, critical 3):
+            # атомарно generation+1 и право новому инстансу, но payload перехватчика НЕ
+            # принимается — базой новой generation остаётся последний серверный снапшот
+            # (иначе неподтверждённый буфер старой вкладки становился бы серверной базой).
+            # Клиент после ok перезагружается и честно едет от /restore
             rec['instance'] = instance
             rec['generation'] += 1
             _ev(state)
-        else:
-            ok, err = _check_writer(state, seat, instance, generation)
-            if not ok:
-                return 409, err, False
+            snap = store.read_snapshot(state['run_id'], seat) or {}
+            return 200, {'ok': True, 'writer_generation': rec['generation'],
+                         'epoch': rec['epoch'], 'server_rev': snap.get('rev', 0),
+                         'run_id': state['run_id']}, True
+        ok, err = _check_writer(state, seat, instance, generation)
+        if not ok:
+            return 409, err, False
+        # epoch-гард снапшота (аудит ядра 18.07, critical 2): /save, собранный до
+        # /host/reset_version, не должен записаться после сброса и вернуть отменённую
+        # версию. Клиент шлёт известный ему epoch; несовпадение — отказ (клиент дошлёт
+        # свежий снапшот после того, как поллинг принесёт новый epoch и версия очистится)
+        if int(body.get('epoch', -1)) != rec['epoch']:
+            return 409, {'ok': False, 'error': 'stale_epoch', 'epoch': rec['epoch']}, False
         gen = rec['generation']
         snap = store.read_snapshot(state['run_id'], seat)
         old = (snap.get('writer_generation', 0), snap.get('rev', -1)) if snap else (-1, -1)
         if (gen, rev) < old:
             return 409, {'ok': False, 'error': 'stale', 'accepted_rev': old[1],
                          'writer_generation': gen}, False
-        if (gen, rev) > old:   # равный (gen, rev) — идемпотентный повтор, ok/no-op
+        # равный (gen, rev): обычно идемпотентный повтор (no-op), НО state и suspended
+        # живут ВНЕ журнала — 'done' и вход/выход резерва не двигают rev (аудит 18.07,
+        # п.5/п.7). Их изменение при том же rev — новая веха, снапшот перезаписывается
+        changed = (gen, rev) == old and snap is not None and (
+            snap.get('state') != body.get('state')
+            or snap.get('suspended') != body.get('suspended'))
+        if (gen, rev) > old or changed:
             store.write_snapshot(state['run_id'], seat, {
                 'seat': seat, 'run_id': state['run_id'],
                 'writer_generation': gen, 'rev': rev,
                 'lesson_id': body.get('lesson_id'),
                 'state': body.get('state'), 'payload': body.get('payload'),
+                'suspended': body.get('suspended'),
                 'ts': body.get('ts', _now_ms()),
             })
         return 200, {'ok': True, 'accepted_rev': rev, 'writer_generation': gen,
@@ -311,6 +334,7 @@ def api_restore(store, seat):
             'server_rev': snap.get('rev', 0),
             'state': snap.get('state'),
             'payload': snap.get('payload'),
+            'suspended': snap.get('suspended'),   # позиция основной машины при уходе в резерв
             'acked': acked,                      # авторитетный слой ПОВЕРХ payload
             'acked_step': rec['acked_step'],
             'current_step': state['current_step'],

@@ -14,9 +14,10 @@
 
 import { loadManifest } from '../core/manifest.js';
 import { createMachine } from '../core/machine.js';
-import { initialPayload, reduce, activeStableModel, beforeMeasureHonest } from '../core/reducer.js';
+import { initialPayload, reduce, activeStableModel, beforeMeasureHonest,
+         measureBindingIntact } from '../core/reducer.js';
 import { createJournal } from '../core/journal.js';
-import { fetchRestore, applyRestore, createSeatSave, newInstanceId } from '../core/save.js';
+import { fetchRestore, applyRestore, createSeatSave, claimInstanceId } from '../core/save.js';
 import { createAcked } from '../core/acked.js';
 import { createPoll } from '../core/poll.js';
 import { createTele } from '../core/tele.js';
@@ -42,6 +43,7 @@ const ctx = {
   epoch: 0,
   generation: 0,
   inReserve: false,
+  suspendedMain: null,       // {step, phase} основной машины на время резерва (в снапшоте)
   entering: null,            // {req} — экран входа в шаг (гейт/step_enter)
 };
 ctx.assetsBase = 'content/' + ctx.variant + '/assets/';
@@ -92,16 +94,28 @@ function render() {
   // узкий режим (столбик зон): при входе в такт кнопка действия видна сразу — автоскролл
   // к активной зоне (план И3 п.1: «Проверить» пряталась под сгибом). Широкий конвейер
   // (≥1100px) весь на экране — скроллить нечего
-  if (posChanged && !(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches)) {
-    requestAnimationFrame(() => {
-      const act = document.querySelector('.zone-active .kbtn:not(:disabled)')
-        || document.querySelector('.zone-active');
-      if (act) act.scrollIntoView({ block: 'center' });
-      else window.scrollTo(0, 0);
-    });
-  }
+  if (posChanged && !(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches))
+    scrollToActiveZone();
 }
 ctx.render = render;
+
+function scrollToActiveZone() {
+  requestAnimationFrame(() => {
+    const act = document.querySelector('.zone-active .kbtn:not(:disabled)')
+      || document.querySelector('.zone-active');
+    if (act) act.scrollIntoView({ block: 'center' });
+    else window.scrollTo(0, 0);
+  });
+}
+
+// живое сужение окна ПОСРЕДИ такта (Codex-ревью И3, минор 1): конвейер сложился в
+// столбик — кнопка действия могла уехать под сгиб; докручиваем, как при входе в такт
+if (window.matchMedia) {
+  const mqWide = window.matchMedia('(min-width: 1100px)');
+  const onMq = (e) => { if (!e.matches) scrollToActiveZone(); };
+  if (mqWide.addEventListener) mqWide.addEventListener('change', onMq);
+  else if (mqWide.addListener) mqWide.addListener(onMq);   // старые WebKit
+}
 
 function renderDone() {
   screen.replaceChildren(h('div', { class: 'taskcard donecard' },
@@ -239,7 +253,16 @@ function maybeAutoMeasureBefore() {
   const poolIds = (step.images_from_role || hasPick)
     ? (ctx.bankIndex.byRole.get(step.images_from_role || 'trap') || []).map(i => i.id)
     : [];
+  // привязка колбэка к МЕСТУ планирования (Codex-ревью И3, находка 1): машина (вход в
+  // резерв подменяет ctx.machine), шаг и версия активной модели. Уход в резерв, переход
+  // шага или новый train_commit за время ожидания whenReady — замер «до» уже не
+  // принадлежит этому месту и не пишется в payload
+  const bind = { machine: ctx.machine, stepId: step.id,
+                 modelVersion: ctx.payload.model ? ctx.payload.model.version : null };
   ctx.classifier.whenReady().then(() => {
+    const cur = ctx.machine.done ? null : ctx.machine.step();
+    if (!measureBindingIntact(bind, { machine: ctx.machine, stepId: cur && cur.id,
+          modelVersion: ctx.payload.model ? ctx.payload.model.version : null })) return;
     if (ctx.payload.measures.before || !ctx.classifier.exampleCount()) return;
     // БАГ #33 (прогон 18.07, карточка «3 → 3 из 4»): колбэк отложен на whenReady и мог
     // замерить «до» УЖЕ ПОЧИНЕННОЙ моделью (догоняющий без v1, «Сделай за меня до
@@ -347,9 +370,13 @@ ctx.postSeat = async (path, body) => {
 function onOtherTab() {
   ctx.poll && ctx.poll.stop();
   ctx.overlays.showOtherTab(async () => {
+    // claim-only takeover (аудит 18.07, critical 3): seat захвачен, наш буфер НЕ ушёл
+    // на сервер; чистый заход от серверного снапшота (§1.1)
     const resp = await ctx.seatSave.takeover();
-    if (resp && resp.ok) location.reload();    // чистый заход от серверного снапшота (§1.1)
-    else fatal('Не получилось перехватить. Обнови страницу');
+    if (resp && resp.ok) {
+      ctx.acked.clearPending();   // операции старого поколения не должны пугать новую вкладку
+      location.reload();
+    } else fatal('Не получилось перехватить. Обнови страницу');
   });
 }
 
@@ -417,6 +444,10 @@ function renderReserveBanner() {
 let mainMachine = null;
 function enterReserve(step) {
   mainMachine = ctx.machine;
+  const pos = mainMachine.position();
+  // приостановленная позиция основной машины уезжает в снапшот (аудит 18.07, п.7):
+  // F5 внутри резерва восстановит и резерв, и ТОЧНУЮ фазу, куда вернуться
+  ctx.suspendedMain = pos.done ? null : { step: pos.step, phase: pos.phase };
   ctx.inReserve = true;
   ctx.machine = createMachine({ ...ctx.normalized, steps: [step] },
     { onJournal: (t, a) => ctx.j(t, a) });
@@ -424,11 +455,26 @@ function enterReserve(step) {
   startEntry(0, { advance: false });
 }
 
-function exitReserve() {
+/** Выход из резерва — через acked-восстановление основного шага (аудит 18.07, п.6):
+ * иначе серверный acked_step оставался резервным и F5 снова открывал резерв. */
+async function exitReserve() {
+  const main = mainMachine;
+  const step = main && main.step();
+  if (step) {
+    try {
+      await ctx.acked.commit('step_enter', step.id, {});
+    } catch (e) {
+      // other_tab: overlay перехвата уже показан, машину не трогаем
+      if (e && e.resp && e.resp.error === 'other_tab') return;
+      // прочий терминальный отказ — возвращаемся локально: не запирать ребёнка в резерве
+    }
+  }
   ctx.inReserve = false;
-  ctx.machine = mainMachine;
+  ctx.suspendedMain = null;
+  ctx.machine = main;
   document.getElementById('reservebar').dataset.which = '';
   ctx.j('phase_enter', { phase: ctx.machine.phase() ? ctx.machine.phase().id : 'done' });
+  ctx.seatSave.flushNow();
   render();
 }
 
@@ -460,7 +506,10 @@ function clampToAcked() {
   }
   if (step.forecast && acked.forecast) {
     const commitIdx = idx(p => (p.elements || []).includes('btn_commit'));
-    if (commitIdx >= 0 && cur <= commitIdx) jump(commitIdx + 1);
+    // commit последним тактом валидатор теперь запрещает; min — защита от падения
+    // на undefined при старом контенте (аудит 18.07, п.15)
+    if (commitIdx >= 0 && cur <= commitIdx)
+      jump(Math.min(commitIdx + 1, step.phases.length - 1));
   }
 }
 
@@ -501,18 +550,20 @@ async function boot() {
   }
 
   ctx.runId = view.run_id;
+  // идентичность вкладки (аудит 18.07, critical «две вкладки»): sessionStorage переживает
+  // F5 той же вкладки, но ДУБЛИРОВАНИЕ вкладки его копирует — живой документ держит
+  // Web Lock своего id, дубль честно берёт новый id и ловит other_tab
   const ssKey = 'z1_inst_' + ctx.runId + '_' + ctx.seat;
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(ssKey) || 'null');
-    ctx.instanceId = (saved && saved.id) || newInstanceId();
-    sessionStorage.setItem(ssKey, JSON.stringify({ id: ctx.instanceId }));
-  } catch (e) { ctx.instanceId = newInstanceId(); }
+  ctx.instanceId = await claimInstanceId({ key: ssKey });
   // generation ≥1: сервер при claim свободного seat ставит max(1, присланное) — стартуя
   // с 0, клиент разошёлся бы с сервером после первого же коммита (свой seat = other_tab)
   ctx.generation = Math.max(1, view.writer_generation || 0);
   ctx.epoch = view.epoch || 0;
 
-  ctx.journal = createJournal({ storageKey: 'z1_journal_' + ctx.runId + '_' + ctx.seat });
+  // журнал с владельцем записей (аудит 18.07, critical 4): localStorage общий между
+  // вкладками — replay берёт только хвост ТЕКУЩЕГО (instance, generation)
+  ctx.journal = createJournal({ storageKey: 'z1_journal_' + ctx.runId + '_' + ctx.seat,
+                                owner: { inst: ctx.instanceId, gen: ctx.generation } });
   const { payload } = applyRestore(view, ctx.journal);
   ctx.payload = payload;
   ctx.ackedCommits = view.acked || {};
@@ -564,11 +615,14 @@ async function boot() {
   ctx.seatSave = createSeatSave({
     seat: ctx.seat, runId: ctx.runId, lessonId: normalized.lesson.id, instanceId: ctx.instanceId,
     getGeneration: () => ctx.generation, setGeneration: (g) => { ctx.generation = g; },
+    getEpoch: () => ctx.epoch,          // epoch в /save: задержанный снапшот не переживает сброс
     getState: () => {
       const pos = ctx.machine ? ctx.machine.position() : {};
       return pos.done ? 'done' : (pos.step || 'boot');
     },
     getPayload: () => ctx.payload,
+    // позиция основной машины при уходе в резерв — в снапшоте (аудит 18.07, п.7)
+    getSuspended: () => (ctx.inReserve && ctx.suspendedMain) || null,
     journal: ctx.journal,
     onOtherTab,
   });
@@ -589,10 +643,19 @@ async function boot() {
   if (reserveStep) {
     ctx.inReserve = true;
     mainMachine = createMachine(normalized, { onJournal: (t, a) => ctx.j(t, a) });
-    // F5 внутри резерва: позиция основной машины не в снапшоте — возвращаем ребёнка
-    // к текущему шагу группы (current_step ведущего), а не в начало занятия
-    const cur = view.current_step;
-    if (cur && normalized.stepById.get(cur)) { try { mainMachine.jumpTo(cur); } catch (e) { /* нет такта — старт шага */ } }
+    // F5 внутри резерва (аудит 18.07, п.7): suspended-позиция основной машины хранится
+    // в снапшоте — восстанавливаем И шаг, И фазу. Фолбэк для старых снапшотов без
+    // suspended — current_step ведущего (хотя бы не начало занятия)
+    const susp = view.suspended;
+    if (susp && susp.step && normalized.stepById.get(susp.step)) {
+      try { mainMachine.jumpTo(susp.step, susp.phase); }
+      catch (e) { try { mainMachine.jumpTo(susp.step); } catch (e2) { /* старт занятия */ } }
+    } else {
+      const cur = view.current_step;
+      if (cur && normalized.stepById.get(cur)) { try { mainMachine.jumpTo(cur); } catch (e) { /* нет такта — старт шага */ } }
+    }
+    const mp = mainMachine.position();
+    ctx.suspendedMain = mp.done ? null : { step: mp.step, phase: mp.phase };
   }
 
   // фон: эмбеддер + переобучение из payload (restore ≤3 c — не ждём модель)
@@ -603,8 +666,13 @@ async function boot() {
     });
   }
 
-  if (ackedStep && ctx.normalized.stepById.get(ackedStep)) {
-    const target = reserveStep || ackedStep;
+  if (view.state === 'done' && !reserveStep) {
+    // занятие завершено (аудит 18.07, п.5): F5 после финала показывает «Дело закрыто»,
+    // а не перепоказывает последний шаг (acked_step остаётся финальным — раньше boot
+    // его чтил и открывал шаг заново)
+    ctx.machine.restoreDone();
+    render();
+  } else if (ackedStep && ctx.normalized.stepById.get(ackedStep)) {
     try { ctx.machine.jumpTo(reserveStep ? reserveStep.id : ackedStep, ctx.payload.phase); }
     catch (e) { ctx.machine.jumpTo(reserveStep ? reserveStep.id : ackedStep); }
     clampToAcked();

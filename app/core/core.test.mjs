@@ -10,7 +10,8 @@ import url from 'node:url';
 
 import { normalizeLesson, indexBank } from './manifest.js';
 import { reduce, initialPayload, replay, basketsByImg, activeStableModel,
-         stableComposition, beforeMeasureHonest } from './reducer.js';
+         stableComposition, beforeMeasureHonest, measureBindingIntact,
+         trainAlreadyCommitted } from './reducer.js';
 import { createMachine } from './machine.js';
 import { createJournal } from './journal.js';
 import { applyRestore, createSeatSave } from './save.js';
@@ -103,6 +104,51 @@ test('редьюсер И3-Т: beforeMeasureHonest — «до» не мерит�
   assert.equal(beforeMeasureHonest(p, pool), false);
   // пустой пул (шаг без починки) — ограничения нет
   assert.equal(beforeMeasureHonest(p, []), true);
+});
+
+test('Codex-И3 п.1: measureBindingIntact — отложенный авто-«до» привязан к машине/шагу/версии модели', () => {
+  const norm = normalizeLesson(Z1);
+  const main = createMachine(norm);
+  const measureStep = norm.steps.find(s => s.measure && s.measure.before === 'auto');
+  main.jumpTo(measureStep.id);
+  const payload = initialPayload();
+  reduce(payload, { type: 'train_commit', args: { version: 1, sig: 'v1', n: 1,
+    composition: [{ img: 'c1', class: 'cat' }] } });
+  const at = (m) => ({ machine: m, stepId: m.done ? null : m.step().id,
+                       modelVersion: payload.model ? payload.model.version : null });
+  const bind = at(main);   // здесь колбэк планировался (вход в шаг замера)
+  assert.ok(measureBindingIntact(bind, at(main)), 'то же место — замер пишется');
+  // УХОД В РЕЗЕРВ во время ожидания whenReady: ctx.machine подменяется новой машиной
+  // с резервным шагом — колбэк не должен записать «до» в чужой контекст
+  const reserve = createMachine({ ...norm, steps: [norm.reserve[0]] });
+  assert.ok(!measureBindingIntact(bind, at(reserve)), 'в резерве отложенный замер не пишется');
+  // вернулись из резерва — та же главная машина на том же шаге: замер снова законен
+  assert.ok(measureBindingIntact(bind, at(main)), 'после возврата из резерва привязка цела');
+  // переход шага той же машиной — замер принадлежал прошлому шагу
+  main.jumpTo(norm.steps[0].id);
+  assert.ok(!measureBindingIntact(bind, at(main)), 'смена шага рвёт привязку');
+  main.jumpTo(measureStep.id);
+  // новый train_commit за время ожидания — «до» мерило бы другую версию модели
+  reduce(payload, { type: 'train_commit', args: { version: 2, sig: 'v2', n: 2,
+    composition: [{ img: 'c1', class: 'cat' }, { img: 'd1', class: 'dog' }] } });
+  assert.ok(!measureBindingIntact(bind, at(main)), 'смена версии модели рвёт привязку');
+});
+
+test('Codex-И3 п.2: trainAlreadyCommitted — F5 после «Научить» не плодит версию того же состава', () => {
+  const p = initialPayload();
+  assert.equal(trainAlreadyCommitted(p, 'sig1', 'knn'), false, 'до первого обучения дубля нет');
+  reduce(p, { type: 'train_commit', args: { version: 1, sig: 'sig1', n: 2, engine: 'knn',
+    composition: [{ img: 'c1', class: 'cat' }, { img: 'd1', class: 'dog' }] } });
+  assert.equal(trainAlreadyCommitted(p, 'sig1', 'knn'), true,
+    'тот же состав тем же движком — уже закоммичен, повторный тап пропускает журнал');
+  assert.equal(trainAlreadyCommitted(p, 'sig2', 'knn'), false, 'новый состав — новая версия законна');
+  assert.equal(trainAlreadyCommitted(p, 'sig1', 'head'), false,
+    'другой движок при том же составе — не дубль (identity §3.1: sig+engine)');
+  // запись фазы 0.5 без engine читается как knn
+  const old = initialPayload();
+  reduce(old, { type: 'train_commit', args: { version: 1, sig: 'x', n: 1,
+    composition: [{ img: 'c1', class: 'cat' }] } });
+  assert.equal(trainAlreadyCommitted(old, 'x', 'knn'), true, 'дефолт чтения engine — knn');
 });
 
 test('редьюсер фазы 0.5: baskets_clear, train_commit (версии), experiment_start, trap_skip', () => {
@@ -225,7 +271,8 @@ test('машина: манифест z1 → шаги/такты, acked-треб�
   m.advanceStepAcked();                                      // после ack сервера
   assert.equal(m.position().step, 's1q');
   assert.deepEqual(m.entryRequirement(), { ack: 'step_enter', step: 's1q' });
-  m.restoreTo('s2.train');                                   // контрольная точка hint l3
+  m.advanceStepAcked();                                      // s2 — шаг контрольной точки
+  m.restoreTo('s2.train');                                   // hint l3 ВНУТРИ текущего шага
   assert.deepEqual(m.position().phase, 'train');
   assert.ok(events.some(([t, p]) => t === 'phase_enter' && p === 'train'));
 });

@@ -439,12 +439,53 @@ p{margin:4px 0;color:#3a4560}a{color:#2557d6}details{margin:14px 0}summary{curso
 """
 
 
+# Автообновление БЕЗ потери контекста (Codex-ревью И3, минор 4): meta-refresh закрывал
+# свёртки и стирал недовведённый код гейта. Теперь: reload по таймеру ~15 c, но
+# откладывается, пока в любом поле есть фокус или невведённый текст (value != defaultValue);
+# состояние свёрток переживает перезагрузку через sessionStorage (ключ — текст summary
+# с замаскированными цифрами, чтобы счётчики «(3)» не ломали сопоставление).
+_REFRESH_JS = """<script>
+(function () {
+  var KEY = 'dash_details';
+  var saved = {};
+  try { saved = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch (e) {}
+  var keyOf = function (d) {
+    var s = d.querySelector('summary');
+    return (s ? s.textContent : '').replace(/[0-9]+/g, '#').trim().slice(0, 60);
+  };
+  document.querySelectorAll('details').forEach(function (d) {
+    var k = keyOf(d);
+    if (k in saved) d.open = !!saved[k];
+  });
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d || d.tagName !== 'DETAILS') return;
+    saved[keyOf(d)] = d.open;
+    try { sessionStorage.setItem(KEY, JSON.stringify(saved)); } catch (e2) {}
+  }, true);
+  window.__dashDirty = function () {
+    var els = document.querySelectorAll('input, textarea');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i] === document.activeElement) return true;
+      if (!els[i].readOnly && els[i].value !== els[i].defaultValue) return true;
+    }
+    return false;
+  };
+  var due = Date.now() + 15000;
+  setInterval(function () {
+    if (Date.now() < due) return;
+    if (window.__dashDirty()) { due = Date.now() + 5000; return; }
+    location.reload();
+  }, 1000);
+})();
+</script>"""
+
+
 def _page(title, body):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">\n'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<meta http-equiv="refresh" content="15">\n'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<title>' + title + '</title><style>' + DASH_CSS + '</style></head><body>\n'
-            + body + '</body></html>')
+            + body + _REFRESH_JS + '</body></html>')
 
 
 def render_dash(date, demo=False, review=False, added='', taken='', archive=False):

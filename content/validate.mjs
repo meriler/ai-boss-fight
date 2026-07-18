@@ -17,7 +17,7 @@ import path from 'node:path';
 import url from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { normalizeLesson, indexBank } from '../app/core/manifest.js';
+import { normalizeLesson, indexBank, phaseSemantics } from '../app/core/manifest.js';
 import { walkLesson } from '../app/core/walk.js';
 import { allowedEngines } from '../app/engine/index.js';
 
@@ -90,6 +90,17 @@ function checkManifestDir(dir) {
         warn(`${step.id}.${p.id}: сетка ${p.card.cells} ячеек — осознанное исключение владельца?`);
     }
 
+    // — инвариант 13 (аудит ядра 18.07, п.11): РОВНО одна экранная семантика на такт.
+    // Живой рендер выбирает одну ветку по приоритету — второй интерактив такта был бы
+    // недоступен детям, а walk раньше исполнял обе, и CI такого не ловил
+    if (step.type === 'trainer_act') {
+      for (const p of step.phases) {
+        const sem = phaseSemantics(p);
+        if (sem.length > 1)
+          err(`${step.id}.${p.id}: ${sem.length} экранных семантик на такте (${sem.join(', ')}) — живой рендер покажет только одну`);
+      }
+    }
+
     // — инвариант 2: ссылочная целостность элементов
     const optLists = [];
     if (step.version) optLists.push({ name: 'version.choice.options', n: step.version.choice.options.length });
@@ -142,6 +153,15 @@ function checkManifestDir(dir) {
         err(`${step.id}: version.choice.correct=${c.correct} вне границ options (${c.options.length})`);
     }
 
+    // — инвариант 14 (аудит ядра 18.07, п.15): у forecast btn_commit не может быть
+    // ПОСЛЕДНИМ тактом шага — restore клампит на такт ПОСЛЕ коммита (не перепоказывать
+    // прогноз), и без post-commit такта клиент падал бы на undefined
+    if (step.forecast) {
+      const commitIdx = step.phases.findIndex(p => (p.elements || []).includes('btn_commit'));
+      if (commitIdx >= 0 && commitIdx === step.phases.length - 1)
+        err(`${step.id}: btn_commit прогноза — последний такт шага; нужен post-commit такт (restore клампит на commit+1)`);
+    }
+
     // — инвариант 6: рантайм-множество кандидатов ⇒ подача one_by_one
     if (step.type === 'final_card' && step.action === 'mark_best_trap'
         && step.presentation !== 'one_by_one')
@@ -182,17 +202,23 @@ function checkManifestDir(dir) {
       err(`${where}: файла assets/${rel} нет (недостающий ассет — §7 п.2а)`);
   }
 
-  // — инвариант 8: присутствуют ОБА резерва (правило 12)
-  const kinds = new Set(norm.reserve.map(s => s.kind));
-  if (!kinds.has('talk') || !kinds.has('trainer'))
-    err(`резервы: нужны ОБА (talk И trainer), есть только [${[...kinds]}]`);
+  // — инвариант 8: РОВНО по одному резерву каждого kind (правило 12 + аудит 18.07, п.17:
+  // живой клиент выбирает первый резерв kind'а — лишние были бы мёртвым контентом)
+  for (const kind of ['talk', 'trainer']) {
+    const n = norm.reserve.filter(s => s.kind === kind).length;
+    if (n !== 1) err(`резервы: kind=${kind} должен быть ровно один, сейчас ${n}`);
+  }
 
-  // — инвариант 9: hints резолвятся в реальные шаги/такты
+  // — инвариант 9: hints резолвятся в реальные шаги/такты; restore_to — ТОЛЬКО внутри
+  // своего шага (аудит 18.07, п.8: межшаговый переход обязан идти через acked entry,
+  // restoreTo() машины исполняется локально и офлайн)
   const phaseKeys = new Set();
   for (const s of allSteps) for (const p of s.phases) phaseKeys.add(`${s.id}.${p.id}`);
   for (const [key, hint] of Object.entries(norm.hints)) {
     if (!phaseKeys.has(key)) err(`hints: ключ ${key} не резолвится в шаг.такт`);
     if (!phaseKeys.has(hint.restore_to)) err(`hints.${key}: restore_to=${hint.restore_to} не резолвится`);
+    if (String(key).split('.')[0] !== String(hint.restore_to).split('.')[0])
+      err(`hints.${key}: restore_to=${hint.restore_to} указывает другой шаг — контрольная точка только внутри шага`);
   }
 
   // — инвариант 11: frozen ⇒ параметры (схема) — ссылки в банк уже проверены выше

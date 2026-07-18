@@ -141,7 +141,19 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     const st = await waitState(p, () => true);
     if (st.done) return st;
     if (stopWhen && stopWhen(st)) return st;
-    const key = st.step + '|' + st.phase + '|' + st.entry;
+    let key = st.step + '|' + st.phase + '|' + st.entry;
+    // подсостояния пробы различимы в DOM-чеке (Codex-ревью И3, минор 5): «свежая» /
+    // вопрос «Коробка права?» / после ответа — разные наборы интерактивов,
+    // каждое проверяется конституцией отдельно
+    if (!st.entry) {
+      const stepK = man.stepById[st.step];
+      const phK = stepK && (stepK.phases || []).find(ph => ph.id === st.phase);
+      if (phK && phK.probe_set) {
+        key += '|' + await p.evaluate(() =>
+          document.getElementById('btn_mistake') ? 'question'
+            : (document.querySelector('.verdict') ? 'answered' : 'fresh'));
+      }
+    }
     if (key !== lastKey) {
       lastKey = key;
       await domCheck(p, (man.lesson.id) + ':' + key);
@@ -222,24 +234,31 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
       if (!await clickIf(p, '#btn_pick')) await clickIf(p, '#btn_next');
     } else if (els.includes('btn_train')) {
       const clicked = await clickIf(p, '#btn_train');
-      // видимая разница движков (И3-Т): head — полоска эпох, kNN — мгновенен без неё.
+      // видимая разница движков (И3-Т): head — ЧЕСТНАЯ полоска эпох (реальный прогресс
+      // trainAsync), kNN — мгновенен без неё. В demo эпохи долетают быстрее кадра —
+      // факт показа полоски читаем из машинного следа dataset.trainbar, он не гаснет.
       // Фиксируем только по НАСТОЯЩЕМУ клику (после relayout-хука драйвер бывает
       // со stale-фазой — кнопки нет, это не «обучение без полоски»)
-      if (clicked && trainbarSeen === null) trainbarSeen = !!(await p.$('.trainbar'));
+      if (clicked && trainbarSeen === null)
+        trainbarSeen = await p.evaluate(() =>
+          document.getElementById('screen').dataset.trainbar === '1');
       await waitState(p, s2 => s2.phase !== st.phase, 15000, 'после train');
     } else if (phase.probe_set) {
-      // обязательный вопрос «Коробка права?» на каждом вердикте (И3-Т п.8):
-      // «Дальше» заперта до ответа; драйвер отвечает «Ошиблась!»
-      if (!await clickIf(p, '#btn_check')) {
-        if (await p.$('#btn_mistake')) {
-          if (!probeGateChecked) {
-            probeGateChecked = true;
-            const gated = await p.$eval('#btn_next', e => e.disabled).catch(() => true);
-            ok('пробы: «Дальше» заперта до ответа «Коробка права?»', gated);
-            await p.screenshot({ path: '/tmp/z1-probe-question.png' });   // ревью вопроса
-          }
-          await clickIf(p, '#btn_mistake');
+      // обязательный вопрос «Коробка права?» на каждом вердикте (И3-Т п.8): «Дальше»
+      // заперта до ответа; драйвер отвечает «Ошиблась!». Подсостояния проходятся
+      // РАЗНЫМИ итерациями цикла (вопрос → ответ → дальше) — каждое попадает
+      // в DOM-чек своим ключом (Codex-ревью И3, минор 5)
+      if (await clickIf(p, '#btn_check')) {
+        // вердикт появится — вопрос увидит следующая итерация
+      } else if (await p.$('#btn_mistake')) {
+        if (!probeGateChecked) {
+          probeGateChecked = true;
+          const gated = await p.$eval('#btn_next', e => e.disabled).catch(() => true);
+          ok('пробы: «Дальше» заперта до ответа «Коробка права?»', gated);
+          await p.screenshot({ path: '/tmp/z1-probe-question.png' });   // ревью вопроса
         }
+        await clickIf(p, '#btn_mistake');
+      } else {
         // микрофидбек «Получилось!» (И3-Т п.5): жмём один раз, читаем отклик
         if (reactionChecked === null && await p.$('#btn_react:not(:disabled)')) {
           await clickIf(p, '#btn_react');
@@ -543,13 +562,37 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   ok('И3 п.6: строка при первом v2 «научил заново — старая на полке»', /версия 2/.test(v2note), v2note);
   let alertSeen = false;   // акцент на ошибке пробы (аудит линзы): «Стоп… она уверена — и ошибается!»
   let alertBeforeAnswer = false;
+  let dblChecked = false, f5probeChecked = false;
   for (let i = 0; i < 4; i++) {
     await clickIf(A, '#btn_check');
     await A.waitForSelector('.verdict', { timeout: 8000 });
     // обязательный вопрос (И3 п.8): акцент не подсказывает ДО ответа; отвечаем «Права»
     if (await A.$('.verdict-alert')) alertBeforeAnswer = true;
-    await clickIf(A, '#btn_right');
+    if (!dblChecked) {
+      dblChecked = true;
+      // идемпотентность ответа (Codex-ревью И3, минор 2): двойной тап по обеим кнопкам
+      // подряд — обе гаснут с первого, записан ПЕРВЫЙ ответ («права»), второй не долетает
+      await A.evaluate(() => {
+        document.getElementById('btn_right').click();
+        const b2 = document.getElementById('btn_mistake');
+        if (b2) b2.click();   // после первого тапа disabled/отсоединена — клик глохнет
+      });
+      const recTxt = await A.evaluate(() => document.body.textContent);
+      ok('пробы: двойной тап не перезаписывает ответ (записан первый — «права»)',
+         recTxt.includes('Записано: ты считаешь — права'),
+         (recTxt.match(/Записано[^!.]*/) || [''])[0]);
+    } else await clickIf(A, '#btn_right');
     if (await A.$('.verdict-alert')) alertSeen = true;
+    if (!f5probeChecked && i === 1) {
+      f5probeChecked = true;
+      // F5 между ответом и «Дальше» (Codex-ревью И3, минор 3): подтверждение/разбор
+      // не глотаются — после перезагрузки та же проверка с «Записано…», не следующая
+      await f5restore(A, 'между ответом и «Дальше» (проба)', '#btn_next');
+      const fc = await A.$eval('.feedcount', e => e.textContent).catch(() => '');
+      const recap = await A.evaluate(() => document.body.textContent.includes('Записано'));
+      ok('F5 между ответом и «Дальше»: разбор пробы не проглочен (та же проверка, «Записано» видно)',
+         recap && /2 из/.test(fc), 'recap=' + recap + ' · ' + fc);
+    }
     await clickIf(A, '#btn_next');
     await new Promise(r => setTimeout(r, 120));
   }
@@ -618,6 +661,24 @@ await driveLesson(A, man, {
   },
 });
 ok('A: занятие пройдено целиком до «Дело закрыто»', (await state(A)).done);
+/* аудит ядра 18.07, п.5: done живёт в снапшоте — F5 после финала снова «Дело закрыто»,
+ * а не перепоказ последнего шага (до фикса boot чтил только acked_step) */
+{
+  // дождаться, пока сейв-веха финала доедет до диска (дебаунс ~1 c) — заодно проверка,
+  // что state='done' вообще пишется в снапшот
+  let snapDone = false;
+  for (const t0 = Date.now(); Date.now() - t0 < 8000;) {
+    const snap = readdirSync(dataDir).filter(f => /^lesson-save-.*-seat1\.json$/.test(f))
+      .map(f => JSON.parse(readFileSync(path.join(dataDir, f), 'utf-8'))).pop();
+    if (snap && snap.state === 'done') { snapDone = true; break; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  ok('финал: снапшот state=done доехал на сервер', snapDone);
+  await A.reload({ waitUntil: 'domcontentloaded' });
+  const st = await waitState(A, s => s.done || (s.step && !s.entry), 15000, 'boot после F5 на done');
+  ok('F5 после финала: снова «Дело закрыто» (done восстановлен из снапшота)', st.done,
+     JSON.stringify(st));
+}
 ok('линза: чат-поле показано заранее в неактивном виде (talk_chat)', chatPreviewSeen);
 ok('В-1: полка версий тапабельна на card_view', shelfOnCard);
 ok('В-5: замер R2 у A — ростом ячейками (два ряда «было/стало»)', growthSeenA);
@@ -764,6 +825,160 @@ ok('оверлеи: на активном такте раскладки буфе
   await C.close();
 }
 
+/* --- D: F5 СРАЗУ после «Научить» (Codex-ревью И3, находка 2): крах в окне
+ *     «train_commit в журнале, phase_enter следующего такта не записан» —
+ *     restore возвращает на такт обучения, повторный «Научить» того же состава
+ *     НЕ плодит новую версию. Окно симулируем детерминированно: /save глушится
+ *     (offline-паттерн), журнал подрезается до train_commit включительно, F5 --- */
+{
+  const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
+  const D = await mkChild(4);   // группа всё ещё на s6 (host-переход сделан для C)
+  await D.waitForSelector('#btn_catchup_go', { timeout: 15000 });
+  await D.click('#btn_catchup_go');
+  await waitState(D, s => s.entry, 15000, 'гейт D (checkin)');
+  await D.click('#btn_gate');
+  await waitState(D, s => !s.entry && s.step === fixStep.id, 15000, 'D вошёл в s6');
+  for (let guard = 0; guard < 10 && (await state(D)).phase !== 'traps'; guard++) {
+    await clickIf(D, '#btn_next');
+    await new Promise(r => setTimeout(r, 150));
+  }
+  let picked = 0;
+  for (let guard = 0; guard < 30 && picked < 2; guard++) {
+    if (await clickIf(D, '#btn_pick')) picked += 1;
+    await new Promise(r => setTimeout(r, 80));
+  }
+  await clickIf(D, '#btn_next');                                    // «Хватит, проверяем»
+  await waitState(D, s => s.phase === 'retrain', 8000, 'D → научить');
+  await D.route('**/save', r => r.abort());   // дебаунс-сейв не должен унести журнал на сервер
+  await D.click('#btn_train');
+  await waitState(D, s => s.phase === 'measure_after', 15000, 'D обучил (v1)');
+  await D.evaluate(() => {
+    // симуляция краха: срезать всё после train_commit (phase_enter не дожил до диска)
+    const key = Object.keys(localStorage).find(k => k.startsWith('z1_journal_') && k.endsWith('_4'));
+    const j = JSON.parse(localStorage.getItem(key));
+    const at = j.entries.map(e => e.type).lastIndexOf('train_commit');
+    j.entries = j.entries.slice(0, at + 1);
+    localStorage.setItem(key, JSON.stringify(j));
+  });
+  await D.reload({ waitUntil: 'domcontentloaded' });
+  await waitState(D, s => !!s.step && !s.entry, 20000, 'boot D после подрезки журнала');
+  const stD = await state(D);
+  ok('F5 после «Научить»: вернулись на такт обучения (переход такта не записан)',
+     stD.step === fixStep.id && stD.phase === 'retrain', JSON.stringify(stD));
+  await clickIf(D, '#btn_train');
+  await waitState(D, s => s.phase === 'measure_after', 15000, 'D → замер после повторного «Научить»');
+  const chipsD = await D.evaluate(() => [...document.querySelectorAll('.vchip')].map(e => e.textContent));
+  ok('F5 после «Научить»: повторный тап не плодит версию (на полке только v1)',
+     chipsD.length === 1 && /^v1 /.test(chipsD[0] || ''), JSON.stringify(chipsD));
+  await D.close();
+}
+
+/* --- E: две вкладки с ОДНИМ sessionStorage (аудит ядра 18.07, critical «две вкладки»):
+ *     дубль вкладки копирует sessionStorage — раньше оба документа наследовали один
+ *     client_instance_id и сервер принимал их как одного писателя (потеря действий).
+ *     Теперь живая вкладка держит Web Lock своего id → дубль берёт новый id и честно
+ *     ловит «Открыто в другой вкладке» --- */
+{
+  const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
+  const E1 = await mkChild(5);
+  await E1.waitForSelector('#btn_catchup_go', { timeout: 15000 });
+  await E1.click('#btn_catchup_go');
+  await waitState(E1, s => s.entry, 15000, 'гейт E1 (checkin)');
+  await E1.click('#btn_gate');
+  await waitState(E1, s => !s.entry && s.step === fixStep.id, 15000, 'E1 вошёл в s6');
+  const instKey = await E1.evaluate(() =>
+    Object.keys(sessionStorage).find(k => k.startsWith('z1_inst_')));
+  const id1 = await E1.evaluate((k) => JSON.parse(sessionStorage.getItem(k)).id, instKey);
+  // «Duplicate Tab»: новая страница ТОГО ЖЕ контекста с копией sessionStorage
+  const ssDump = await E1.evaluate(() => JSON.stringify(Object.entries(sessionStorage)));
+  const E2 = await E1.context().newPage();
+  E2.setDefaultTimeout(30000);
+  // посев — ОДИН раз: addInitScript выполняется при каждой навигации, а takeover
+  // делает location.reload() — повторный посев затирал бы новый id дубля старым id1
+  // и дубль после takeover снова ловил бы other_tab (артефакт харнесса, не приложения)
+  await E2.addInitScript((dump) => {
+    if (sessionStorage.getItem('__dup_seeded')) return;
+    for (const [k, v] of JSON.parse(dump)) sessionStorage.setItem(k, v);
+    sessionStorage.setItem('__dup_seeded', '1');
+  }, ssDump);
+  await E2.goto(E1.url());
+  await waitState(E2, s => !!s.step, 20000, 'boot дубля E2');
+  const id2 = await E2.evaluate((k) => JSON.parse(sessionStorage.getItem(k)).id, instKey);
+  ok('две вкладки: дубль взял НОВЫЙ client_instance_id (Web Lock у живой вкладки)',
+     !!id2 && id2 !== id1, id1 + ' vs ' + id2);
+  // первая же мутация дубля — other_tab: сервер знает писателем E1
+  await clickIf(E2, '#btn_next');
+  const otherTab = await E2.waitForSelector('button:has-text("Продолжить здесь")', { timeout: 12000 })
+    .then(() => true).catch(() => false);
+  ok('две вкладки: дубль получил «Открыто в другой вкладке», а не молча пишет как E1', otherTab);
+  // «Продолжить здесь» в дубле: claim-only takeover → E2 работает, E1 теряет право.
+  // Маркер на старом документе: ассерты только ПОСЛЕ настоящего reload
+  await E2.evaluate(() => { document.body.dataset.pre = '1'; });
+  await E2.click('button:has-text("Продолжить здесь")');
+  await E2.waitForFunction(() => !document.body.dataset.pre, null, { timeout: 20000 });
+  await waitState(E2, s => !!s.step && !s.entry, 20000, 'E2 после takeover');
+  await clickIf(E2, '#btn_next');
+  await new Promise(r => setTimeout(r, 2500));   // дебаунс-сейв нового поколения успел ответить
+  ok('две вкладки: после takeover дубль работает без overlay',
+     !(await E2.$('button:has-text("Продолжить здесь")')));
+  await clickIf(E1, '#btn_next');   // мутация старой вкладки → other_tab у неё
+  const e1Lost = await E1.waitForSelector('button:has-text("Продолжить здесь")', { timeout: 12000 })
+    .then(() => true).catch(() => false);
+  ok('две вкладки: старая вкладка честно получает «Открыто в другой вкладке»', e1Lost);
+  await E1.close(); await E2.close();
+}
+
+/* --- R: резервный блок — вход посреди шага, F5 внутри резерва, выход через acked,
+ *     F5 после выхода (аудит ядра 18.07, пп.6–7) --- */
+{
+  const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
+  const R = await mkChild(6);
+  await R.waitForSelector('#btn_catchup_go', { timeout: 15000 });
+  await R.click('#btn_catchup_go');
+  await waitState(R, s => s.entry, 15000, 'гейт R (checkin)');
+  await R.click('#btn_gate');
+  await waitState(R, s => !s.entry && s.step === fixStep.id, 15000, 'R вошёл в s6');
+  for (let guard = 0; guard < 10 && (await state(R)).phase !== 'traps'; guard++) {
+    await clickIf(R, '#btn_next');
+    await new Promise(r => setTimeout(r, 150));
+  }
+  const before = await state(R);   // приостановимся ПОСРЕДИ шага: s6.traps (НЕ первый такт)
+  ok('резерв: точка приостановки — не первый такт шага', before.phase === 'traps', JSON.stringify(before));
+  await host('/host/gate', { action: 'reserve', which: 'trainer' });
+  await R.waitForSelector('#reservebar button', { timeout: 12000 });
+  await R.click('#reservebar button');
+  const reserveId = man.lesson.reserve_steps.find(s => s.kind === 'trainer').id;
+  await waitState(R, s => s.step === reserveId && !s.entry, 15000, 'вход в резерв');
+  await clickIf(R, '#btn_pick');   // немного поработали в резерве
+  // F5 внутри резерва: восстановиться обязан И резерв, И suspended-позиция основной машины
+  await R.reload({ waitUntil: 'domcontentloaded' });
+  await waitState(R, s => !!s.step && !s.entry, 20000, 'boot после F5 в резерве');
+  ok('F5 в резерве: снова резерв (acked_step резервный)', (await state(R)).step === reserveId,
+     JSON.stringify(await state(R)));
+  // доводим резерв до конца: pick → Дальше → Научить → замер → Дальше (finishStep)
+  for (let guard = 0; guard < 40 && (await state(R)).step === reserveId; guard++) {
+    if (!await clickIf(R, '#btn_pick'))
+      if (!await clickIf(R, '#btn_train'))
+        if (!await clickIf(R, '#btn_check'))
+          await clickIf(R, '#btn_next');
+    await new Promise(r => setTimeout(r, 250));
+  }
+  const back = await state(R);
+  ok('выход из резерва: вернулись на приостановленный такт основного шага (s6.traps)',
+     back.step === before.step && back.phase === before.phase, JSON.stringify({ before, back }));
+  // F5 после выхода: до фикса acked_step оставался резервным и F5 снова открывал резерв;
+  // suspended-фаза (traps, не intro) — из снапшота
+  await R.reload({ waitUntil: 'domcontentloaded' });
+  await waitState(R, s => !!s.step && !s.entry, 20000, 'boot после выхода из резерва');
+  const after = await state(R);
+  ok('F5 после выхода из резерва: основной шаг, НЕ резерв (выход был acked)',
+     after.step === before.step, JSON.stringify(after));
+  ok('F5 после выхода: такт приостановки не потерян (suspended в снапшоте)',
+     after.phase === before.phase, JSON.stringify({ before, after }));
+  await host('/host/gate', { action: 'reserve', which: 'none' });
+  await R.close();
+}
+
 // --- телеметрия: связки в JSONL реального прогона (DoD п.6) ---
 await A.evaluate(() => new Promise(r => setTimeout(r, 800)));   // добежали дампы
 const jsonl = readdirSync(dataDir).filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
@@ -815,6 +1030,33 @@ await dash.reload();
 html = await dash.content();
 ok('дашборд: замер R1→R2 в таблице', /0\/4 → [34]\/4/.test(html), html.match(/[0-9]\/4 → [0-9]\/4/)?.[0] || 'нет');
 ok('дашборд: уровень помощи виден', html.includes('ур.2'));
+
+/* --- автообновление дашборда без потери контекста (Codex-ревью И3, минор 4):
+ *     meta-refresh снят; свёртки переживают перезагрузку; недовведённый текст
+ *     в поле откладывает reload --- */
+ok('дашборд: meta-refresh снят (умный таймер вместо слепого reload)',
+   !html.includes('http-equiv="refresh"'));
+{
+  await dash.evaluate(() => {
+    const s = [...document.querySelectorAll('details summary')]
+      .find(el => el.textContent.includes('Как читать'));
+    if (s) s.click();
+  });
+  await dash.reload();
+  const legendOpen = await dash.evaluate(() => {
+    const d = [...document.querySelectorAll('details')]
+      .find(el => (el.querySelector('summary') || { textContent: '' }).textContent.includes('Как читать'));
+    return !!(d && d.open);
+  });
+  ok('дашборд: открытая свёртка переживает обновление (sessionStorage)', legendOpen === true);
+  const dirty = await dash.evaluate(() => {
+    const inp = document.querySelector('input:not([readonly])');
+    inp.value = inp.value + '9';   // «недовведённый код» — value разошёлся с defaultValue
+    return window.__dashDirty();
+  });
+  ok('дашборд: недовведённый текст в поле откладывает автообновление', dirty === true);
+  await dash.reload();   // вернуть чистое поле перед следующими шагами
+}
 
 await A.close(); await B.close();
 
@@ -934,6 +1176,19 @@ await V1.close(); await V2.close();
     parseInt(document.querySelector('#basket_cat .basket-count')?.textContent || '0', 10) || 0);
   ok('конвейер: настоящий drag в корзину на широком окне (счёт ' +
      countBefore + '→' + countAfter + ')', countAfter === countBefore + 1);
+  // живое сужение окна ПОСРЕДИ такта (Codex-ревью И3, минор 1): конвейер сложился
+  // в столбик — matchMedia-слушатель докручивает к активной зоне сам
+  await W.setViewportSize({ width: 820, height: 420 });
+  await new Promise(r => setTimeout(r, 500));
+  const narrow = await W.evaluate(() => {
+    const act = document.querySelector('.zone-active .kbtn:not(:disabled)')
+      || document.querySelector('.zone-active');
+    const r = act.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight,
+             visible: r.top >= 0 && r.bottom <= innerHeight };
+  });
+  ok('живое сужение <1100px: активная зона докручена в кадр', narrow.visible,
+     JSON.stringify(narrow));
   await W.close(); await c.close();
 }
 

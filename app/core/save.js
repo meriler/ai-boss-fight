@@ -9,9 +9,15 @@
  *   3) payload = серверная база + replay локальных записей с rev > server_rev
  *      через ТОТ ЖЕ reduce, что применяет действия вживую.
  *
+ * /save несёт epoch seat'а (аудит ядра 18.07, critical 2): задержанный снапшот,
+ * собранный до /host/reset_version, сервер отклоняет по несовпадению epoch —
+ * отменённая версия не возвращается дебаунс-сейвом.
+ *
  * Single-writer: 409 other_tab → UI «Открыто в другой вкладке» + «Продолжить здесь»;
- * takeover = /save с takeover:true (сервер атомарно даёт generation+1), буфер СТАРОЙ
- * вкладки сбрасывается — честно теряем ≤ окна дебаунса (§1.1). */
+ * takeover — CLAIM-ONLY (аудит 18.07, critical 3): сервер атомарно даёт generation+1,
+ * НЕ принимая payload перехватчика; локальный хвост сбрасывается, страница чисто
+ * перезагружается от серверного снапшота. Буфер старой вкладки честно теряется
+ * (≤ окна дебаунса, §1.1) — а не становится серверной базой новой generation. */
 
 import { initialPayload, replay } from './reducer.js';
 
@@ -20,6 +26,52 @@ const uuid = () =>
     : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 
 export function newInstanceId() { return uuid(); }
+
+/** Идентичность вкладки (single-writer §1.1; аудит 18.07, critical «две вкладки»).
+ * sessionStorage переживает F5 ТОЙ ЖЕ вкладки, но дублирование вкладки КОПИРУЕТ
+ * sessionStorage — два живых документа унаследовали бы один client_instance_id и
+ * сервер принял бы их одинаковые (generation, rev) как идемпотентный повтор.
+ * Разводим Web Locks: живая вкладка держит лок 'z1_tab_<id>' до закрытия; дубль,
+ * не получивший лок, обязан взять СВОЙ id (и честно словить other_tab).
+ * Нет Web Locks API (старый браузер, Node-тест без инжекта) — доверяем sessionStorage,
+ * как раньше. locks инжектится в тестах. */
+export async function claimInstanceId({ storage, key, locks,
+                                        retry = { attempts: 8, delayMs: 150 } } = {}) {
+  const store = storage || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
+  const lockApi = locks !== undefined ? locks
+    : (typeof navigator !== 'undefined' && navigator.locks ? navigator.locks : null);
+  const tryHold = (name) => {
+    if (!lockApi) return Promise.resolve(true);
+    return new Promise(resolve => {
+      lockApi.request(name, { ifAvailable: true }, lock => {
+        if (!lock) { resolve(false); return; }
+        resolve(true);
+        return new Promise(() => {});   // держим лок до закрытия вкладки
+      }).catch(() => resolve(true));
+    });
+  };
+  let saved = null;
+  try { saved = ((store && JSON.parse(store.getItem(key) || 'null')) || {}).id || null; } catch (e) {}
+  let id = saved;
+  if (id) {
+    // location.reload(): лок предыдущего документа ЭТОЙ ЖЕ вкладки Chrome отпускает
+    // с задержкой (замер: ~150 мс) — даём ему умереть, прежде чем решить «занято».
+    // Дубль вкладки: лок держит ЖИВАЯ вкладка и не отпустит — после ретраев честно
+    // берём новый id (цена — ~1 c на boot дубля, которому всё равно жить с other_tab)
+    let got = await tryHold('z1_tab_' + id);
+    for (let i = 0; !got && i < retry.attempts; i++) {
+      await new Promise(r => setTimeout(r, retry.delayMs));
+      got = await tryHold('z1_tab_' + id);
+    }
+    if (!got) id = null;
+  }
+  if (!id) {
+    id = newInstanceId();
+    await tryHold('z1_tab_' + id);
+  }
+  try { if (store) store.setItem(key, JSON.stringify({ id })); } catch (e) {}
+  return id;
+}
 
 /** Шаг 1: забрать согласованное представление с сервера (склейку делает СЕРВЕР). */
 export async function fetchRestore({ url = '/restore', seat, fetchFn } = {}) {
@@ -41,7 +93,8 @@ export function applyRestore(view, journal) {
 }
 
 export function createSeatSave({ url = '/save', seat, runId, lessonId, instanceId,
-                                 getGeneration, setGeneration, getState, getPayload,
+                                 getGeneration, setGeneration, getEpoch = () => 0,
+                                 getState, getPayload, getSuspended = () => null,
                                  journal, debounceMs = 1000,
                                  onAccepted = () => {}, onOtherTab = () => {},
                                  onStale = () => {}, fetchFn } = {}) {
@@ -50,8 +103,8 @@ export function createSeatSave({ url = '/save', seat, runId, lessonId, instanceI
 
   const body = (extra = {}) => ({
     seat, run_id: runId, client_instance_id: instanceId,
-    writer_generation: getGeneration(), lesson_id: lessonId,
-    state: getState(), payload: getPayload(),
+    writer_generation: getGeneration(), epoch: getEpoch(), lesson_id: lessonId,
+    state: getState(), payload: getPayload(), suspended: getSuspended(),
     rev: journal.maxRev(), ts: Date.now(), ...extra,
   });
 
@@ -72,7 +125,9 @@ export function createSeatSave({ url = '/save', seat, runId, lessonId, instanceI
       }
       if (resp.error === 'other_tab') { onOtherTab(resp); return resp; }
       if (resp.error === 'stale') { onStale(resp); return resp; }
-      return resp;   // stale_run/no_run и пр. — наверх через onStale не гоняем, вернём вызвавшему
+      // stale_epoch: снапшот собран до сброса ведущим — не принят и не должен быть;
+      // поллинг принесёт новый epoch, handleVersionReset пересоберёт и дошлёт
+      return resp;   // stale_run/no_run и пр. — вернём вызвавшему
     } catch (e) {
       return null;   // офлайн: журнал в localStorage, TELE-паттерн досылки — доедет со следующим дебаунсом
     } finally {
@@ -89,10 +144,18 @@ export function createSeatSave({ url = '/save', seat, runId, lessonId, instanceI
     },
     /** Немедленный снапшот (вехи: переход состояния, ack коммита). */
     flushNow: () => flush(),
-    /** «Продолжить здесь»: атомарный takeover на сервере (generation+1), буфер — с нуля. */
+    /** «Продолжить здесь»: атомарный CLAIM-ONLY takeover (generation+1 БЕЗ записи
+     * нашего payload — база остаётся серверным снапшотом), буфер — с нуля. */
     async takeover() {
-      const resp = await flush({ takeover: true });
-      if (resp && resp.ok) journal.reset(resp.server_rev || journal.maxRev());
+      const resp = await doFetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seat, run_id: runId, client_instance_id: instanceId,
+                               takeover: true }),
+      }).then(r => r.json().catch(() => ({}))).catch(() => null);
+      if (resp && resp.ok) {
+        if (typeof resp.writer_generation === 'number') setGeneration(resp.writer_generation);
+        journal.reset(resp.server_rev || 0);
+      }
       return resp;
     },
   };

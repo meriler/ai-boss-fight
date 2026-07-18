@@ -11,7 +11,7 @@ import { h, bigBtn, imgCard, kidText, verdictCard, scoreCard, btnLabelFrom, conf
 import { compositionSig } from '../engine/classifier.js';
 import { trainExamples, countsOf, countsFromComposition, versionShelf, growthCells,
          sameMeasureSet } from './versions.js';
-import { stableComposition } from '../core/reducer.js';
+import { stableComposition, trainAlreadyCommitted } from '../core/reducer.js';
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
 
@@ -107,25 +107,38 @@ function boxAlbum(ctx) {
   return h('div', { class: 'box-album' }, ...rows);
 }
 
-/** Полоска эпох обучения головы (И3-Т, решение владельца 18.07): «коробка учится…»
- * с бегущим счётчиком эпох ~0.5–1 с. Честная: head реально учится итеративно
- * (modelInfo().epochs — full-batch GD), анимация визуализирует уже посчитанные эпохи.
- * kNN полоску не получает — мгновенность и есть видимая разница движков. */
-function trainEpochBar(ctx, durMs) {
-  const epochs = ctx.classifier.modelInfo().epochs || 0;
-  const fill = h('div', { class: 'trainbar-fill' });
-  const label = h('div', { class: 'trainbar-label' }, 'коробка учится…');
-  const bar = h('div', { class: 'trainbar' }, label, h('div', { class: 'trainbar-track' }, fill));
-  const t0 = performance.now();
-  const tick = () => {
-    if (!document.contains(bar)) return;
-    const k = Math.min(1, (performance.now() - t0) / durMs);
-    fill.style.width = (k * 100) + '%';
-    if (epochs) label.textContent = 'коробка учится… эпоха ' + Math.round(k * epochs) + ' из ' + epochs;
-    if (k < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-  return bar;
+/** Обучение с ЧЕСТНОЙ полоской эпох (И3-Т + Codex-ревью И3, находка 3): head считает
+ * эпохи порциями (trainAsync, между порциями — yield), полоска показывает ФАКТИЧЕСКИЙ
+ * счётчик — интерфейс не замирает и никакой фикс-добавки времени нет: полоска живёт
+ * ровно столько, сколько считается градиентный спуск. kNN мгновенен и полоски не
+ * получает — мгновенность и есть видимая разница движков (решение владельца 18.07).
+ * dataset.trainbar на #screen — машинный след для e2e (в demo эпохи долетают за кадр). */
+async function trainWithProgress(ctx, examples) {
+  const boxEl = document.querySelector('.zone-box');
+  boxEl && boxEl.classList.add('learning');
+  let bar = null, fill = null, label = null;
+  if (ctx.classifier.engineId === 'head') {
+    fill = h('div', { class: 'trainbar-fill' });
+    label = h('div', { class: 'trainbar-label' }, 'коробка учится…');
+    bar = h('div', { class: 'trainbar' }, label, h('div', { class: 'trainbar-track' }, fill));
+    const host = boxEl && boxEl.querySelector('.zone-body');
+    if (host) host.append(bar);
+    document.getElementById('screen').dataset.trainbar = '1';
+  }
+  const n = await ctx.classifier.trainAsync(examples, (ep, total) => {
+    if (!bar || !total) return;
+    if (!document.contains(bar)) {
+      // поллинг-ререндер мог пересобрать зону — вернуть полоску на место
+      const host2 = document.querySelector('.zone-box .zone-body');
+      if (host2) host2.append(bar);
+    }
+    fill.style.width = Math.round(100 * ep / total) + '%';
+    label.textContent = 'коробка учится… эпоха ' + ep + ' из ' + total;
+  });
+  const boxNow = document.querySelector('.zone-box');
+  boxNow && boxNow.classList.remove('learning');
+  if (bar) bar.remove();
+  return n;
 }
 
 function boxStatus(ctx) {
@@ -221,34 +234,35 @@ function countsByClass(ctx) {
 function trainPhase(ctx, step, phase) {
   ctx.local.reactionOk = false;   // до обучения «Получилось!» безусловна — не показываем
   const btn = bigBtn('Научить!', async (ev) => {
-    const b = ev.currentTarget;
-    b.disabled = true;
-    const boxEl = document.querySelector('.zone-box');
-    boxEl && boxEl.classList.add('learning');
+    ev.currentTarget.disabled = true;
     const examples = trainExamples(ctx);
-    const n = ctx.classifier.train(examples);
-    // видимая разница движков (И3-Т, решение владельца): у head — честная полоска эпох
-    // (обучение реально итеративное, full-batch GD), kNN — мгновенен, без полоски
-    const waitMs = ctx.demo ? (ctx.classifier.engineId === 'head' ? 400 : 150) : 900;
-    if (ctx.classifier.engineId === 'head') {
-      const box = boxEl && boxEl.querySelector('.zone-body');
-      if (box) box.append(trainEpochBar(ctx, waitMs));
+    // F5 сразу после «Научить» (Codex-ревью И3, находка 2): train_commit уже в журнале,
+    // а phase_enter следующего такта не успел — restore возвращает на этот такт.
+    // Повторный тап того же состава тем же движком НЕ плодит новую версию: модель
+    // пересобирается (тот же детерминированный результат), но в журнал не пишется.
+    // Исключение — эксперимент «проверить другую раскладку»: там «Научить» всегда
+    // морозит НОВУЮ версию (полка растёт, строка «это версия 2»), даже если ребёнок
+    // разложил идентично v1 — sig совпадает, но это осознанное обучение, не F5-повтор
+    const dup = !(ctx.payload.experiments || {})[step.id]
+      && trainAlreadyCommitted(ctx.payload, compositionSig(examples), ctx.classifier.engineId);
+    // переход — только если ребёнок всё ещё на этом такте (guarded против version reset
+    // и прочих смен состояния за время счёта эпох)
+    const go = ctx.guarded(() => ctx.advancePhase());
+    const n = await trainWithProgress(ctx, examples);
+    if (!dup) {
+      // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
+      // restore после F5 переобучает модель из composition последней версии ЕЁ ЖЕ движком
+      // (identity §3.1: состав+engine+params_rev — Codex-ревью 18.07, находки 4/5).
+      // counts/engine/params_rev — аддитивные поля V2
+      const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
+      const mi = ctx.classifier.modelInfo();
+      const sig = mi.sig;
+      ctx.j('train_commit', { version, sig, n, composition: examples,
+                              counts: countsOf(ctx), ...engineTag(mi) });
+      ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained',
+                    { n, version, sig, engine: mi.engine, params_rev: mi.params_rev });
     }
-    // «Научить» — журнальный факт (фаза 0.5): состав замораживается в версию v1/v2/…;
-    // restore после F5 переобучает модель из composition последней версии ЕЁ ЖЕ движком
-    // (identity §3.1: состав+engine+params_rev — Codex-ревью 18.07, находки 4/5).
-    // counts/engine/params_rev — аддитивные поля V2
-    const version = ((ctx.payload.model && ctx.payload.model.version) || 0) + 1;
-    const mi = ctx.classifier.modelInfo();
-    const sig = mi.sig;
-    ctx.j('train_commit', { version, sig, n, composition: examples,
-                            counts: countsOf(ctx), ...engineTag(mi) });
-    ctx.tele.push(step.mode === 'rails' ? 'trained' : 'retrained',
-                  { n, version, sig, engine: mi.engine, params_rev: mi.params_rev });
-    setTimeout(() => {
-      boxEl && boxEl.classList.remove('learning');
-      ctx.advancePhase();
-    }, waitMs);
+    go();
   }, { id: 'btn_train' });
   ctx.modelGate(btn);
   const box = [kidText(boxStatus(ctx), { small: true }), btn];
@@ -284,9 +298,16 @@ function probeFeed(ctx, step, phase) {
   // ИЛИ без ответа «Коробка права?» (вопрос обязателен — F5 его не обходит, И3-Т п.8)
   const lkey = 'probeptr_' + step.id + '_' + phase.id;
   if (ctx.local[lkey] == null) {
-    const firstOpen = ids.findIndex(id => !(id in ctx.payload.probes)
+    let firstOpen = ids.findIndex(id => !(id in ctx.payload.probes)
       || !((ctx.payload.probe_judgements || {})[id]));
-    ctx.local[lkey] = firstOpen < 0 ? ids.length : firstOpen;
+    if (firstOpen < 0) firstOpen = ids.length;
+    // F5 между ответом «Коробка права?» и «Дальше» (Codex-ревью И3, минор 3): не глотать
+    // подтверждение/разбор — если следующая проверка ещё не начата (вердикта нет), встаём
+    // на последний отвеченный вердикт (экран «Записано…»/акцент), «Дальше» продолжит ленту.
+    // Если вердикт следующей уже показан — ребёнок точно жал «Дальше», не откатываем
+    if (firstOpen > 0 && (firstOpen === ids.length || !(ids[firstOpen] in ctx.payload.probes)))
+      firstOpen -= 1;
+    ctx.local[lkey] = firstOpen;
   }
   const ptr = ctx.local[lkey];
   const current = ids[ptr];
@@ -318,13 +339,20 @@ function probeFeed(ctx, step, phase) {
     const wasWrong = !!img && verdict.label !== img.class;
     if (!judged) {
       // ОБЯЗАТЕЛЬНЫЙ вопрос на каждом вердикте (И3-Т п.8, решение владельца): ребёнок
-      // судит сам ДО подсказок экрана — телеметрия внимательности; «Дальше» заперта
+      // судит сам ДО подсказок экрана — телеметрия внимательности; «Дальше» заперта.
+      // Идемпотентность (Codex-ревью И3, минор 2): обе кнопки гаснут с ПЕРВОГО тапа —
+      // двойной тап или быстрый тап по второй кнопке не перезаписывает ответ и не
+      // дублирует телеметрию (второй клик прилетает в уже отсоединённый узел)
+      const answer = (saw) => (ev) => {
+        ev.currentTarget.parentElement.querySelectorAll('button')
+          .forEach(b => { b.disabled = true; });
+        if ((ctx.payload.probe_judgements || {})[current]) return;
+        judgeProbe(ctx, current, verdict, saw, wasWrong);
+      };
       out.push(kidText('Коробка права?'));
       out.push(h('div', { class: 'row' },
-        bigBtn('Права', () => judgeProbe(ctx, current, verdict, false, wasWrong),
-          { kind: 'secondary', id: 'btn_right' }),
-        bigBtn('Ошиблась!', () => judgeProbe(ctx, current, verdict, true, wasWrong),
-          { kind: 'secondary', id: 'btn_mistake' })));
+        bigBtn('Права', answer(false), { kind: 'secondary', id: 'btn_right' }),
+        bigBtn('Ошиблась!', answer(true), { kind: 'secondary', id: 'btn_mistake' })));
     } else {
       // акцент на ошибке — ПОСЛЕ ответа ребёнка (иначе он подсказывал бы ответ):
       // драматургия «уверена — и ошибается» видна без голоса ведущего
@@ -500,7 +528,9 @@ function measurePhase(ctx, step, phase) {
         ctx.tele.push('traps_more', { step: step.id, rest: restN, score: m.after.score });
         ctx.jumpToPhase(step.id, trapsPhase.id);
       }, { id: 'btn_more_traps' }));
-    row.append(bigBtn('Дальше', () => ctx.advancePhase(), { id: 'btn_check',
+    // advancePhase || finishStep: у резерва (r2) замер — ПОСЛЕДНИЙ такт шага, без
+    // finishStep «Дальше» не выходила из резерва (фикс-заход «ядро», рядом с п.6)
+    row.append(bigBtn('Дальше', () => ctx.advancePhase() || ctx.finishStep(), { id: 'btn_check',
       kind: (m.after.score < passN && trapsPhase && restN > 0) ? 'secondary' : 'primary' }));
     out.push(row);
   } else {
@@ -514,9 +544,11 @@ function measurePhase(ctx, step, phase) {
     const live = ctx.payload.model;
     if (requiresStable && live && live.volatile) {
       out.push(kidText('Твоя фотка не идёт в проверку — научи коробку без неё'));
-      const btn6 = bigBtn('Научить без фотки', () => {
+      const btn6 = bigBtn('Научить без фотки', async (ev) => {
+        ev.currentTarget.disabled = true;
         const composition = stableComposition(live.composition);
-        const n = ctx.classifier.train(composition);
+        const go = ctx.guarded(() => ctx.render());   // не-volatile версия активна — замер открылся
+        const n = await trainWithProgress(ctx, composition);
         const version = live.version + 1;
         const mi = ctx.classifier.modelInfo();
         const sig = mi.sig;
@@ -524,7 +556,7 @@ function measurePhase(ctx, step, phase) {
                                 counts: countsFromComposition(ctx, composition),
                                 ...engineTag(mi) });
         ctx.tele.push('retrained', { n, version, sig, engine: mi.engine, params_rev: mi.params_rev });
-        ctx.render();   // не-volatile версия активна — замер открылся
+        go();
       }, { id: 'btn_train_stable' });
       ctx.modelGate(btn6);
       out.push(btn6);

@@ -100,6 +100,14 @@ export function reduce(payload, action) {
       const ex = payload.experiments || (payload.experiments = {});
       ex[args.step] = true;
       payload.baskets = [];
+      // производные наблюдения принадлежат показанным вердиктам (аудит 18.07, п.16):
+      // mistakes сбрасываемых проб уходят вместе с ними — иначе после нового вердикта
+      // состояние держало бы и свежее «права», и старую ошибку той же картинки
+      const cleared = new Set([
+        ...Object.keys(payload.probes || {}),
+        ...Object.keys(payload.probe_judgements || {}),
+      ]);
+      payload.mistakes = (payload.mistakes || []).filter(img => !cleared.has(img));
       payload.probes = {};
       // ответы «Коробка права?» принадлежат показанным вердиктам — обнуляются вместе с ними
       payload.probe_judgements = {};
@@ -213,6 +221,27 @@ export function beforeMeasureHonest(payload, poolIds) {
   if (!poolIds || !poolIds.length) return true;
   const pool = new Set(poolIds);
   return !(m.composition || []).some(c => pool.has(c.img));
+}
+
+/** Привязка ОТЛОЖЕННОГО авто-замера «до» к месту планирования (Codex-ревью И3, находка 1).
+ * Колбэк ждёт whenReady эмбеддера (секунды) — за это время ребёнок мог уйти в резерв
+ * (ctx.machine подменяется новой машиной), перейти шаг или переучить коробку (train_commit
+ * поднял версию). Любое расхождение = замер «до» больше не принадлежит этому месту и
+ * НЕ пишется в payload. machine сравнивается по identity, modelVersion — версия активной
+ * модели payload (null, если модели нет). */
+export function measureBindingIntact(scheduled, current) {
+  return scheduled.machine === current.machine
+      && !!current.stepId && scheduled.stepId === current.stepId
+      && scheduled.modelVersion === current.modelVersion;
+}
+
+/** «Научить» УЖЕ закоммичено для этого состава этим движком? (Codex-ревью И3, находка 2:
+ * F5 в окне «train_commit в журнале, phase_enter следующего такта — нет» возвращает на
+ * такт обучения; повторный тап не должен плодить новую версию того же состава).
+ * sig — подпись состава (compositionSig), считает вызывающий. */
+export function trainAlreadyCommitted(payload, sig, engineId) {
+  const m = payload.model;
+  return !!m && m.sig === sig && (m.engine || 'knn') === engineId;
 }
 
 /** Производные представления (view-хелперы поверх журнальной формы). */

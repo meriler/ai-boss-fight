@@ -50,18 +50,34 @@ export function createMachine(normalized, { onJournal } = {}) {
       return true;
     },
 
-    /** Восстановление позиции после restore: acked-шаг с сервера + такт из журнала. */
+    /** Восстановление позиции после restore: acked-шаг с сервера + такт из журнала.
+     * Неизвестный phaseId — ошибка (аудит 18.07, п.18): молчаливый откат к фазе 0
+     * прятал бы битую позицию; явный откат делает вызывающий код (catch → jumpTo(step)). */
     jumpTo(stepId, phaseId) {
       const i = steps.findIndex(s => s.id === stepId);
       if (i < 0) throw new Error('jumpTo: нет шага ' + stepId);
+      let p = 0;
+      if (phaseId) {
+        p = steps[i].phases.findIndex(ph => ph.id === phaseId);
+        if (p < 0) throw new Error('jumpTo: нет такта ' + stepId + '.' + phaseId);
+      }
       si = i;
-      pi = phaseId ? Math.max(0, steps[i].phases.findIndex(p => p.id === phaseId)) : 0;
+      pi = p;
       done = false;
     },
 
-    /** Контрольная точка подсказки уровня 3: 'stepId.phaseId' из hints.restore_to. */
+    /** Восстановление завершённого занятия (снапшот state='done'): F5 после финала
+     * не перепоказывает последний шаг (аудит 18.07, п.5). */
+    restoreDone() { done = true; },
+
+    /** Контрольная точка подсказки уровня 3: 'stepId.phaseId' из hints.restore_to.
+     * ТОЛЬКО внутри текущего шага (аудит 18.07, п.8): межшаговый переход обязан идти
+     * через acked step_enter/gate_enter — валидатор требует того же от контента. */
     restoreTo(anchor) {
       const [stepId, phaseId] = String(anchor).split('.');
+      if (!done && steps[si] && steps[si].id !== stepId)
+        throw new Error('restoreTo: ' + anchor + ' вне текущего шага ' + steps[si].id +
+                        ' — межшаговый переход только через acked entry');
       api.jumpTo(stepId, phaseId);
       emit('phase_enter', { phase: steps[si].phases[pi].id });
     },

@@ -15,7 +15,7 @@
 
 import { createFeatureSource } from './features.js';
 import { knnClassify, knnSpectrum, compositionSig } from './knn.js';
-import { trainHead, headClassify, DEF_HEAD } from './head.js';
+import { trainHead, createHeadTrainer, headClassify, DEF_HEAD } from './head.js';
 
 const DEF_KNN = {
   k: { small: 3, large: 5, min_class_size_for_large: 10 },
@@ -87,6 +87,29 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
       } else {
         for (const p of composition) src.featureOf(p.img);   // прогрев кэша (как раньше)
       }
+      return composition.length;
+    },
+    /** Обучение с ЧЕСТНЫМ прогрессом (И3, Codex-ревью: полоска = реальная работа):
+     * head считает эпохи порциями ~12 мс с yield'ом между ними — интерфейс жив,
+     * onProgress(epoch, total) получает фактический счётчик, никакой фикс-добавки
+     * времени. Веса бит-в-бит совпадают с train() того же состава (тот же цикл,
+     * лишь нарезанный по времени; тест в engine-contract). kNN мгновенен — эквивалент
+     * train(), onProgress не зовётся (полоска — видимая разница движков). Модель и
+     * состав публикуются АТОМАРНО по завершении: до конца обучения classify/modelInfo
+     * отвечают прежней версией. */
+    async trainAsync(list, onProgress) {
+      if (engine !== 'head') return this.train(list);
+      const examples = list.map(p => ({ img: p.img, class: p.class, f: src.featureOf(p.img) }));
+      const tr = createHeadTrainer(examples, bankIndex.classIds, headHyper);
+      const CHUNK_MS = 12;   // бюджет порции — меньше кадра, полоска дышит
+      while (!tr.done) {
+        const t0 = Date.now();
+        while (!tr.done && Date.now() - t0 < CHUNK_MS) tr.step(25);
+        if (onProgress) onProgress(tr.epoch, tr.total);
+        if (!tr.done) await new Promise(r => setTimeout(r, 0));
+      }
+      headModel = tr.model();
+      composition = list.map(x => ({ img: x.img, class: x.class }));
       return composition.length;
     },
     exampleCount: () => composition.length,

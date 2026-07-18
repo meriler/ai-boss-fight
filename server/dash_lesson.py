@@ -9,6 +9,14 @@
 наверху) → свёртки (неактивные гейты, прогресс, резерв, чат, лог, легенда «как читать»).
 Каждый статус — цвет + иконка + слово, не только цвет.
 
+Живые тревоги воркшоп-контура (Codex-ревью И3 п.4) — из телеметрии /tele через
+telemetry_model.build_children: boot_dead (загрузка не встала), mixed (две одновременные
+сессии), тишина 5+ мин при живой вкладке, серия неверных кодов (гейта — из tele-событий
+gate_enter, разгадки — lock_fails v5), серия невалидных кадров, перезапуски страницы.
+Красные тревоги перекрывают колонку «связь» (ребёнок со сломанной загрузкой не выглядит
+«на связи»), оранжевые идут в «помощь», все — в очередь блока «СЕЙЧАС». Сессии с
+тишиной >30 мин тревог не поднимают (старые тесты — то же правило, что в архиве v5).
+
 Ведущий НЕ видит «правильно/неправильно» до reveal — только факт коммита и текст (§5).
 Host-действия — кнопками fetch POST /host/* (страница за basic auth, Referer-гард).
 Контракты ручек НЕ меняются — файл чисто рендерный (DoD И3-Д)."""
@@ -16,6 +24,8 @@ import html
 import json
 import time
 from datetime import datetime, timedelta
+
+from telemetry_model import build_children
 
 
 def esc(s):
@@ -28,12 +38,17 @@ def _now_ms():
 
 OFFLINE_MS = 60 * 1000        # нет поллинга >60 c → «нет связи» (§4.1)
 STUCK_FRESH_MIN = 10          # «жал застрял» показываем, если было в последние N минут
+WS_SILENCE_S = 300            # 5 мин тишины телеметрии при живой вкладке → тревога
+WS_DEAD_S = 1800              # >30 мин тишины — сессия мёртвая (старый тест), тревоги гасим
+GATE_FAILS_ALERT = 3          # серия неверных кодов гейта подряд → тревога
 
 RESERVE_LABELS = {'none': 'выключен', 'talk': '🗣 разговорный (r1)', 'trainer': '📦 тренажёрный добор (r2)'}
 
 
 def _tele_per_seat(dumps):
-    """Из дампов /tele за день: последние stuck_pressed и максимальный уровень подсказки."""
+    """Из дампов /tele за день: последние stuck_pressed, максимальный уровень подсказки
+    и серия неверных кодов гейта подряд (gate_enter ok:false без последующего ok:true —
+    live-сигнал «перебирает код», Codex-ревью И3 п.4)."""
     per = {}
     for d in dumps:
         seat = str(d.get('seat') or '')
@@ -43,7 +58,9 @@ def _tele_per_seat(dumps):
             t0 = datetime.fromisoformat(str(d.get('started')).replace('Z', '+00:00'))
         except Exception:
             continue
-        rec = per.setdefault(seat, {'stuck_last': None, 'stuck_step': '', 'hint_max': 0})
+        rec = per.setdefault(seat, {'stuck_last': None, 'stuck_step': '', 'hint_max': 0,
+                                    'gate_fails': 0})
+        series = 0
         for e in d.get('events', []):
             if not isinstance(e, dict):
                 continue
@@ -54,7 +71,52 @@ def _tele_per_seat(dumps):
                     rec['stuck_step'] = str(e.get('step', ''))
             elif e.get('type') == 'hint':
                 rec['hint_max'] = max(rec['hint_max'], int(e.get('level', 1) or 1))
+            elif e.get('type') == 'gate_enter':
+                series = 0 if e.get('ok') else series + 1
+        rec['gate_fails'] = max(rec['gate_fails'], series)
     return per
+
+
+def _ws_kids(dumps, names):
+    """Дети воркшоп-агрегации (telemetry_model.build_children) по строке-месту:
+    источник живых тревог boot_dead / mixed / тишина / invalid-кадры / перезапуски.
+    Ошибка агрегации не должна ронять панель — тогда тревог просто нет."""
+    try:
+        return {str(k['seat']): k for k in build_children(dumps, names)}
+    except Exception:
+        return {}
+
+
+def _ws_alarms(k, gate_fails, now_dt):
+    """Живые тревоги воркшоп-контура для ребёнка k (Codex-ревью И3 п.4): список
+    [(prio, слово-для-таблицы, причина-для-«СЕЙЧАС»)], prio 0 — красное (перекрывает
+    «на связи»), 1 — оранжевое. >30 мин тишины — сессия мёртвая (старый тест), тревог
+    нет (то же правило, что в архивном дашборде v5)."""
+    out = []
+    if gate_fails >= GATE_FAILS_ALERT:
+        out.append((1, '🔢 %d неверных кода' % gate_fails,
+                    'подряд %d неверных кодов гейта — назови код голосом ещё раз' % gate_fails))
+    if not k or not k.get('last_seen'):
+        return out
+    s = (now_dt - k['last_seen']).total_seconds()
+    if s >= WS_DEAD_S:
+        return []
+    if k.get('boot_dead'):
+        out.insert(0, (0, '💥 загрузка не встала',
+                       'boot_fail без boot_ok — страница/модель не поднялась, помоги переоткрыть'))
+    if k.get('mixed'):
+        out.insert(0, (0, '⚠️ две сессии',
+                       'две одновременные сессии на месте — похоже, ссылку переслали'))
+    if s >= WS_SILENCE_S:
+        out.append((1, '😶 тишина %d мин' % int(s // 60),
+                    'событий телеметрии нет %d мин — вкладка жива, но ничего не происходит' % int(s // 60)))
+    if k.get('lock_fails', 0) >= 5:
+        out.append((1, '🔢 подбирает код',
+                    '%d неверных вводов кода разгадки подряд' % k['lock_fails']))
+    if k.get('inv_tail', 0) >= 4:
+        out.append((1, '🚫 кадры не выходят',
+                    '%d невалидных кадра подряд — не может собрать пример' % k['inv_tail']))
+    return out
 
 
 def _fmt_measure(payload):
@@ -199,6 +261,7 @@ def render_lesson_panel(store, dumps, names, session_live):
     seats_state = state.get('seats') or {}
     commits = state.get('commits') or {}
     tele = _tele_per_seat(dumps)
+    wskids = _ws_kids(dumps, names)   # живые тревоги воркшоп-контура (Codex-ревью И3 п.4)
     all_seats = sorted(set(list(names.keys()) + list(seats_state.keys())),
                        key=lambda s: (not str(s).isdigit(), int(s) if str(s).isdigit() else 0, str(s)))
 
@@ -243,19 +306,24 @@ def render_lesson_panel(store, dumps, names, session_live):
     # ================= блок «СЕЙЧАС»: только активное =================
     now_parts = []
 
-    # ---- очередь «кому помочь» — топ-кейс КРУПНО ----
+    # ---- очередь «кому помочь» — топ-кейс КРУПНО (включая живые тревоги
+    #      воркшоп-контура: boot_dead, две сессии, тишина, коды, кадры) ----
     queue = []
     now_dt = datetime.now().astimezone()
+    seat_alarms = {}
     for s in all_seats:
         t = tele.get(str(s)) or {}
+        seat_alarms[str(s)] = _ws_alarms(wskids.get(str(s)), t.get('gate_fails', 0), now_dt)
         if t.get('stuck_last'):
             age_min = (now_dt - t['stuck_last']).total_seconds() / 60
             if age_min <= STUCK_FRESH_MIN:
                 queue.append((0, s, 'жал «застрял» на шаге %s, %d мин назад' %
                               (t.get('stuck_step') or '?', max(0, int(age_min)))))
+        for prio_a, _word, why in seat_alarms[str(s)]:
+            queue.append((prio_a, s, why))
         if offline(s):
             queue.append((1, s, 'нет связи — поллинг молчит больше минуты'))
-    queue.sort()
+    queue.sort(key=lambda q: (q[0], str(q[1]), q[2]))
     if queue:
         now_parts.append('<div class="red"><b>🆘 ' + seat_name(queue[0][1]) + '</b> — ' +
                          esc(queue[0][2]) + '<br><span class="act">→ подойди голосом</span></div>')
@@ -374,7 +442,19 @@ def render_lesson_panel(store, dumps, names, session_live):
                 prio = 0
         if t.get('hint_max'):
             help_bits.append('ур.' + str(t['hint_max']))
-        if offline(s):
+        # живые тревоги воркшоп-контура (Codex-ревью И3 п.4): ребёнок со сломанной
+        # загрузкой / двумя сессиями не должен выглядеть «на связи» — красные тревоги
+        # перекрывают колонку связи, оранжевые идут в «помощь»
+        alarms = seat_alarms.get(str(s)) or []
+        hard = [a for a in alarms if a[0] == 0]
+        for _p, word, _why in (a for a in alarms if a[0] != 0):
+            help_bits.append(esc(word))
+        if alarms:
+            prio = min(prio, min(a[0] for a in alarms))
+        wk = wskids.get(str(s)) or {}
+        if hard:
+            conn = ' · '.join(esc(w) for _p, w, _why in hard)
+        elif offline(s):
             conn = '📴 НЕТ СВЯЗИ'
             prio = min(prio, 1)
         elif rec.get('instance'):
@@ -382,6 +462,8 @@ def render_lesson_panel(store, dumps, names, session_live):
         else:
             conn = '⚪ не открывал'
             prio = min(prio, 2)
+        if wk.get('restarts'):
+            conn += ' · %d перезап.' % wk['restarts']
         rows.append((prio,
                      (not str(s).isdigit(), int(s) if str(s).isdigit() else 0, str(s)),
                      '<tr class="zr' + str(prio) + '"><td><b>' + seat_name(s) + '</b></td>' +
@@ -396,12 +478,14 @@ def render_lesson_panel(store, dumps, names, session_live):
     rows.sort(key=lambda r: (r[0], r[1]))
     out.append('<h3>Дети в занятии</h3><table><tr>'
                '<th title="имя и место из ростера">кто</th>'
-               '<th title="🟢 на связи · 📴 нет связи (поллинг молчит >60 сек) · ⚪ не открывал ссылку">связь</th>'
+               '<th title="🟢 на связи · 📴 нет связи (поллинг молчит >60 сек) · ⚪ не открывал ссылку · '
+               '💥 загрузка не встала · ⚠️ две сессии · N перезап. — перезагрузки страницы">связь</th>'
                '<th title="последний подтверждённый шаг ребёнка">шаг</th>'
                '<th title="проверка знаний: до обучения → после">замер</th>'
                '<th title="✓ — записал версию/выбор; текст виден, «верно/неверно» — нет до reveal">версия</th>'
                '<th title="✓ — записал прогноз">прогноз</th>'
-               '<th title="🆘 сам нажал «застрял» · ур.N — глубина подсказок">помощь</th>'
+               '<th title="🆘 сам нажал «застрял» · ур.N — глубина подсказок · 😶 тишина · '
+               '🔢 серия неверных кодов · 🚫 невалидные кадры">помощь</th>'
                '<th title="сколько раз нажал «получилось!»">👍</th></tr>' +
                (''.join(r[2] for r in rows) or '<tr><td colspan=8>—</td></tr>') + '</table>'
                '<p class="note">до reveal видно только ФАКТ коммита и текст — без «верно/неверно» '
@@ -451,9 +535,13 @@ def render_lesson_panel(store, dumps, names, session_live):
         '<details><summary>ℹ️ Как читать панель</summary><p>'
         '<b>СЕЙЧАС</b> — только то, что требует действия: очередь помощи, замки разгадки, текущий гейт.<br>'
         '<b>Связь:</b> 🟢 на связи — устройство шлёт синк · 📴 НЕТ СВЯЗИ — поллинг молчит больше минуты '
-        '(вкладка закрыта / интернет) · ⚪ не открывал — по ссылке ещё не заходили.<br>'
+        '(вкладка закрыта / интернет) · ⚪ не открывал — по ссылке ещё не заходили · '
+        '💥 загрузка не встала / ⚠️ две сессии — тревога телеметрии, «на связи» она перекрывает · '
+        '«N перезап.» — сколько раз перезагружал страницу (много = проблемы сети/устройства).<br>'
         '<b>Помощь:</b> 🆘 застрял — ребёнок сам нажал кнопку «застрял» → подойди · '
-        'ур.N — до какой по глубине подсказки дошёл (ур.2 — сильная).<br>'
+        'ур.N — до какой по глубине подсказки дошёл (ур.2 — сильная) · '
+        '😶 тишина — вкладка жива, но событий нет 5+ мин · 🔢 — серия неверных кодов · '
+        '🚫 — серия невалидных кадров.<br>'
         '<b>Замер:</b> «0/4 → 3/4» — проверка до обучения → после.<br>'
         '<b>Версия/Прогноз:</b> ✓ — ребёнок записал; до «Раскрыть» видно только факт и текст, '
         'БЕЗ «верно/неверно» — не подтверждай верный ответ, пока все не записали.<br>'

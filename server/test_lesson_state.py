@@ -102,7 +102,7 @@ class TestMaintenancePause(unittest.TestCase):
             f.write('deploy')
         st, resp = req('POST', '/save', {
             'seat': '77', 'run_id': run, 'client_instance_id': 'M',
-            'writer_generation': 1, 'lesson_id': 'z1-kot',
+            'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
             'state': {}, 'payload': {}, 'rev': 1, 'ts': 1})
         self.assertEqual(st, 503)
         self.assertEqual(resp['error'], 'maintenance')
@@ -117,7 +117,7 @@ class TestMaintenancePause(unittest.TestCase):
         os.remove(tele.MAINT_FLAG)
         st, resp = req('POST', '/save', {              # флаг снят — мутации вернулись
             'seat': '77', 'run_id': run, 'client_instance_id': 'M',
-            'writer_generation': 1, 'lesson_id': 'z1-kot',
+            'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
             'state': {}, 'payload': {}, 'rev': 1, 'ts': 1})
         self.assertEqual(st, 200)
 
@@ -140,7 +140,7 @@ class TestSaveRestore(unittest.TestCase):
         run = start_run()
         st, resp = req('POST', '/save', {
             'seat': '3', 'run_id': run, 'client_instance_id': 'A',
-            'writer_generation': 1, 'lesson_id': 'z1-kot',
+            'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
             'state': {'step': 's2', 'phase': 'version_commit'},
             'payload': {'baskets': [{'img': 't1', 'basket': 'cat'}]},
             'rev': 7, 'ts': 1})
@@ -163,7 +163,7 @@ class TestSaveRestore(unittest.TestCase):
         не откатывает принятый rev=5; равный rev — идемпотентный no-op."""
         run = start_run()
         base = {'seat': '4', 'run_id': run, 'client_instance_id': 'A',
-                'writer_generation': 1, 'lesson_id': 'z1-kot', 'state': {}, 'ts': 1}
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot', 'state': {}, 'ts': 1}
         st, r = req('POST', '/save', dict(base, rev=5, payload={'v': 5}))
         self.assertEqual((st, r['accepted_rev']), (200, 5))
         st, r = req('POST', '/save', dict(base, rev=4, payload={'v': 4}))   # сетевое переупорядочивание
@@ -179,7 +179,7 @@ class TestSaveRestore(unittest.TestCase):
         """Репетиция утром → урок вечером: вкладка старого прогона не пишет в новый."""
         run_old = start_run()
         body = {'seat': '9', 'run_id': run_old, 'client_instance_id': 'A',
-                'writer_generation': 1, 'lesson_id': 'z1-kot',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
                 'state': {}, 'payload': {}, 'rev': 1, 'ts': 1}
         st, _ = req('POST', '/save', body)
         self.assertEqual(st, 200)
@@ -193,11 +193,78 @@ class TestSaveRestore(unittest.TestCase):
         self.assertEqual(view['server_rev'], 0)
 
 
+class TestSaveEpochGuard(unittest.TestCase):
+    def test_delayed_snapshot_after_reset_rejected(self):
+        """Аудит ядра 18.07, critical 2: /save несёт epoch; задержанный снапшот,
+        собранный ДО /host/reset_version, не записывается после сброса и не
+        возвращает отменённую версию."""
+        run = start_run()
+        body = {'seat': '11', 'run_id': run, 'client_instance_id': 'E',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': 's2', 'payload': {'version': {'slots': {'1': 1}}},
+                'rev': 5, 'ts': 1}
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        # ведущий сбрасывает версию → epoch 1
+        st, r = req('POST', '/host/reset_version', {'seat': '11', 'step': 's2'},
+                    headers=DASH_REF)
+        self.assertEqual((st, r['epoch']), (200, 1))
+        # задержанный снапшот старой эпохи (в нём ещё отменённая версия) — отказ
+        st, r = req('POST', '/save', dict(body, rev=6))
+        self.assertEqual((st, r['error']), (409, 'stale_epoch'))
+        self.assertEqual(r['epoch'], 1)
+        # снапшот без epoch вовсе (гипотетический старый клиент) — тоже отказ
+        legacy = dict(body, rev=7)
+        del legacy['epoch']
+        st, r = req('POST', '/save', legacy)
+        self.assertEqual((st, r['error']), (409, 'stale_epoch'))
+        # свежий снапшот новой эпохи (версия уже вычищена клиентом) — принят
+        st, r = req('POST', '/save', dict(body, rev=8, epoch=1,
+                                          payload={'version': {'slots': {}}}))
+        self.assertEqual(st, 200, r)
+
+    def test_done_state_written_at_same_rev(self):
+        """Аудит 18.07, п.5: state='done' не двигает rev (вне журнала) — веха финала
+        обязана перезаписать снапшот при том же (generation, rev), иначе F5 после
+        финала перепоказывает последний шаг."""
+        run = start_run()
+        body = {'seat': '13', 'run_id': run, 'client_instance_id': 'D',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': 's8', 'payload': {'p': 1}, 'rev': 4, 'ts': 1}
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        st, r = req('POST', '/save', dict(body, state='done'))   # тот же rev, новая веха
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=13')
+        self.assertEqual(view['state'], 'done')
+        # полный идемпотентный повтор (ничего не изменилось) — по-прежнему no-op
+        st, r = req('POST', '/save', dict(body, state='done'))
+        self.assertEqual(st, 200, r)
+
+    def test_suspended_roundtrip(self):
+        """Аудит 18.07, п.7: позиция основной машины при уходе в резерв хранится
+        в снапшоте и возвращается из /restore — F5 внутри резерва не теряет фазу."""
+        run = start_run()
+        body = {'seat': '12', 'run_id': run, 'client_instance_id': 'S',
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': 'r2', 'payload': {},
+                'suspended': {'step': 's2', 'phase': 'baskets'}, 'rev': 2, 'ts': 1}
+        st, r = req('POST', '/save', body)
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=12')
+        self.assertEqual(view['suspended'], {'step': 's2', 'phase': 'baskets'})
+        # выход из резерва: снапшот без suspended — поле очищено
+        st, r = req('POST', '/save', dict(body, rev=3, state='s2', suspended=None))
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=12')
+        self.assertIsNone(view['suspended'])
+
+
 class TestWriterTakeover(unittest.TestCase):
     def test_single_writer_and_takeover(self):
         run = start_run()
         a = {'seat': '5', 'run_id': run, 'client_instance_id': 'tabA',
-             'writer_generation': 1, 'lesson_id': 'z1-kot',
+             'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
              'state': {}, 'payload': {'from': 'A'}, 'rev': 3, 'ts': 1}
         st, _ = req('POST', '/save', a)
         self.assertEqual(st, 200)
@@ -209,11 +276,19 @@ class TestWriterTakeover(unittest.TestCase):
                                       'text': 'привет', 'client_instance_id': 'tabB',
                                       'writer_generation': 1})
         self.assertEqual((st, r['error']), (409, 'other_tab'))
-        # «Продолжить здесь» — атомарный takeover: generation+1
-        st, r = req('POST', '/save', dict(b, takeover=True))
+        # «Продолжить здесь» — атомарный CLAIM-ONLY takeover (аудит 18.07, critical 3):
+        # generation+1, но payload перехватчика НЕ пишется — базой остаётся серверный
+        # снапшот A (буфер старой вкладки не должен стать базой новой generation)
+        st, r = req('POST', '/save', {'seat': '5', 'run_id': run,
+                                      'client_instance_id': 'tabB', 'takeover': True})
         self.assertEqual(st, 200, r)
         self.assertEqual(r['writer_generation'], 2)
-        # снапшот новой generation принят, даже с меньшим rev: (2,1) > (1,3)
+        self.assertEqual(r['server_rev'], 3)          # клиент чистит журнал до server_rev
+        st, view = req('GET', '/restore?seat=5')
+        self.assertEqual(view['payload'], {'from': 'A'})   # база — снапшот, не буфер B
+        # дальше B пишет сам: снапшот новой generation принят даже с меньшим rev, (2,1) > (1,3)
+        st, r = req('POST', '/save', dict(b, writer_generation=2))
+        self.assertEqual(st, 200, r)
         st, view = req('GET', '/restore?seat=5')
         self.assertEqual(view['payload'], {'from': 'B'})
         # старая вкладка потеряла право на ВСЁ: save, commit, react
@@ -391,7 +466,7 @@ class TestConcurrency(unittest.TestCase):
                 assert st == 200, r
                 st, r = req('POST', '/save', {'seat': seat, 'run_id': run,
                                               'client_instance_id': 'inst-%s' % seat,
-                                              'writer_generation': 1, 'lesson_id': 'z1-kot',
+                                              'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
                                               'state': {}, 'payload': {'seat': seat},
                                               'rev': 1, 'ts': 1})
                 assert st == 200, r

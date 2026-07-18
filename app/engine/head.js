@@ -42,15 +42,19 @@ function softmaxInPlace(z) {
   return z;
 }
 
-/** Обучение головы: examples [{img, class, f:{emb,pix}}] → {W (C×D, Float64Array[]), b,
- * classIds, dim, hyper}. Чистая функция состава: канонизация сортировкой по img id. */
-export function trainHead(examples, classIds, hyper = {}) {
+/** Пошаговый тренер головы (И3, честная полоска эпох): та же математика, что trainHead,
+ * но эпохи считаются порциями step(n) — UI зовёт их между кадрами и рисует РЕАЛЬНЫЙ
+ * прогресс, интерфейс не замирает. Детерминизм не тронут: арифметика и порядок циклов
+ * идентичны монолитному train — веса бит-в-бит совпадают (тест в engine-contract). */
+export function createHeadTrainer(examples, classIds, hyper = {}) {
   const H = { ...DEF_HEAD, ...hyper };
   const list = [...examples].sort((a, b) => (a.img < b.img ? -1 : a.img > b.img ? 1 : 0));
   const present = classIds.filter(c => list.some(ex => ex.class === c));
   const C = classIds.length;
   if (!list.length || present.length < 2) {
-    return { W: null, b: null, classIds, present, hyper: H };   // честный «не обучена» (в занятии не бывает)
+    // честный «не обучена» (в занятии не бывает): нет эпох, модель сразу готова
+    return { total: 0, get epoch() { return 0; }, get done() { return true; },
+             step: () => 0, model: () => ({ W: null, b: null, classIds, present, hyper: H }) };
   }
   const xs = list.map(ex => headFeature(ex.f, H.feat_scale_pix));
   const D = xs[0].length;
@@ -70,7 +74,8 @@ export function trainHead(examples, classIds, hyper = {}) {
   const gB = new Float64Array(C);
   const z = new Float64Array(C);
 
-  for (let ep = 0; ep < H.epochs; ep++) {
+  let ep = 0;
+  const epochOnce = () => {
     for (let c = 0; c < C; c++) { gW[c].fill(0); gB[c] = 0; }
     for (let n = 0; n < xs.length; n++) {
       const x = xs[n];
@@ -93,8 +98,29 @@ export function trainHead(examples, classIds, hyper = {}) {
       for (let i = 0; i < D; i++) Wc[i] -= H.lr * (gc[i] / wSum + H.l2 * Wc[i]);
       b[c] -= H.lr * (gB[c] / wSum);
     }
-  }
-  return { W, b, classIds, present, dim: D, hyper: H };
+  };
+
+  return {
+    total: H.epochs,
+    get epoch() { return ep; },
+    get done() { return ep >= H.epochs; },
+    /** Прогнать до n эпох, вернуть фактический счётчик. */
+    step(n = 1) {
+      const end = Math.min(H.epochs, ep + n);
+      while (ep < end) { epochOnce(); ep += 1; }
+      return ep;
+    },
+    model: () => ({ W, b, classIds, present, dim: D, hyper: H }),
+  };
+}
+
+/** Обучение головы: examples [{img, class, f:{emb,pix}}] → {W (C×D, Float64Array[]), b,
+ * classIds, dim, hyper}. Чистая функция состава: канонизация сортировкой по img id.
+ * Монолитная обёртка над createHeadTrainer — CI/walk/parity зовут её синхронно. */
+export function trainHead(examples, classIds, hyper = {}) {
+  const tr = createHeadTrainer(examples, classIds, hyper);
+  if (tr.total) tr.step(tr.total);
+  return tr.model();
 }
 
 /** Вердикт головы: {label, conf, margin (сырой logit-разрыв top−second), spectrum

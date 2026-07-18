@@ -5,8 +5,10 @@
  *
  * Идемпотентность: op_id генерится при ПЕРВОЙ попытке и не меняется в ретраях (переживает
  * F5 через localStorage-очередь) — потерянный HTTP-ответ + автоповтор не плодит второй
- * коммит. Каждый запрос несёт client_instance_id + writer_generation (single-writer §1.1)
- * и epoch seat'а (отменённая /host/reset_version версия не воскресает ретраем). */
+ * коммит. client_instance_id, writer_generation и epoch ЗАМОРАЖИВАЮТСЯ в операции при
+ * создании и ретраятся без изменений (аудит ядра 18.07, critical 1): операция, зависшая
+ * до /host/reset_version или takeover, обязана прийти со СТАРЫМИ правами и получить
+ * stale_epoch/other_tab — свежие значения в ретрае воскресили бы отменённый коммит. */
 
 const uuid = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
@@ -28,8 +30,12 @@ export function createAcked({ url = '/commit', seat, runId, instanceId,
 
   const attempt = async (op) => {
     const body = {
-      seat, run_id: runId, client_instance_id: instanceId,
-      writer_generation: getGeneration(), epoch: getEpoch(),
+      seat, run_id: runId,
+      // замороженные при создании op права; у операций старого формата (до фикса)
+      // их нет — те честно идут с текущими (хуже не становится)
+      client_instance_id: op.instance != null ? op.instance : instanceId,
+      writer_generation: op.generation != null ? op.generation : getGeneration(),
+      epoch: op.epoch != null ? op.epoch : getEpoch(),
       op_id: op.op_id, type: op.type, step: op.step, payload: op.data,
     };
     const r = await doFetch(url, {
@@ -66,14 +72,17 @@ export function createAcked({ url = '/commit', seat, runId, instanceId,
   };
 
   const api = {
-    /** Отправить acked-действие; резолвится ТОЛЬКО по ack сервера (или терминальному отказу). */
+    /** Отправить acked-действие; резолвится ТОЛЬКО по ack сервера (или терминальному отказу).
+     * Права (instance/generation/epoch) замораживаются здесь и не меняются в ретраях. */
     commit(type, step, data) {
-      const op = { op_id: uuid(), type, step, data: data || {} };
+      const op = { op_id: uuid(), type, step, data: data || {},
+                   instance: instanceId, generation: getGeneration(), epoch: getEpoch() };
       pending.push(op);
       persist();
       return runOp(op);
     },
-    /** После F5: дослать неподтверждённые операции с ИХ ЖЕ op_id (сервер дедупит). */
+    /** После F5: дослать неподтверждённые операции с ИХ ЖЕ op_id и ИХ ЖЕ замороженными
+     * правами (сервер дедупит; операция из отменённой эпохи получает stale_epoch). */
     resendPending() {
       if (store) {
         try {
@@ -82,6 +91,11 @@ export function createAcked({ url = '/commit', seat, runId, instanceId,
         } catch (e) {}
       }
       return Promise.allSettled(pending.map(runOp));
+    },
+    /** Сброс очереди (takeover: операции старого поколения не должны пугать новую вкладку). */
+    clearPending() {
+      pending = [];
+      persist();
     },
     pendingCount: () => pending.length,
   };

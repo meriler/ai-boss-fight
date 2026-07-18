@@ -10,7 +10,7 @@ import path from 'node:path';
 import url from 'node:url';
 import { indexBank } from '../core/manifest.js';
 import { createEngine, allowedEngines, ENGINE_IDS } from './index.js';
-import { trainHead, headClassify, weightsSig, DEF_HEAD } from './head.js';
+import { trainHead, createHeadTrainer, headClassify, weightsSig, DEF_HEAD } from './head.js';
 import { knnClassify } from './knn.js';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
@@ -53,6 +53,44 @@ test('head: детерминизм — два train бит-в-бит одни в
   assert.equal(weightsSig(m1), weightsSig(m2));
   for (let c = 0; c < 2; c++)
     assert.deepEqual([...m1.W[c]], [...m2.W[c]], 'веса класса ' + c + ' разошлись');
+});
+
+test('Codex-И3 п.3: createHeadTrainer порциями = trainHead монолитно (бит-в-бит)', () => {
+  // честная полоска эпох режет обучение на порции — веса обязаны совпасть с монолитом
+  const m1 = trainHead(TOY, ['A', 'B']);
+  const tr = createHeadTrainer(TOY, ['A', 'B']);
+  while (!tr.done) tr.step(7);   // рваные порции (7 не делит 1000 нацело — проверяем хвост)
+  assert.equal(weightsSig(tr.model()), weightsSig(m1));
+  assert.equal(tr.epoch, tr.total, 'счётчик эпох дошёл ровно до total');
+});
+
+test('Codex-И3 п.3: trainAsync — та же модель, что train(), прогресс реальный и монотонный', async () => {
+  const bi = indexBank(BANK);
+  const list = [];
+  for (const r of ['train_core', 'trap'])
+    for (const img of bi.byRole.get(r) || []) list.push({ img: img.id, class: img.class });
+  const sync = createEngine({ bankIndex: bi, demo: true, engine: 'head' });
+  sync.train(list);
+  const async_ = createEngine({ bankIndex: bi, demo: true, engine: 'head' });
+  const seen = [];
+  const n = await async_.trainAsync(list, (ep, total) => seen.push([ep, total]));
+  assert.equal(n, list.length);
+  assert.ok(seen.length >= 1, 'onProgress звался');
+  assert.ok(seen.every(([ep, total]) => total === DEF_HEAD.epochs && ep <= total),
+    'прогресс — фактические эпохи, не проценты времени');
+  for (let i = 1; i < seen.length; i++)
+    assert.ok(seen[i][0] >= seen[i - 1][0], 'счётчик эпох монотонный');
+  assert.equal(seen[seen.length - 1][0], DEF_HEAD.epochs, 'дошёл до последней эпохи');
+  // вердикты бит-в-бит: сырые маржи равны как числа на всех картинках банка
+  for (const img of bi.bank.images) {
+    const a = sync.classify(img.id), b = async_.classify(img.id);
+    assert.equal(a.label, b.label, img.id + ': метки разошлись');
+    assert.equal(a.margin, b.margin, img.id + ': маржа не бит-в-бит');
+  }
+  // kNN: trainAsync — эквивалент train(), мгновенен
+  const knnE = createEngine({ bankIndex: bi, demo: true, engine: 'knn' });
+  assert.equal(await knnE.trainAsync(list), list.length);
+  assert.equal(knnE.exampleCount(), list.length);
 });
 
 test('head: канонизация — перемешанный порядок укладки даёт бит-в-бит ту же модель', () => {

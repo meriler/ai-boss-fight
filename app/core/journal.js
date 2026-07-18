@@ -1,9 +1,15 @@
 /* Локальный буфер — ЖУРНАЛ ДЕЙСТВИЙ фиксированного словаря (ТЗ §1.1, схема journal.schema.json).
  * rev — монотонный per-instance счётчик, единый источник rev и для записей журнала,
  * и для снапшотов /save. Стартовый rev нового инстанса = max(server_rev, local_rev) + 1.
- * Персист в localStorage (паттерн TELE): F5 не теряет несинхронизированный хвост. */
+ * Персист в localStorage (паттерн TELE): F5 не теряет несинхронизированный хвост.
+ *
+ * Владелец записи (аудит ядра 18.07, critical 4): каждая запись несёт inst+gen писателя;
+ * load() отдаёт в replay ТОЛЬКО хвост текущего (instance, generation) — хвост старого
+ * писателя с большим rev не реплеится поверх базы нового поколения (localStorage общий
+ * между вкладками одного браузера). Счётчик rev при этом остаётся глобальным максимумом,
+ * чтобы новый писатель не переиспользовал rev чужих записей. */
 
-export function createJournal({ storageKey = 'z1_journal', storage } = {}) {
+export function createJournal({ storageKey = 'z1_journal', storage, owner } = {}) {
   const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
   let entries = [];
   let counter = 0;          // последний выданный rev
@@ -13,13 +19,20 @@ export function createJournal({ storageKey = 'z1_journal', storage } = {}) {
     try { store.setItem(storageKey, JSON.stringify({ counter, entries })); } catch (e) { /* quota */ }
   };
 
+  const mine = (e) => !owner || (e.inst === owner.inst && e.gen === owner.gen);
+
   const api = {
-    /** Поднять хвост из localStorage (вызвать до restore — его rev участвуют в max). */
+    /** Поднять хвост из localStorage (вызвать до restore — его rev участвуют в max).
+     * Чужие записи (другой instance/generation, включая записи старого формата без
+     * владельца) в replay не попадают, но их rev двигают счётчик. */
     load() {
       if (!store) return api;
       try {
         const d = JSON.parse(store.getItem(storageKey) || 'null');
-        if (d && Array.isArray(d.entries)) { entries = d.entries; counter = d.counter || 0; }
+        if (d && Array.isArray(d.entries)) {
+          counter = Math.max(d.counter || 0, ...d.entries.map(e => e.rev || 0), 0);
+          entries = d.entries.filter(mine);
+        }
       } catch (e) { /* битый кэш — начинаем чисто */ }
       return api;
     },
@@ -30,7 +43,8 @@ export function createJournal({ storageKey = 'z1_journal', storage } = {}) {
     },
     append(type, args) {
       counter += 1;
-      const entry = { type, args: args || {}, rev: counter, ts: Date.now() };
+      const entry = { type, args: args || {}, rev: counter, ts: Date.now(),
+                      ...(owner ? { inst: owner.inst, gen: owner.gen } : {}) };
       entries.push(entry);
       persist();
       return entry;

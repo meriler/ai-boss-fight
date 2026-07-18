@@ -7,9 +7,20 @@
  * собирает версию из фрагментов, коммитит, добавляет ловушки, снимает замеры, делает
  * прогноз и отмечает лучшую ловушку. Acked-действия (version/choice/forecast/captcha/
  * gate_enter/step_enter) НЕ пишутся в журнал — копятся списком acked (авторитет — сервер;
- * в CI сервера нет, в e2e их подтверждает настоящий /commit). */
+ * в CI сервера нет, в e2e их подтверждает настоящий /commit).
+ *
+ * Семантика такта — через ОБЩИЙ классификатор phaseSemantics (аудит 18.07, п.11):
+ * walk исполняет РОВНО ОДНУ экранную ветку, как живой рендер; двойная семантика на
+ * такте — ошибка walk (и отдельная ошибка валидатора).
+ *
+ * Резервы (аудит 18.07, п.17): режим includeReserve моделирует ЖИВОЙ сценарий —
+ * вход в резерв ПОСРЕДИ шага (машина основного маршрута приостанавливается на своей
+ * позиции), полный проход обоих резервов отдельными машинами, возврат через acked
+ * step_enter приостановленного шага (клиентский exitReserve) и продолжение с ТОЙ ЖЕ
+ * позиции — а не дописывание резервов в конец маршрута. */
 
 import { createMachine } from './machine.js';
+import { phaseSemantics } from './manifest.js';
 import { reduce, initialPayload } from './reducer.js';
 
 const TS0 = 1700000000000;   // детерминизм: ts информационный, порядок задаёт rev
@@ -25,59 +36,39 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
     try { reduce(payload, entry); }
     catch (e) { errors.push(`редьюсер: ${e.message}`); }
   };
-  const steps = includeReserve
+  // пост-условия считаются по ВСЕМУ пройденному набору шагов (основные + резервы)
+  const allSteps = includeReserve
     ? [...normalized.steps, ...normalized.reserve]
     : normalized.steps;
-  const machine = createMachine({ ...normalized, steps }, { onJournal: j });
+  const machine = createMachine(normalized, { onJournal: j });
   let trainVersion = 0;   // версии состава обучения (train_commit, фаза 0.5)
+  let reserveDone = !includeReserve;
 
   const otherClass = cls => bankIndex.classIds.find(c => c !== cls);
   const role = r => bankIndex.byRole.get(r) || [];
 
-  const walkStep = (step) => {
-    visited.push(step.id);
-    // вход в шаг — acked по построению (гейт или step_enter)
-    acked.push(machine.entryRequirement());
-    // R1 «до» — автозамер при входе в шаг с measure (before: auto)
-    if (step.measure && step.measure.before === 'auto')
-      j('measure_result', { phase: 'before', score: 1, of: step.measure.holdout.length });
+  /* одна экранная ветка такта — по общему классификатору (как живой рендер) */
+  const doPhase = (m, step, p, optLists, optState) => {
+    const els = p.elements || [];
 
-    let optPhase = 0;            // маппинг opt-тактов по порядку: choice → predict → reason
-    const optLists = [];
-    if (step.version) optLists.push({ kind: 'choice', n: step.version.choice.options.length });
-    if (step.forecast) optLists.push({ kind: 'predict', n: step.forecast.predict_options.length },
-                                     { kind: 'reason', n: step.forecast.reason_options.length });
-
-    for (let first = true; ; first = false) {
-      if (!first && !machine.advancePhase()) break;
-      const p = machine.phase();
-      const els = p.elements || [];
-
-      if (p.card) {                                        // derived-такт cards_quiz
-        const card = p.card;
-        if (card.multi) {
-          for (const cell of card.correct) j('captcha_toggle', { card: card.id, cell });
-          acked.push({ ack: 'commit', type: 'captcha', step: step.id,
-                       data: { card: card.id, cells: [...card.correct] } });
-        } else {
-          j('quiz_answer', { card: card.id, answer: card.correct });
-        }
-        continue;
+    if (p.card) {                                        // derived-такт cards_quiz
+      const card = p.card;
+      if (card.multi) {
+        for (const cell of card.correct) j('captcha_toggle', { card: card.id, cell });
+        acked.push({ ack: 'commit', type: 'captcha', step: step.id,
+                     data: { card: card.id, cells: [...card.correct] } });
+      } else {
+        j('quiz_answer', { card: card.id, answer: card.correct });
       }
+      return;
+    }
 
-      if (els.some(e => e.startsWith('basket_'))) {        // раскладка по одной + «вернуть»
-        const train = role('train_core');
-        if (!train.length) errors.push(step.id + ': в банке нет train_core');
-        train.forEach((img, i) => {
-          j('basket_assign', { img: img.id, basket: img.class });
-          if (i === 0) {                                   // undo не наказуем (правило 7)
-            j('basket_undo', {});
-            j('basket_assign', { img: img.id, basket: img.class });
-          }
-        });
-      }
+    const sem = phaseSemantics(p);
+    if (sem.length > 1)
+      errors.push(`${step.id}.${p.id}: ${sem.length} экранных семантик на такте (${sem.join(', ')}) — живой рендер покажет одну`);
 
-      if (p.probe_set) {                                   // показанные вердикты — в журнал
+    switch (sem[0]) {
+      case 'probe':                                      // показанные вердикты — в журнал
         for (const pid of p.probe_set) {
           const img = bankIndex.byId.get(pid);
           if (!img) { errors.push(`probe_set: ${pid} нет в банке`); continue; }
@@ -88,9 +79,23 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
           // эталонный ребёнок отвечает честно — на флипе «Ошиблась!», иначе «Права»
           j('probe_judgement', { img: pid, saw_mistake: !!img.expected_flip, correct: true });
         }
+        break;
+
+      case 'baskets': {                                  // раскладка по одной + «вернуть»
+        const train = role('train_core');
+        if (!train.length) errors.push(step.id + ': в банке нет train_core');
+        train.forEach((img, i) => {
+          j('basket_assign', { img: img.id, basket: img.class });
+          if (i === 0) {                                 // undo не наказуем (правило 7)
+            j('basket_undo', {});
+            j('basket_assign', { img: img.id, basket: img.class });
+          }
+        });
+        break;
       }
 
-      if (els.includes('btn_pick') && step.type === 'trainer_act') {   // ловушки: настоящий выбор
+      case 'pick': {                                     // ловушки: настоящий выбор
+        if (step.type !== 'trainer_act') break;
         const pool = step.images_from_role ? role(step.images_from_role) : role('trap');
         if (!pool.length) errors.push(step.id + ': пустой пул для btn_pick');
         pool.forEach((img, i) => {
@@ -98,9 +103,10 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
           j('trap_add', { img: img.id });
           if (i === 0) { j('trap_undo', {}); j('trap_add', { img: img.id }); }
         });
+        break;
       }
 
-      if (els.includes('btn_train')) {
+      case 'train': {
         // «Научить» — журнальный факт (фаза 0.5): версия состава обучения
         trainVersion += 1;
         const composition = [
@@ -114,36 +120,39 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
         for (const b of payload.baskets) counts[b.basket] = (counts[b.basket] || 0) + 1;
         j('train_commit', { version: trainVersion, sig: 'walk-v' + trainVersion,
                             n: composition.length, composition, counts, engine: 'knn' });
+        break;
       }
 
-      if (els.some(e => /^frag[1-9]$/.test(e))) {
+      case 'frag':
         if (!p.slot) errors.push(`${step.id}.${p.id}: frag-такт без slot`);
         else j('frag_pick', { slot: p.slot, frag: 1 });
-      }
+        break;
 
-      if (els.includes('free_text'))
+      case 'free_text':
         j('free_text_set', { text: 'она смотрит не на того, на кого надо' });
+        break;
 
-      if (els.some(e => /^opt[1-9]$/.test(e))) {
-        const spec = optLists[optPhase++];
+      case 'opt': {
+        const spec = optLists[optState.i++];
         if (!spec) errors.push(`${step.id}.${p.id}: opt-такт без соответствующего спека`);
         else if (spec.kind === 'choice')
           acked.push({ ack: 'commit', type: 'choice', step: step.id,
                        data: { option: step.version.choice.correct } });
         else j('forecast_pick', { field: spec.kind === 'predict' ? 'predict' : 'reason',
                                   option: step.forecast.expected[spec.kind === 'predict' ? 'predict' : 'reason'] });
+        break;
       }
 
-      if (els.includes('btn_commit')) {
+      case 'commit':
         if (step.version && !acked.some(a => a.type === 'version' && a.step === step.id))
           acked.push({ ack: 'commit', type: 'version', step: step.id,
                        data: { slots: { ...payload.version.slots }, text: payload.version.free_text } });
         else if (step.forecast)
           acked.push({ ack: 'commit', type: 'forecast', step: step.id,
                        data: { ...payload.forecast } });
-      }
+        break;
 
-      if (els.includes('btn_check') && !p.probe_set) {
+      case 'check': {
         const forecastDone = acked.some(a => a.type === 'forecast' && a.step === step.id);
         if (step.measure && !payload.measures.after)
           j('measure_result', { phase: 'after', score: 3, of: step.measure.holdout.length,
@@ -154,35 +163,85 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
           const img = bankIndex.byId.get(step.forecast.img);
           if (img) j('probe_result', { img: img.id, label: img.class, conf: 91, margin: 0.05 });
         }
+        break;
       }
 
-      if ((p.overlays || []).includes('buffer')) {         // ожидание занято буфером
-        const b = role('buffer')[payload.buffer.length];
-        if (b) j('buffer_predict', { img: b.id, predict: b.class });
-      }
+      default:   // такт без экранной семантики: интро (btn_next), ожидание, финальные блоки
+        break;
+    }
 
-      if (step.type === 'final_card' && p.id === 'best_trap') {
-        const trap = payload.traps[0];
-        if (!trap) errors.push('final_card: нет добавленных ловушек для best_trap');
-        else j('best_trap_pick', { img: trap });
-      }
+    if ((p.overlays || []).includes('buffer')) {         // ожидание занято буфером
+      const b = role('buffer')[payload.buffer.length];
+      if (b) j('buffer_predict', { img: b.id, predict: b.class });
+    }
 
-      if (step.type === 'talk_chat')
-        acked.push({ ack: 'chat', step: step.id, text: 'она не думает — она сравнивает картинки' });
+    if (step.type === 'final_card' && p.id === 'best_trap') {
+      const trap = payload.traps[0];
+      if (!trap) errors.push('final_card: нет добавленных ловушек для best_trap');
+      else j('best_trap_pick', { img: trap });
+    }
+
+    if (step.type === 'talk_chat')
+      acked.push({ ack: 'chat', step: step.id, text: 'она не думает — она сравнивает картинки' });
+  };
+
+  /* проход тактов шага текущей машины; allowSuspend — можно ли посреди шага уйти в резерв */
+  const walkStep = (m, { allowSuspend = false } = {}) => {
+    const step = m.step();
+    visited.push(step.id);
+    // вход в шаг — acked по построению (гейт или step_enter)
+    acked.push(m.entryRequirement());
+    // R1 «до» — автозамер при входе в шаг с measure (before: auto)
+    if (step.measure && step.measure.before === 'auto')
+      j('measure_result', { phase: 'before', score: 1, of: step.measure.holdout.length });
+
+    // маппинг opt-тактов по порядку: choice → predict → reason
+    const optLists = [];
+    if (step.version) optLists.push({ kind: 'choice', n: step.version.choice.options.length });
+    if (step.forecast) optLists.push({ kind: 'predict', n: step.forecast.predict_options.length },
+                                     { kind: 'reason', n: step.forecast.reason_options.length });
+    const optState = { i: 0 };
+
+    for (let first = true; ; first = false) {
+      if (!first && !m.advancePhase()) break;
+      doPhase(m, step, m.phase(), optLists, optState);
+      // резерв ПОСРЕДИ шага: после первого такта первого многотактного шага —
+      // основная машина приостанавливается на своей позиции (как ctx.machine у клиента)
+      if (first && allowSuspend && !reserveDone && step.phases.length > 1)
+        enterReserves(m);
     }
   };
 
+  /* вход в резерв посреди шага + возврат через acked-восстановление (клиентский exitReserve) */
+  const enterReserves = (m) => {
+    reserveDone = true;
+    const susp = m.position();               // приостановленная позиция основной машины
+    for (const r of normalized.reserve) {
+      const rm = createMachine({ ...normalized, steps: [r] }, { onJournal: j });
+      walkStep(rm);
+    }
+    // возврат: acked step_enter приостановленного шага, потом журнальный такт (аудит п.6)
+    acked.push({ ack: 'step_enter', step: susp.step, resume: true });
+    j('phase_enter', { phase: susp.phase });
+    const back = m.position();
+    if (back.step !== susp.step || back.phase !== susp.phase)
+      errors.push(`резерв: возврат не вернул приостановленную позицию ` +
+                  `(ждали ${susp.step}.${susp.phase}, машина на ${back.step}.${back.phase})`);
+  };
+
   // проход: шаг → такты → следующий шаг (advanceStepAcked — после «ack» из acked-списка)
-  walkStep(machine.step());
-  while (machine.advanceStepAcked()) walkStep(machine.step());
+  walkStep(machine, { allowSuspend: true });
+  while (machine.advanceStepAcked()) walkStep(machine, { allowSuspend: true });
+  if (includeReserve && !reserveDone)
+    errors.push('резервы: не нашлось многотактного шага для входа посреди шага');
 
   // пост-условия эталонного прохода — то, что обязано быть в конце занятия
   const need = (cond, msg) => { if (!cond) errors.push(msg); };
   need(machine.done, 'машина не дошла до done');
-  const hasVersion = steps.some(s => s.version);
-  const hasForecast = steps.some(s => s.forecast);
-  const hasMeasure = steps.some(s => s.measure);
-  const hasFinal = steps.some(s => s.type === 'final_card');
+  const hasVersion = allSteps.some(s => s.version);
+  const hasForecast = allSteps.some(s => s.forecast);
+  const hasMeasure = allSteps.some(s => s.measure);
+  const hasFinal = allSteps.some(s => s.type === 'final_card');
   const trainN = role('train_core').length;
   need(payload.baskets.length === trainN,
        `корзины: ${payload.baskets.length} картинок разложено, ждали ${trainN} (undo снял и вернул одну)`);
@@ -198,17 +257,23 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
   if (hasMeasure) need(payload.measures.before && payload.measures.after,
                        'замеры before/after не записаны');
   // обязательный вопрос на пробах (И3-Т п.8): у каждого вердикта probe_set есть ответ
-  const probeIds = steps.flatMap(s => s.phases.flatMap(p => p.probe_set || []));
+  const probeIds = allSteps.flatMap(s => s.phases.flatMap(p => p.probe_set || []));
   need(probeIds.every(id => (payload.probe_judgements || {})[id]),
        'не на каждом вердикте пробы есть probe_judgement («Коробка права?»)');
   if (hasFinal) need(payload.best_trap !== null, 'лучшая ловушка не отмечена');
-  const trainTacts = steps.reduce((s, st) =>
+  const trainTacts = allSteps.reduce((s, st) =>
     s + st.phases.filter(p => (p.elements || []).includes('btn_train')).length, 0);
   if (trainTacts) need(payload.model && payload.model.version === trainTacts &&
                        (payload.model_history || []).length === trainTacts,
                        'версии состава обучения (train_commit) не сошлись с числом тактов «Научить»');
   need(acked.filter(a => a.ack === 'gate_enter').length ===
-       steps.filter(s => s.gate).length, 'не все гейты пройдены acked gate_enter');
+       allSteps.filter(s => s.gate).length, 'не все гейты пройдены acked gate_enter');
+  if (includeReserve) {
+    for (const r of normalized.reserve)
+      need(visited.includes(r.id), `резерв ${r.id} не пройден`);
+    need(acked.some(a => a.ack === 'step_enter' && a.resume),
+         'возврат из резерва без acked-восстановления основного шага');
+  }
 
   return { ok: errors.length === 0, errors, journal, acked, payload, visited };
 }
