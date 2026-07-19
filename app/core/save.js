@@ -100,17 +100,21 @@ export function applyRestore(view, journal) {
 export function createSeatSave({ url = '/save', seat, runId, lessonId, instanceId,
                                  getGeneration, setGeneration, getEpoch = () => 0,
                                  getState, getPayload, getSuspended = () => null,
-                                 journal, debounceMs = 1000,
+                                 journal, debounceMs = 1000, initialSaveSeq = 0,
                                  onAccepted = () => {}, onOtherTab = () => {},
                                  onStale = () => {}, fetchFn } = {}) {
   const doFetch = fetchFn || ((...a) => fetch(...a));
   let timer = null, inflight = false, dirtyAgain = false;
+  // счётчик ВЕХ (хвост ревью 19.07, п.1): state/suspended живут вне журнала и не
+  // двигают rev — порядок снапшотов при равном (gen, rev) сервер держит по save_seq.
+  // Стартует с серверного значения из /restore (F5 не обнуляет нумерацию)
+  let saveSeq = initialSaveSeq;
 
   const body = (extra = {}) => ({
     seat, run_id: runId, client_instance_id: instanceId,
     writer_generation: getGeneration(), epoch: getEpoch(), lesson_id: lessonId,
     state: getState(), payload: getPayload(), suspended: getSuspended(),
-    rev: journal.maxRev(), ts: Date.now(), ...extra,
+    rev: journal.maxRev(), save_seq: ++saveSeq, ts: Date.now(), ...extra,
   });
 
   const flush = async (extra = {}) => {

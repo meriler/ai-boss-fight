@@ -47,6 +47,22 @@ export function createJournal({ storageKey = 'z1_journal', storage, owner } = {}
       } catch (e) { /* битый кэш — начинаем чисто */ }
       return api;
     },
+    /** Сериализованное усыновление legacy-хвоста (хвост ревью 19.07, п.4): две вкладки,
+     * открытые в момент rolling deploy, без сериализации усыновили бы ОДИН хвост обе —
+     * каждая проштамповала бы записи СВОИМ владельцем, и поздний persist затёр бы
+     * ранний (потеря replay-хвоста у одной из них). Web Lock на storageKey: победитель
+     * усыновляет и персистит ПОД локом, второй внутри лока перечитывает storage и
+     * видит записи уже чужими (foreign) — не трогает. Нет Lock API — как раньше
+     * (load усыновляет без сериализации). */
+    async migrateLegacy({ locks } = {}) {
+      const lockApi = locks !== undefined ? locks
+        : (typeof navigator !== 'undefined' && navigator.locks ? navigator.locks : null);
+      if (!lockApi) { api.load(); return api; }
+      try {
+        await lockApi.request(storageKey + ':adopt', () => { api.load(); });
+      } catch (e) { api.load(); }   // сбой Lock API — поведение до фикса
+      return api;
+    },
     /** Стартовая инициализация rev по правилу §1.1 (после /restore). */
     initRev(serverRev) {
       counter = Math.max(serverRev || 0, counter);

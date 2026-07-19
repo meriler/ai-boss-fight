@@ -44,25 +44,33 @@ export function countsFromComposition(ctx, composition) {
   return counts;
 }
 
-/** Identity версии, по которой коробка думает СЕЙЧАС: пара sig+engine фактически
+/** Identity версии, по которой коробка думает СЕЙЧАС: sig+engine+params_rev фактически
  * обученной модели (§3.1 — sig считается по составу и одинаков у разных движков,
- * различает модели именно пара); до готовности эмбеддера — последняя стабильная. */
+ * различает модели полная тройка); до готовности эмбеддера — последняя стабильная. */
 function activeIdentity(ctx) {
   if (ctx.classifier.ready && ctx.classifier.exampleCount()) {
     const mi = ctx.classifier.modelInfo();
-    return { sig: mi.sig, engine: mi.engine };
+    return { sig: mi.sig, engine: mi.engine,
+             params_rev: mi.params_rev != null ? mi.params_rev : null };
   }
   const m = activeStableModel(ctx.payload) || ctx.payload.model;
-  return m ? { sig: m.sig, engine: m.engine || 'knn' } : null;
+  return m ? { sig: m.sig, engine: m.engine || 'knn',
+               params_rev: m.params_rev != null ? m.params_rev : null } : null;
 }
 
-/** Индекс АКТИВНОЙ версии на полке: последняя запись истории с той же парой sig+engine.
- * Одного sig мало (закалка 18.07, major «полка врёт»): допустимая v2 с тем же составом
- * пометила бы активными обе. */
+/** Индекс АКТИВНОЙ версии на полке: последняя запись истории с той же ПОЛНОЙ identity
+ * sig+engine+params_rev. Одного sig мало (закалка 18.07, major «полка врёт»): допустимая
+ * v2 с тем же составом пометила бы активными обе; params_rev — та же логика (хвост
+ * ревью 19.07, п.4): после обновления параметров банка версия того же состава — другая. */
 function activeIndex(hist, act) {
   if (!act) return -1;
-  for (let i = hist.length - 1; i >= 0; i--)
-    if (hist[i].sig === act.sig && (hist[i].engine || 'knn') === act.engine) return i;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const r = hist[i];
+    if (r.sig !== act.sig || (r.engine || 'knn') !== act.engine) continue;
+    if (r.params_rev != null && act.params_rev != null
+        && r.params_rev !== act.params_rev) continue;
+    return i;
+  }
   return -1;
 }
 

@@ -89,10 +89,23 @@ export function createFeatureSource({ bankIndex, assetsBase = '', demo = false, 
   let ready = demo;             // demo готов сразу; real — после warmup()
   let warmErr = null;
   let attempts = 0;             // счётчик warmup-попыток (cache-busting повторного импорта)
+  let warmInflight = null;      // single-flight: двойной тап «Попробовать ещё раз» не
+                                // плодит параллельные прогревы (хвост ревью 19.07, п.4)
+  const MAX_WARM_ATTEMPTS = 5;  // кап cache-bust ретраев: каждый — повторная закачка
+                                // wasm-бандла; дальше честно отдаём последнюю ошибку
   const readyWaiters = [];
 
-  async function warmup(onProgress = () => {}) {
-    if (ready) { onProgress(1); return; }
+  function warmup(onProgress = () => {}) {
+    if (ready) { onProgress(1); return Promise.resolve(); }
+    if (warmInflight) return warmInflight;
+    if (attempts >= MAX_WARM_ATTEMPTS) {
+      return Promise.reject(warmErr || new Error('прогрев: попытки исчерпаны'));
+    }
+    warmInflight = doWarmup(onProgress).finally(() => { warmInflight = null; });
+    return warmInflight;
+  }
+
+  async function doWarmup(onProgress) {
     warmErr = null;   // повторная попытка (retryWarmup) — с чистого листа
     attempts += 1;
     try {
@@ -146,6 +159,7 @@ export function createFeatureSource({ bankIndex, assetsBase = '', demo = false, 
   return {
     get ready() { return ready; },
     get error() { return warmErr; },
+    get attempts() { return attempts; },   // диагностика + тесты single-flight/капа
     warmup,
     /** Резолвится и при ошибке warmup (закалка 18.07): потребитель ОБЯЗАН проверить
      * ready — ожидание «до готовности» при мёртвом эмбеддере было бы вечным зависанием,

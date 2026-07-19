@@ -382,6 +382,106 @@ class TestSameRevForwardOnly(unittest.TestCase):
         self.assertEqual(view['payload'], {'p': 2})
 
 
+class TestSaveSeqMilestoneOrdering(unittest.TestCase):
+    """Хвост контрольного ревью 19.07, п.1 (красный-без-фикса): при равном (gen, rev)
+    порядок ВСЕХ снапшот-вех держит монотонный save_seq клиента — поздний повтор
+    с меньшей вехой не откатывает НИ done, НИ вход/выход резерва, НИ смену state."""
+
+    def _save(self, run, seat, rev, mseq, state='s2', suspended=None, payload=None):
+        body = {'seat': seat, 'run_id': run, 'client_instance_id': 'inst-' + seat,
+                'writer_generation': 1, 'epoch': 0, 'lesson_id': 'z1-kot',
+                'state': state, 'payload': payload or {'r': rev},
+                'suspended': suspended, 'rev': rev, 'ts': 1}
+        if mseq is not None:
+            body['save_seq'] = mseq
+        return req('POST', '/save', body)
+
+    def test_late_retry_does_not_rollback_state_milestone(self):
+        run = start_run()
+        st, r = self._save(run, '61', 4, 5, state='s8', payload={'p': 'new'})
+        self.assertEqual(st, 200, r)
+        # запоздалый повтор той же rev с РАННЕЙ вехой (save_seq меньше)
+        st, r = self._save(run, '61', 4, 4, state='s7', payload={'p': 'old'})
+        self.assertEqual(st, 200, r)   # идемпотентный ответ, но БЕЗ перезаписи
+        st, view = req('GET', '/restore?seat=61')
+        self.assertEqual(view['state'], 's8')
+        self.assertEqual(view['payload'], {'p': 'new'})
+
+    def test_late_retry_does_not_drop_reserve_suspension(self):
+        """Вход в резерв (suspended появился) — веха: поздний повтор без suspended
+        не должен её стереть (раньше защищён был только done)."""
+        run = start_run()
+        susp = {'step': 's3', 'phase': 'p1'}
+        st, r = self._save(run, '62', 2, 7, suspended=susp)
+        self.assertEqual(st, 200, r)
+        st, r = self._save(run, '62', 2, 6, suspended=None)
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=62')
+        self.assertEqual(view['suspended'], susp)
+
+    def test_late_retry_does_not_resurrect_suspension(self):
+        """Выход из резерва (suspended снят) — тоже веха: поздний повтор со старым
+        suspended не воскрешает резервную позицию."""
+        run = start_run()
+        susp = {'step': 's3', 'phase': 'p1'}
+        st, r = self._save(run, '63', 2, 7, suspended=susp)
+        self.assertEqual(st, 200, r)
+        st, r = self._save(run, '63', 2, 8, suspended=None)   # вперёд: выход из резерва
+        self.assertEqual(st, 200, r)
+        st, r = self._save(run, '63', 2, 7, suspended=susp)   # поздний дубль входа
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=63')
+        self.assertIsNone(view['suspended'])
+
+    def test_done_still_final_with_save_seq(self):
+        run = start_run()
+        st, r = self._save(run, '64', 4, 9, state='done', payload={'p': 2})
+        self.assertEqual(st, 200, r)
+        st, r = self._save(run, '64', 4, 8, state='s8', payload={'p': 1})
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=64')
+        self.assertEqual(view['state'], 'done')
+        self.assertEqual(view['payload'], {'p': 2})
+
+    def test_restore_returns_save_seq_for_resume(self):
+        """F5 сбрасывает счётчик вех клиента — /restore обязан вернуть последний
+        принятый save_seq, чтобы клиент продолжил нумерацию, а не начал с нуля
+        (иначе его первая же честная веха выглядела бы «поздним повтором»)."""
+        run = start_run()
+        st, r = self._save(run, '65', 3, 11, state='s4')
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=65')
+        self.assertEqual(view.get('save_seq'), 11)
+        # клиент продолжил с save_seq 12 — веха принимается
+        st, r = self._save(run, '65', 3, 12, state='s5')
+        self.assertEqual(st, 200, r)
+        st, view = req('GET', '/restore?seat=65')
+        self.assertEqual(view['state'], 's5')
+
+    def test_bad_save_seq_type_rejected(self):
+        run = start_run()
+        st, r = self._save(run, '66', 1, 'abc')
+        self.assertEqual(st, 400, r)
+
+
+class TestGetSeatValidation(unittest.TestCase):
+    """Хвост контрольного ревью 19.07, п.3 (красный-без-фикса): GET /restore и /sync
+    валидируют seat как мутации (цифры) — мусорный seat не создаёт запись в памяти."""
+
+    def test_bad_seat_400_and_no_garbage_in_state(self):
+        start_run()
+        for path in ('/restore?seat=abc', '/sync?seat=abc',
+                     '/restore?seat=%3Cscript%3E', '/sync?seat=..%2F..%2Fx',
+                     '/restore?seat=1e3', '/sync?seat=-1&cursor=0'):
+            st, resp = req('GET', path)
+            self.assertEqual(st, 400, (path, resp))
+        st, sync = req('GET', '/sync?seat=67&cursor=0')   # валидный seat живёт
+        self.assertEqual(st, 200)
+        view = tele.LESSON_STORE.view()
+        bad = [s for s in view['seats'] if not s.isdigit()]
+        self.assertEqual(bad, [], 'мусорные seat не должны попадать в state')
+
+
 class TestWriterTakeover(unittest.TestCase):
     def test_single_writer_and_takeover(self):
         run = start_run()

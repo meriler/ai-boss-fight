@@ -32,7 +32,6 @@ session-<date>.json (sess_start/sess_stop) НЕ трогается — конт�
 ЛЮБОЙ мутирующей ручке — отказ {"error": "other_tab"}."""
 import json
 import os
-import queue
 import random
 import re
 import threading
@@ -161,18 +160,26 @@ class LessonStore:
         self.last_activity = None
         # SQLite-тень M1: dual-write на мутациях, ЧТЕНИЕ ОСТАЁТСЯ ИЗ ФАЙЛОВ (M2 — отдельно).
         # Флага нет → тень выключена, поведение фазы 0 байт-в-байт. Ошибки тени глотаются.
-        # Зеркалится АСИНХРОННО из очереди (закалка 18.07, high 6): SQLite и его
-        # busy_timeout больше не сидят в критической секции запросов детей.
-        self._pend_snaps = []     # снапшоты текущей мутации (под self.lock, до постановки в очередь)
+        # Зеркалится АСИНХРОННО (закалка 18.07, high 6): SQLite и его busy_timeout не
+        # сидят в критической секции запросов детей. Буфер — КОАЛЕСИНГ (хвост ревью
+        # 19.07, п.2): последний state на run + последний снапшот на (run, seat) —
+        # переполнения не существует, отставшая тень никогда не теряет финал.
+        self._pend_snaps = []     # снапшоты текущей мутации (под self.lock, до буфера тени)
         self._shadow_pending = []  # снапшоты, чьё зеркало провалилось (владелец — worker-поток)
-        self._shadow_q = queue.Queue(maxsize=10000)
+        self._shadow_cv = threading.Condition()
+        self._shadow_states = {}    # run_id -> state_str (последний; под _shadow_cv)
+        self._shadow_snaps = {}     # (run_id, seat) -> snap (последний; под _shadow_cv)
+        self._shadow_current = None  # последний current_run для meta (под _shadow_cv)
+        self._shadow_busy = False   # worker зеркалит взятый буфер (drain это ждёт)
+        self._shadow_closing = False  # SIGTERM: приём остановлен ДО дренажа
+        self._shadow_stop = False
         self._shadow_thread = None
         path = db_path if db_path is not None else lesson_db.db_path_from_env(data_dir)
         self.shadow = lesson_db.open_shadow(path) if path else None
         if self.shadow:
             self.shadow.backfill(data_dir, current_run=self.current_run())
-            self._shadow_thread = threading.Thread(target=self._shadow_worker, daemon=True)
-            self._shadow_thread.start()
+            with self._shadow_cv:
+                self._ensure_shadow_worker()
 
     # ---- файлы ----
     def _cur_path(self):
@@ -247,7 +254,7 @@ class LessonStore:
             self._write_atomic(self._cur_path(), {'run_id': run_id})
             self._cur, self._cur_loaded = run_id, True
             self._state_seq[run_id] = self._state_written[run_id] = 1
-            self._shadow_enqueue(state_str, [], run_id)
+            self._shadow_enqueue(run_id, state_str, [], run_id)
             return run_id
 
     def with_state(self, run_id, fn):
@@ -301,7 +308,8 @@ class LessonStore:
             with self.lock:
                 self._drop_run_caches(rid)   # память впереди файла — откат к диску
             raise
-        self._shadow_enqueue(state_str, [(k[0], k[1], snap) for k, _q, _s, snap in snap_items],
+        self._shadow_enqueue(rid, state_str,
+                             [(k[0], k[1], snap) for k, _q, _s, snap in snap_items],
                              self.current_run())
         return status, resp
 
@@ -311,76 +319,159 @@ class LessonStore:
         for key in [k for k in self._snap_cache if k[0] == rid]:
             self._snap_cache.pop(key, None)
 
-    # ---- SQLite-тень: очередь + фоновый поток (закалка 18.07, high 6) ----
-    def _shadow_enqueue(self, state_str, snaps, current_run):
+    # ---- SQLite-тень: коалесинг-буфер + фоновый поток (закалка 18.07 · хвост 19.07) ----
+    def _has_shadow_work(self):
+        """Вызывается под _shadow_cv."""
+        return bool(self._shadow_states or self._shadow_snaps
+                    or self._shadow_current is not None)
+
+    def _ensure_shadow_worker(self):
+        """Watchdog (хвост ревью 19.07, п.2) — вызывается под _shadow_cv: worker мог
+        умереть на BaseException (мимо except Exception) — без замены тень превращалась
+        в молча стоящую очередь до рестарта сервиса."""
+        if self._shadow_stop:
+            return
+        if self._shadow_thread is None or not self._shadow_thread.is_alive():
+            if self._shadow_thread is not None:
+                self.shadow._log_err('shadow_watchdog',
+                                     RuntimeError('worker тени мёртв — перезапускаю'))
+            self._shadow_thread = threading.Thread(target=self._shadow_worker, daemon=True)
+            self._shadow_thread.start()
+
+    def _shadow_enqueue(self, rid, state_str, snaps, current_run):
+        """Коалесинг вместо ограниченной очереди: буфер держит ПОСЛЕДНИЙ state на run
+        и ПОСЛЕДНИЙ снапшот на (run, seat) — сколько бы мутаций ни накопилось при
+        занятой тени, память ограничена числом мест, а финал не теряется."""
         if not self.shadow:
             return
-        try:
-            self._shadow_q.put_nowait((state_str, snaps, current_run))
-        except queue.Full:   # тень безнадёжно отстала: state самовосстановится следующим зеркалом
-            self.shadow._log_err('enqueue', RuntimeError('очередь тени переполнена — элемент пропущен'))
+        with self._shadow_cv:
+            if self._shadow_closing:   # SIGTERM: приём остановлен, файлы — правда
+                self.shadow._log_err('enqueue', RuntimeError(
+                    'тень закрывается — мутация не зеркалится (файлы остаются источником)'))
+                return
+            if state_str:
+                self._shadow_states[rid] = state_str
+            for run_id, seat, snap in snaps:
+                self._shadow_snaps[(run_id, seat)] = snap
+            if current_run:
+                self._shadow_current = current_run
+            self._ensure_shadow_worker()
+            self._shadow_cv.notify_all()
 
     def _shadow_worker(self):
         """Единственный поток, трогающий SQLite после backfill: «свой лок» тени — сам поток.
         Провал зеркала: state самовосстановится следующей dirty-мутацией (полная перезапись
         строк run'а), снапшоты удерживаются в _shadow_pending до успеха (Codex-ревью 18.07,
-        находка 1); каждый проход чинит и meta.current_run (закалка 18.07, high 9)."""
+        находка 1); каждый проход чинит и meta.current_run (закалка 18.07, high 9).
+        Исключение мимо except Exception убивает поток — его поднимет watchdog, а взятый
+        буфер вернётся на место в finally (мутации не теряются и на смерти worker'а)."""
         while True:
+            with self._shadow_cv:
+                while not self._has_shadow_work() and not self._shadow_stop:
+                    self._shadow_cv.wait(timeout=1.0)
+                    if self._shadow_pending:
+                        break   # тишина — шанс дослать удержанные снапшоты
+                if self._shadow_stop:
+                    return
+                states, self._shadow_states = self._shadow_states, {}
+                snaps, self._shadow_snaps = self._shadow_snaps, {}
+                current, self._shadow_current = self._shadow_current, None
+                self._shadow_busy = True
+            done_states = set()
+            snaps_handled = False
             try:
-                item = self._shadow_q.get(timeout=1.0)
-            except queue.Empty:
-                # тишина — шанс дослать удержанные снапшоты без ожидания новой мутации
-                if self._shadow_pending and \
-                        self.shadow.mirror_mutation(None, self._shadow_pending,
-                                                    set_current=self.current_run()):
-                    self._shadow_pending = []
-                continue
-            if item is None:
-                self._shadow_q.task_done()
-                return
-            state_str, snaps, current = item
-            try:
-                state = json.loads(state_str) if state_str else None
-                batch = self._shadow_pending + list(snaps)
-                if self.shadow.mirror_mutation(state, batch, set_current=current):
-                    self._shadow_pending = []
+                batch = self._shadow_pending + [(r, s, sn) for (r, s), sn in snaps.items()]
+                if not states:
+                    if batch or current is not None:
+                        if self.shadow.mirror_mutation(None, batch, set_current=current):
+                            self._shadow_pending = []
+                        else:
+                            self._shadow_pending = self._dedup_snaps(batch)
+                    snaps_handled = True
                 else:
-                    last = {}   # дедуп по (run, seat): при мёртвой тени очередь не растёт
-                    for run_id, seat, snap in batch:
-                        last[(run_id, seat)] = snap
-                    self._shadow_pending = [(r, s, sn) for (r, s), sn in last.items()]
-            except Exception as e:   # noqa: BLE001 — worker не имеет права умереть
-                self.shadow._log_err('shadow_worker', e)
+                    first = True
+                    for rid, sstr in list(states.items()):
+                        st = None
+                        try:
+                            st = json.loads(sstr)
+                        except Exception as e:   # noqa: BLE001 — битый state в буфере
+                            self.shadow._log_err('shadow_worker.loads', e)
+                        if st is not None:
+                            res = self.shadow.mirror_mutation(
+                                st, batch if first else [],
+                                set_current=current if first else None)
+                            if first:
+                                self._shadow_pending = [] if res else self._dedup_snaps(batch)
+                                snaps_handled = True
+                        elif first:
+                            # state не распарсился: снапшоты этой пачки не зеркалились
+                            self._shadow_pending = self._dedup_snaps(batch)
+                            snaps_handled = True
+                        first = False
+                        done_states.add(rid)
             finally:
-                self._shadow_q.task_done()
+                with self._shadow_cv:
+                    # смерть worker'а посреди пачки: недоделанное — назад в буфер
+                    # (setdefault: свежее из новых мутаций всегда побеждает)
+                    for rid, sstr in states.items():
+                        if rid not in done_states:
+                            self._shadow_states.setdefault(rid, sstr)
+                    if not snaps_handled:
+                        for key, sn in snaps.items():
+                            self._shadow_snaps.setdefault(key, sn)
+                        if current is not None and self._shadow_current is None:
+                            self._shadow_current = current
+                    self._shadow_busy = False
+                    self._shadow_cv.notify_all()
+
+    @staticmethod
+    def _dedup_snaps(batch):
+        """Дедуп по (run, seat): при мёртвой тени удержанное не растёт."""
+        last = {}
+        for run_id, seat, snap in batch:
+            last[(run_id, seat)] = snap
+        return [(r, s, sn) for (r, s), sn in last.items()]
 
     def shadow_drain(self, timeout=5.0):
-        """Дождаться, пока очередь тени опустеет (тесты, parity, SIGTERM деплоя).
-        True — дренаж успел; удержанные из-за ошибок снапшоты могут остаться в
-        _shadow_pending (это не «не успел», а «тень мертва»)."""
+        """Дождаться, пока буфер тени опустеет и worker дожуёт взятое (тесты, parity,
+        SIGTERM деплоя). True — дренаж успел; удержанные из-за ошибок снапшоты могут
+        остаться в _shadow_pending (это не «не успел», а «тень мертва»)."""
         if not self.shadow:
             return True
-        q = self._shadow_q
         end = time.time() + timeout
-        with q.all_tasks_done:
-            while q.unfinished_tasks:
+        with self._shadow_cv:
+            self._ensure_shadow_worker()   # мёртвый worker иначе не дожуёт никогда
+            while self._has_shadow_work() or self._shadow_busy:
                 left = end - time.time()
                 if left <= 0:
                     return False
-                q.all_tasks_done.wait(left)
+                self._shadow_cv.wait(left)
         return True
 
     def close(self):
-        """Штатная остановка (SIGTERM деплоя, тесты): дренаж тени + стоп worker'а."""
-        if self.shadow:
-            self.shadow_drain(3.0)
-            if self._shadow_thread and self._shadow_thread.is_alive():
-                self._shadow_q.put(None)
-                self._shadow_thread.join(timeout=3.0)
-            try:
-                self.shadow.con.close()
-            except Exception:   # noqa: BLE001
-                pass
+        """Штатная остановка (SIGTERM деплоя, тесты): остановить ПРИЁМ в тень до
+        дренажа, дождаться дренажа и ПРОВЕРИТЬ его результат (хвост ревью 19.07, п.2),
+        затем стоп worker'а и закрытие соединения."""
+        if not self.shadow:
+            return
+        with self._shadow_cv:
+            self._shadow_closing = True
+            self._shadow_cv.notify_all()
+        drained = self.shadow_drain(3.0)
+        leftovers = len(self._shadow_pending)
+        if not drained or leftovers:
+            self.shadow._log_err('close.drain', RuntimeError(
+                'дренаж тени на остановке не завершился (успел=%s, удержано снапшотов=%d) '
+                '— файлы остаются источником правды' % (drained, leftovers)))
+        with self._shadow_cv:
+            self._shadow_stop = True
+            self._shadow_cv.notify_all()
+        if self._shadow_thread and self._shadow_thread.is_alive():
+            self._shadow_thread.join(timeout=3.0)
+        try:
+            self.shadow.con.close()
+        except Exception:   # noqa: BLE001
+            pass
 
     # ---- снапшоты /save ----
     def view(self):
@@ -474,6 +565,12 @@ def api_save(store, body):
     takeover = bool(body.get('takeover'))
     if not takeover and not isinstance(rev, int):
         return 400, {'ok': False, 'error': 'bad_request'}
+    # save_seq — монотонный счётчик ВЕХ клиента (хвост ревью 19.07, п.1): state и
+    # suspended живут вне журнала и не двигают rev, поэтому при равном (gen, rev)
+    # порядок вех держит он. Опционален (легаси-клиент rolling deploy его не шлёт).
+    mseq = body.get('save_seq')
+    if mseq is not None and not isinstance(mseq, int):
+        return 400, {'ok': False, 'error': 'bad_request'}
     # типы полей снапшота: кривое тело не должно позже ронять рендер дашборда
     # (закалка 18.07, high 8) — отсекаем на границе
     if body.get('payload') is not None and not isinstance(body.get('payload'), dict):
@@ -526,8 +623,10 @@ def api_save(store, body):
         # равный (gen, rev): обычно идемпотентный повтор (no-op), НО state и suspended
         # живут ВНЕ журнала — 'done' и вход/выход резерва не двигают rev (аудит 18.07,
         # п.5/п.7). Их изменение при том же rev — новая веха, снапшот перезаписывается.
-        # ВПЕРЁД-ОНЛИ (аудит merged 18.07, critical 1): 'done' — терминальная веха,
-        # запоздалый повтор той же rev с ранним state не откатывает её и payload
+        # ВПЕРЁД-ОНЛИ для ВСЕХ вех (хвост ревью 19.07, п.1): порядок при равном
+        # (gen, rev) держит монотонный save_seq клиента — поздний повтор с меньшей
+        # вехой (ранний state, вход/выход резерва) не откатывает снапшот. 'done'
+        # дополнительно терминален всегда (защита и для легаси без save_seq).
         changed = (gen, rev) == old and snap is not None and (
             snap.get('state') != body.get('state')
             or snap.get('suspended') != body.get('suspended'))
@@ -537,8 +636,14 @@ def api_save(store, body):
                     'epoch': rec['epoch'], 'run_id': state['run_id'],
                     'ignored': 'done_is_final'}
             return 200, resp, True
+        old_mseq = snap.get('save_seq') if snap else None
+        if changed and mseq is not None and old_mseq is not None and mseq <= old_mseq:
+            resp = {'ok': True, 'accepted_rev': rev, 'writer_generation': gen,
+                    'epoch': rec['epoch'], 'run_id': state['run_id'],
+                    'ignored': 'stale_milestone'}
+            return 200, resp, True
         if (gen, rev) > old or changed:
-            store.write_snapshot(state['run_id'], seat, {
+            new_snap = {
                 'seat': seat, 'run_id': state['run_id'],
                 'writer_generation': gen, 'rev': rev,
                 'epoch': rec['epoch'],   # штамп эпохи: /restore отличает доreset-снапшот
@@ -546,7 +651,10 @@ def api_save(store, body):
                 'state': body.get('state'), 'payload': body.get('payload'),
                 'suspended': body.get('suspended'),
                 'ts': body.get('ts', _now_ms()),
-            })
+            }
+            if mseq is not None:
+                new_snap['save_seq'] = mseq
+            store.write_snapshot(state['run_id'], seat, new_snap)
         resp = {'ok': True, 'accepted_rev': rev, 'writer_generation': gen,
                 'epoch': rec['epoch'], 'run_id': state['run_id']}
         if warning:
@@ -574,7 +682,8 @@ def api_restore(store, seat):
             # сохраняем (порядок (gen, rev) жив, журнал клиента едет дальше),
             # содержимое НЕ отдаём — до первого пост-reset /save база пустая.
             snap = {'rev': snap.get('rev', 0),
-                    'writer_generation': snap.get('writer_generation', 0)}
+                    'writer_generation': snap.get('writer_generation', 0),
+                    'save_seq': snap.get('save_seq', 0)}
         acked = state['commits'].get(seat, {})
         resp = {
             'ok': True,
@@ -583,6 +692,9 @@ def api_restore(store, seat):
             'writer_generation': rec['generation'],
             'epoch': rec['epoch'],
             'server_rev': snap.get('rev', 0),
+            # счётчик вех продолжается после F5 (хвост ревью 19.07, п.1): без него
+            # первая честная веха нового документа выглядела бы «поздним повтором»
+            'save_seq': snap.get('save_seq', 0),
             'state': snap.get('state'),
             'payload': snap.get('payload'),
             'suspended': snap.get('suspended'),   # позиция основной машины при уходе в резерв
@@ -990,12 +1102,14 @@ def handle_post(store, path, body):
 def handle_get(store, path, q):
     """q — dict из parse_qs (значения-списки)."""
     one = lambda k, d='': (q.get(k) or [d])[0]
+    # seat валидируется как на мутациях (хвост ревью 19.07, п.3): мусорный seat
+    # раньше проходил в _seat_rec и создавал вечные записи в памяти state
     if path == '/restore':
-        if not one('seat'):
+        if not _valid_seat(one('seat')):
             return 400, {'ok': False, 'error': 'bad_request'}
         return api_restore(store, one('seat'))
     if path == '/sync':
-        if not one('seat'):
+        if not _valid_seat(one('seat')):
             return 400, {'ok': False, 'error': 'bad_request'}
         return api_sync(store, one('seat'), one('cursor', '0'))
     return 404, {'ok': False, 'error': 'not_found'}

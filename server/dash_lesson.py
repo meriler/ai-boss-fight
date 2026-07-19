@@ -191,9 +191,21 @@ async function zOverride(step, missing) {
 }
 async function zResetVersion(step, seat) {
   if (!confirm('Сбросить версию места ' + seat + '? Ребёнок соберёт её заново.')) return;
-  // op_id: повтор запроса (сеть, двойной клик) не поднимает epoch второй раз
-  const op = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
-  await zAct('/host/reset_version', {step, seat, op_id: 'reset-' + op});
+  // op_id рождается ОДИН раз на логический сброс (хвост ревью 19.07, п.4): если ответ
+  // потерялся и ведущий кликнул снова, повтор несёт ТОТ ЖЕ op_id — сервер отвечает
+  // replay без второго инкремента epoch. Ключ чистится только после дошедшего ответа.
+  const key = 'zreset-' + step + '-' + seat;
+  let op = null;
+  try { op = sessionStorage.getItem(key); } catch (e) {}
+  if (!op) {
+    op = 'reset-' + (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+    try { sessionStorage.setItem(key, op); } catch (e) {}
+  }
+  const j = await zPost('/host/reset_version', {step, seat, op_id: op});
+  if (j && (j.ok || j.error === 'already_revealed')) {
+    try { sessionStorage.removeItem(key); } catch (e) {}
+  }
+  location.reload();
 }
 async function zGateCode(step) {
   const code = document.getElementById('gcode_' + step).value.trim();

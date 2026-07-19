@@ -8,9 +8,12 @@
 
 Запуск: python3 -m unittest discover -s server -v"""
 import os
+import queue
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -307,6 +310,124 @@ class TestShadowParity(unittest.TestCase):
         os.environ['LESSON_DB'] = '/custom/path.db'
         self.assertEqual(lesson_db.db_path_from_env('/x'), '/custom/path.db')
         os.environ.pop('LESSON_DB', None)
+
+
+class TestShadowQueueHardening(unittest.TestCase):
+    """Хвост контрольного ревью 19.07, п.2 (красные-без-фикса): очередь тени не теряет
+    данные при переполнении (коалесинг по последнему state+снапшоту на run/seat),
+    watchdog перезапускает мёртвый worker, SIGTERM останавливает приём до дренажа
+    и проверяет его результат."""
+
+    def setUp(self):
+        os.environ.pop('LESSON_DB', None)
+        self.tmp = tempfile.mkdtemp(prefix='lesson-shadowq-test-')
+        self.db = os.path.join(self.tmp, 'lesson.db')
+        self._stores = []
+
+    def tearDown(self):
+        for s in self._stores:
+            try:
+                s.close()
+            except Exception:   # noqa: BLE001
+                pass
+
+    def _reg(self, store):
+        self._stores.append(store)
+        return store
+
+    def test_overflow_does_not_lose_final_state(self):
+        """Переполнение очереди тени глотало ХВОСТ мутаций — включая финальную.
+        Коалесинг держит последний state и последний снапшот per (run, seat):
+        сколько бы мутаций ни накопилось при занятом worker'е, финал доезжает."""
+        store = self._reg(mk_store(self.tmp))
+        # старый код: ограниченная очередь — ужимаем лимит, чтобы переполнить дёшево
+        if hasattr(store, '_shadow_q'):
+            store._shadow_q = queue.Queue(maxsize=5)
+        run = store.start_run('z1-kot')
+        self.assertTrue(store.shadow_drain())
+        gate = threading.Event()
+        orig = store.shadow.mirror_mutation
+
+        def blocked(*a, **k):
+            gate.wait(10)
+            return orig(*a, **k)
+        store.shadow.mirror_mutation = blocked
+        for rev in range(1, 61):   # worker занят → всё копится в очереди/буфере
+            self.assertEqual(save(store, '1', rev, run, payload={'r': rev})[0], 200)
+        gate.set()
+        self.assertTrue(store.shadow_drain(10.0))
+        con = sqlite3.connect(self.db)
+        snap = lesson_db.rebuild_snapshot(con, run, '1')
+        st = lesson_db.rebuild_state(con, run)
+        con.close()
+        self.assertIsNotNone(snap, 'снапшот потерян при переполнении очереди тени')
+        self.assertEqual(snap['rev'], 60, 'тень отстала: финальный снапшот не доехал')
+        self.assertEqual(st['seats']['1']['generation'], 1)
+
+    def test_dead_worker_restarted_by_watchdog(self):
+        """Worker умер на BaseException (мимо except Exception) — раньше очередь
+        молча копилась навсегда. Watchdog на следующей мутации поднимает нового."""
+        store = self._reg(mk_store(self.tmp))
+        run = store.start_run('z1-kot')
+        self.assertTrue(store.shadow_drain())
+        orig = store.shadow.mirror_mutation
+        died = {'n': 0}
+
+        def dying(*a, **k):
+            if died['n'] == 0:
+                died['n'] += 1
+                raise SystemExit('искусственная смерть worker-потока тени')
+            return orig(*a, **k)
+        store.shadow.mirror_mutation = dying
+        self.assertEqual(save(store, '1', 1, run)[0], 200)   # на этом зеркале worker умирает
+        t = store._shadow_thread
+        t.join(3.0)
+        self.assertFalse(t.is_alive(), 'предусловие: worker должен был умереть')
+        self.assertEqual(save(store, '1', 2, run)[0], 200)   # watchdog обязан поднять нового
+        self.assertTrue(store.shadow_drain(5.0), 'тень стоит: мёртвый worker не перезапущен')
+        con = sqlite3.connect(self.db)
+        snap = lesson_db.rebuild_snapshot(con, run, '1')
+        con.close()
+        self.assertEqual(snap['rev'], 2)
+
+    def test_close_drains_under_load_and_stops_intake(self):
+        """SIGTERM (close): хвост тени дожимается до выхода, а приём новых мутаций
+        останавливается ДО дренажа — пост-close мутация в тень уже не попадает."""
+        store = self._reg(mk_store(self.tmp))
+        run = store.start_run('z1-kot')
+        for rev in range(1, 41):   # нагрузка: worker дожёвывает в момент close
+            self.assertEqual(save(store, '1', rev, run, payload={'r': rev})[0], 200)
+        store.close()
+        con = sqlite3.connect(self.db)
+        snap = lesson_db.rebuild_snapshot(con, run, '1')
+        con.close()
+        self.assertEqual(snap['rev'], 40, 'SIGTERM потерял хвост тени')
+        # приём остановлен: попытка мутации после close не попадает в буфер тени
+        store._shadow_enqueue(run, '{"run_id":"ghost"}', [(run, '9', {'rev': 99})], run)
+        with store._shadow_cv:
+            self.assertFalse(store._shadow_states, 'после close тень не должна принимать state')
+            self.assertFalse(store._shadow_snaps, 'после close тень не должна принимать снапшоты')
+
+    def test_close_reports_failed_drain(self):
+        """Результат дренажа на SIGTERM проверяется и озвучивается: если тень не успела
+        (медленное зеркало), close логирует провал, а не выходит молча."""
+        store = self._reg(mk_store(self.tmp))
+        run = store.start_run('z1-kot')
+        self.assertTrue(store.shadow_drain())
+        orig = store.shadow.mirror_mutation
+
+        def slow(*a, **k):
+            time.sleep(5.0)
+            return orig(*a, **k)
+        store.shadow.mirror_mutation = slow
+        logged = []
+        orig_log = store.shadow._log_err
+        store.shadow._log_err = lambda where, e: (logged.append(where), orig_log(where, e))
+        self.assertEqual(save(store, '1', 1, run)[0], 200)
+        time.sleep(0.3)          # worker вошёл в медленное зеркало
+        store.close()            # дренаж (3 c) заведомо не успевает
+        self.assertTrue(any('close' in w for w in logged),
+                        'провал дренажа на SIGTERM должен быть озвучен: %r' % logged)
 
 
 class TestAtomicityAndRecovery(unittest.TestCase):

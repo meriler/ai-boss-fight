@@ -343,3 +343,21 @@ test('seat-save: дебаунс-снапшот, other_tab, takeover сбрасы
   assert.equal(generation, 3, 'приняли generation сервера');
   assert.equal(j.entries().length, 0, 'буфер после takeover начат с нуля');
 });
+
+test('save_seq: монотонный счётчик вех в каждом /save, нумерация продолжается с серверной', async () => {
+  const calls = [];
+  const fetchFn = async (u, opts) => {
+    calls.push(JSON.parse(opts.body));
+    return { ok: true, status: 200, json: async () => ({ ok: true, accepted_rev: 0, writer_generation: 1 }) };
+  };
+  const j = createJournal({ storage: memStorage() });
+  const s = createSeatSave({ seat: '3', runId: 'r1', lessonId: 'z1-kot', instanceId: 'A',
+    getGeneration: () => 1, setGeneration: () => {},
+    getState: () => 's2', getPayload: () => ({}), journal: j,
+    initialSaveSeq: 7,                       // из /restore (сервер хранит последнюю веху)
+    fetchFn });
+  await s.flushNow();
+  await s.flushNow();
+  assert.equal(calls[0].save_seq, 8, 'первая веха после F5 идёт СЛЕДОМ за серверной');
+  assert.equal(calls[1].save_seq, 9, 'каждый /save несёт строго растущий save_seq');
+});

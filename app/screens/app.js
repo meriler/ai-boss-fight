@@ -638,6 +638,9 @@ async function boot() {
   // вкладками — replay берёт только хвост ТЕКУЩЕГО (instance, generation)
   ctx.journal = createJournal({ storageKey: 'z1_journal_' + ctx.runId + '_' + ctx.seat,
                                 owner: { inst: ctx.instanceId, gen: ctx.generation } });
+  // усыновление legacy-хвоста (rolling deploy) — сериализовано Web Lock'ом: две
+  // вкладки не штампуют один хвост наперегонки (хвост ревью 19.07, п.4)
+  await ctx.journal.migrateLegacy();
   const { payload } = applyRestore(view, ctx.journal);
   ctx.payload = payload;
   ctx.ackedCommits = view.acked || {};
@@ -698,6 +701,9 @@ async function boot() {
     // позиция основной машины при уходе в резерв — в снапшоте (аудит 18.07, п.7)
     getSuspended: () => (ctx.inReserve && ctx.suspendedMain) || null,
     journal: ctx.journal,
+    // нумерация вех продолжается с серверной (хвост ревью 19.07, п.1): иначе после
+    // F5 первая честная веха выглядела бы для сервера «поздним повтором»
+    initialSaveSeq: view.save_seq || 0,
     onOtherTab,
   });
 

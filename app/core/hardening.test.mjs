@@ -158,3 +158,33 @@ test('takeover high: journal.reset нового владельца не стир
   assert.ok(!(disk2.entries || []).some(e => e.inst === 'NEW'), 'свои записи сброшены');
   assert.equal((disk2.entries || []).filter(e => e.inst === 'OLD').length, 2);
 });
+
+/* ---------- хвост ревью 19.07, п.4: усыновление legacy-хвоста под Web Lock ---------- */
+
+test('журнал: усыновление legacy-хвоста двумя вкладками сериализовано — хвост достаётся ровно одной', async () => {
+  const storage = memStorage();
+  storage.setItem('z1_journal', JSON.stringify({ counter: 3, entries: [
+    { type: 'basket_assign', args: { img: 'i1', basket: 'cat' }, rev: 2, ts: 1 },
+    { type: 'trap_add', args: { img: 'i2' }, rev: 3, ts: 2 },
+  ] }));
+  // фейковый Web Locks: строго последовательное исполнение колбэков (как в браузере)
+  let chain = Promise.resolve();
+  const locks = { request: (name, cb) => {
+    const p = chain.then(() => cb({ name }));
+    chain = p.catch(() => {});
+    return p;
+  } };
+  const jA = createJournal({ storage, owner: { inst: 'TAB-A', gen: 1 } });
+  const jB = createJournal({ storage, owner: { inst: 'TAB-B', gen: 1 } });
+  await Promise.all([jA.migrateLegacy({ locks }), jB.migrateLegacy({ locks })]);
+  const disk = JSON.parse(storage.getItem('z1_journal'));
+  const owners = new Set(disk.entries.map(e => e.inst));
+  assert.equal(owners.size, 1, 'хвост проштампован ровно ОДНИМ владельцем: ' + [...owners]);
+  assert.equal(disk.entries.length, 2, 'записи не потеряны и не задвоены');
+  // победитель реплеит хвост, проигравший видит его чужим (foreign) и не трогает
+  const counts = [jA.entries().length, jB.entries().length].sort();
+  assert.deepEqual(counts, [0, 2], 'усыновил ровно один из двух');
+  // rev-счётчик у обоих двигается rev'ами хвоста (переиспользования rev не будет)
+  assert.equal(jA.maxRev(), 3);
+  assert.equal(jB.maxRev(), 3);
+});
