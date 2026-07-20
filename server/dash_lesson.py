@@ -169,6 +169,17 @@ def _forecast_cell(step_commits):
                           if data.get('readable') else '')
 
 
+def _hlp(tip, right=False):
+    """«?»-affordance у заголовка колонки: держит ВТОРИЧНУЮ расшифровку значков
+    (progressive disclosure, ui-ux-pro-max) — ведущий читает основной смысл колонки
+    словом в шапке, а символьную легенду открывает по желанию (hover / tap-focus),
+    а не глазами в потоке урока. Правые колонки — right=True (тултип открывается влево,
+    не за край). Текст эскейпится (та же XSS-дисциплина панели)."""
+    return ('<span class="zhelp' + (' zr' if right else '') + '" tabindex="0" role="button"'
+            ' aria-label="' + esc(tip) + '"><span aria-hidden="true">?</span>'
+            '<span class="ztip">' + esc(tip) + '</span></span>')
+
+
 _JS = """<script>
 async function zPost(path, body) {
   const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
@@ -249,6 +260,22 @@ _STYLE = ('<style>.lesson-panel{background:#fff;border:2px solid #2557d6;border-
           '.lesson-panel tr.zr0 td{background:#fdeaea}'
           '.lesson-panel tr.zr1 td{background:#fbeedd}'
           '.lesson-panel tr.zr2 td{background:#fdf6e3}'
+          # обёртка таблицы: широкую таблицу (8 колонок) на узком экране скроллим внутри
+          # блока, а не рвём страницу (ui-ux-pro-max §Responsive — table horizontal-scroll)
+          '.ztable-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}'
+          # тултип-«?» на заголовке колонки: вторичная расшифровка значков (progressive
+          # disclosure) — hover мышью, focus по tap на планшете; сам смысл колонки словом
+          '.zhelp{display:inline-flex;align-items:center;justify-content:center;width:15px;'
+          'height:15px;margin-left:5px;border-radius:50%;background:#c9d3e0;color:#fff;'
+          'font-size:11px;font-weight:700;cursor:help;position:relative;vertical-align:middle;'
+          'text-transform:none;letter-spacing:normal}'
+          '.zhelp:hover,.zhelp:focus{background:#2557d6;outline:2px solid #2557d6;outline-offset:1px}'
+          '.zhelp .ztip{display:none;position:absolute;z-index:30;top:20px;left:-6px;width:250px;'
+          'background:#1a2330;color:#fff;font-weight:400;font-size:12px;line-height:1.45;'
+          'letter-spacing:normal;text-transform:none;text-align:left;padding:8px 11px;'
+          'border-radius:8px;box-shadow:0 6px 20px rgba(15,23,42,.28);white-space:normal}'
+          '.zhelp.zr .ztip{left:auto;right:-6px}'
+          '.zhelp:hover .ztip,.zhelp:focus .ztip{display:block}'
           '.lesson-start{font-size:16px;margin:8px 0}'
           '.lesson-panel .lesson-startbtn{font-size:17px !important;font-weight:900;'
           'padding:10px 22px !important;background:#2557d6 !important;color:#fff !important}'
@@ -530,18 +557,25 @@ def render_lesson_panel(store, dumps, names, session_live):
                          '<td colspan=7 class="note">строка не отрисовалась: ' +
                          esc(e) + '</td></tr>'))
     rows.sort(key=lambda r: (r[0], r[1]))
-    out.append('<h3>Дети в занятии</h3><table><tr>'
-               '<th title="имя и место из ростера">кто</th>'
-               '<th title="🟢 на связи · 📴 нет связи (поллинг молчит >60 сек) · ⚪ не открывал ссылку · '
-               '💥 загрузка не встала · ⚠️ две сессии · N перезап. — перезагрузки страницы">связь</th>'
-               '<th title="последний подтверждённый шаг ребёнка">шаг</th>'
-               '<th title="проверка знаний: до обучения → после">замер</th>'
-               '<th title="✓ — записал версию/выбор; текст виден, «верно/неверно» — нет до reveal">версия</th>'
-               '<th title="✓ — записал прогноз">прогноз</th>'
-               '<th title="🆘 сам нажал «застрял» · ур.N — глубина подсказок · 😶 тишина · '
-               '🔢 серия неверных кодов · 🚫 невалидные кадры">помощь</th>'
-               '<th title="сколько раз нажал «получилось!»">👍</th></tr>' +
-               (''.join(r[2] for r in rows) or '<tr><td colspan=8>—</td></tr>') + '</table>'
+    out.append('<h3>Дети в занятии</h3><div class="ztable-wrap"><table><tr>'
+               '<th>кто' + _hlp('Имя и место из ростера занятия.') + '</th>'
+               '<th>связь' + _hlp(
+                   '🟢 на связи — устройство шлёт синк · 📴 нет связи — поллинг молчит больше '
+                   '60 сек (вкладка закрыта / нет интернета) · ⚪ не открывал — по ссылке ещё '
+                   'не заходили · 💥 загрузка не встала · ⚠️ две сессии — ссылку переслали · '
+                   '«N перезап.» — сколько раз перезагружал страницу (много = проблемы сети).') + '</th>'
+               '<th>шаг' + _hlp('Последний подтверждённый шаг ребёнка.') + '</th>'
+               '<th>замер' + _hlp('Проверка знаний до обучения → после (например 0/4 → 3/4).') + '</th>'
+               '<th>версия' + _hlp(
+                   '✓ — ребёнок записал версию/выбор. Текст виден, но «верно/неверно» скрыто '
+                   'до «Раскрыть» — не подтверждай верный ответ, пока все не записали.') + '</th>'
+               '<th>прогноз' + _hlp('✓ — ребёнок записал прогноз до проверки.', right=True) + '</th>'
+               '<th>помощь' + _hlp(
+                   '🆘 сам нажал «застрял» — подойди · ур.N — до какой глубины подсказки дошёл '
+                   '(ур.2 сильная) · 😶 тишина 5+ мин · 🔢 серия неверных кодов · '
+                   '🚫 серия невалидных кадров.', right=True) + '</th>'
+               '<th>👍' + _hlp('Сколько раз ребёнок нажал «получилось!».', right=True) + '</th></tr>' +
+               (''.join(r[2] for r in rows) or '<tr><td colspan=8>—</td></tr>') + '</table></div>'
                '<p class="note">до reveal видно только ФАКТ коммита и текст — без «верно/неверно» '
                '(не подтверждать верный ответ, пока все не записали)</p>')
 
@@ -584,26 +618,17 @@ def render_lesson_panel(store, dumps, names, session_live):
             (' · место ' + esc(l.get('seat')) if l.get('op') == 'reset_version' else '') + '</p>'
             for l in log) + '</details>')
 
-    # легенда «как читать панель» — свёртка + тултипы в заголовках колонок (И3-Д п.4)
+    # свёрнутая справка «как читать панель»: расшифровка значков переехала в «?» на
+    # заголовках колонок (progressive disclosure, ui-ux-pro-max) — здесь остаётся только
+    # компактный фолбэк для того, что НЕ привязано к одной колонке (цвет строк, замок, гейт).
+    # Свёрнута по умолчанию, ведущий открывает при желании, а не читает в потоке урока.
     out.append(
-        '<details><summary>ℹ️ Как читать панель</summary><p>'
-        '<b>СЕЙЧАС</b> — только то, что требует действия: очередь помощи, замки разгадки, текущий гейт.<br>'
-        '<b>Связь:</b> 🟢 на связи — устройство шлёт синк · 📴 НЕТ СВЯЗИ — поллинг молчит больше минуты '
-        '(вкладка закрыта / интернет) · ⚪ не открывал — по ссылке ещё не заходили · '
-        '💥 загрузка не встала / ⚠️ две сессии — тревога телеметрии, «на связи» она перекрывает · '
-        '«N перезап.» — сколько раз перезагружал страницу (много = проблемы сети/устройства).<br>'
-        '<b>Помощь:</b> 🆘 застрял — ребёнок сам нажал кнопку «застрял» → подойди · '
-        'ур.N — до какой по глубине подсказки дошёл (ур.2 — сильная) · '
-        '😶 тишина — вкладка жива, но событий нет 5+ мин · 🔢 — серия неверных кодов · '
-        '🚫 — серия невалидных кадров.<br>'
-        '<b>Замер:</b> «0/4 → 3/4» — проверка до обучения → после.<br>'
-        '<b>Версия/Прогноз:</b> ✓ — ребёнок записал; до «Раскрыть» видно только факт и текст, '
-        'БЕЗ «верно/неверно» — не подтверждай верный ответ, пока все не записали.<br>'
-        '<b>👍</b> — сколько раз нажал «получилось!».<br>'
-        '<b>Гейт:</b> «N из M перешли» — сколько из ростера прошло шаг-гейт; код гейта называешь вслух.<br>'
-        '<b>Замок 🔒/🔓:</b> «Раскрыть» откроется при N/N записавших; отвалившегося можно обойти '
-        'красной кнопкой (попадёт в лог).<br>'
-        'Цвет строки дублируется словом: красная — 🆘 застрял, оранжевая — 📴 нет связи, '
-        'жёлтая — ⚪ не открывал.</p></details>')
+        '<details><summary>ℹ️ Как читать панель</summary><p class="note">'
+        'Значки в таблице расшифрованы прямо в шапке — наведи (или нажми) на «?» рядом с названием колонки.<br>'
+        '<b>Цвет строки = слово рядом:</b> красная — 🆘 застрял, оранжевая — 📴 нет связи, '
+        'жёлтая — ⚪ не открывал. Цвет только дублирует статус, ориентируйся на слово.<br>'
+        '<b>СЕЙЧАС</b> вверху — только то, что требует действия: кому подойти, замок разгадки '
+        '🔒/🔓 (откроется при N/N записавших; отвалившегося обходишь красной кнопкой — уйдёт в лог), '
+        'текущий гейт (код называешь вслух, детям он не показывается).</p></details>')
 
     return '<div class="lesson-panel">' + ''.join(out) + '</div>' + _STYLE

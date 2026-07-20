@@ -191,5 +191,56 @@ class TestBrokenPayloadSurvives(unittest.TestCase):
         self.assertIn('Тест-А', html)   # панель отрисовалась, ребёнок в таблице
 
 
+class TestLegendHierarchy(unittest.TestCase):
+    """Заход И4-Д (правка G): легенда-простыня «Как читать панель» (5 абзацев в потоке)
+    убита — расшифровка значков переехала в «?»-тултипы на заголовках колонок
+    (progressive disclosure), внизу осталась только компактная свёрнутая справка про
+    не-колоночное (цвет строк, замок, гейт). Основные статусы — словом в ячейке."""
+
+    def _html(self):
+        return render(dump('sA', 1, [{'type': 'seat'}], last_ago_s=20), {'1': online_seat()})
+
+    def test_column_headers_have_help_affordance(self):
+        html = self._html()
+        # у каждой из 8 колонок — «?»-affordance с тултипом-расшифровкой
+        self.assertGreaterEqual(html.count('class="zhelp'), 8)
+        self.assertIn('<span class="ztip">', html)
+        # смысл колонки — словом в самой шапке, «?» стоит рядом
+        self.assertIn('связь<span class="zhelp"', html)
+        self.assertIn('помощь<span class="zhelp zr"', html)   # правая колонка — тултип влево
+
+    def test_secondary_symbols_decoded_in_tooltip_not_in_flow(self):
+        html = self._html()
+        # вторичная расшифровка (глубина подсказок, «две сессии») живёт в тултипе-«?»,
+        # а не сплошным текстом внизу
+        self.assertIn('глубины подсказки', html)
+        self.assertIn('ссылку переслали', html)
+
+    def test_legend_essay_collapsed_and_compact(self):
+        html = self._html()
+        # свёртка сохранена (её открытость переживает reload — e2e sessionStorage),
+        # summary по-прежнему «Как читать»
+        self.assertIn('<summary>ℹ️ Как читать панель</summary>', html)
+        # но эссе-простыни из старых 5 абзацев больше нет: раздел «Замер:»/«Версия/Прогноз:»
+        # как отдельные жирные абзацы легенды удалён (расшифровка ушла в «?»)
+        self.assertNotIn('<b>Замер:</b>', html)
+        self.assertNotIn('<b>Версия/Прогноз:</b>', html)
+        # блок легенды короткий — не разросся обратно в простыню
+        legend = html.split('Как читать панель</summary>', 1)[1].split('</details>', 1)[0]
+        self.assertLess(len(legend), 800)
+
+    def test_wide_table_wrapped_for_horizontal_scroll(self):
+        html = self._html()
+        # широкую таблицу скроллим внутри блока, а не рвём страницу (ui-ux-pro-max §Responsive)
+        self.assertIn('<div class="ztable-wrap"><table>', html)
+
+    def test_help_affordance_markup_wellformed(self):
+        # «?»-affordance доступен: focusable (tap на планшете) + aria-label для скринридера,
+        # текст тултипа продублирован в aria-label (не только визуальный «?»)
+        html = self._html()
+        self.assertIn('tabindex="0" role="button" aria-label="', html)
+        self.assertIn('<span aria-hidden="true">?</span>', html)
+
+
 if __name__ == '__main__':
     unittest.main()
