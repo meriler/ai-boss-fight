@@ -21,19 +21,16 @@
     { "id": "vt5", "class": "pear",  "role": "train_core", "bg": "зелёный", "src": "pears/vt5.png" },
     { "id": "vt6", "class": "pear",  "role": "train_core", "bg": "зелёный", "src": "pears/vt6.png" },
 
-    { "id": "vp1", "class": "apple", "role": "probe", "bg": "зелёный", "src": "probe/vp1.png", "expected_flip": true },
-    { "id": "vp2", "class": "pear",  "role": "probe", "bg": "красный", "src": "probe/vp2.png", "expected_flip": true },
-    { "id": "vp3", "class": "apple", "role": "probe", "bg": "красный", "src": "probe/vp3.png" },
 
     { "id": "vtr1", "class": "apple", "role": "trap", "bg": "зелёный", "src": "traps/vtr1.png" },
     { "id": "vtr2", "class": "apple", "role": "trap", "bg": "зелёный", "src": "traps/vtr2.png" },
     { "id": "vtr3", "class": "pear",  "role": "trap", "bg": "красный", "src": "traps/vtr3.png" },
     { "id": "vtr4", "class": "pear",  "role": "trap", "bg": "красный", "src": "traps/vtr4.png" },
 
-    { "id": "vh1", "class": "apple", "role": "holdout", "bg": "зелёный", "src": "holdout/vh1.png" },
-    { "id": "vh2", "class": "pear",  "role": "holdout", "bg": "красный", "src": "holdout/vh2.png" },
-    { "id": "vh3", "class": "apple", "role": "holdout", "bg": "красный", "src": "holdout/vh3.png" },
-    { "id": "vh4", "class": "pear",  "role": "holdout", "bg": "зелёный", "src": "holdout/vh4.png" },
+    { "id": "vh1", "class": "apple", "role": "control", "bg": "зелёный", "src": "holdout/vh1.png", "expected_flip": true },
+    { "id": "vh2", "class": "pear",  "role": "control", "bg": "красный", "src": "holdout/vh2.png", "expected_flip": true },
+    { "id": "vh3", "class": "apple", "role": "control", "bg": "красный", "src": "holdout/vh3.png" },
+    { "id": "vh4", "class": "pear",  "role": "control", "bg": "зелёный", "src": "holdout/vh4.png" },
 
     { "id": "vf1", "class": "apple", "role": "forecast", "bg": "красный", "src": "forecast/vf1.png" },
 

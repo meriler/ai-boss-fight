@@ -231,9 +231,11 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
     const els = phase.elements || [];
 
     if (els.some(e => e.startsWith('basket_'))) {
-      // порядок подачи перемешан per-seat — текущую картинку читаем из DOM, не по индексу банка
+      // порядок подачи перемешан per-seat — текущую картинку читаем из DOM, не по индексу банка.
+      // Корзины в акте 1 (train_core) и акте 2 (ловушки, И4-Т B) — ищем метку по bankIndex
+      // любой роли и кладём в верную корзину (в акте 2 не в ту = мягкая поправка, ловушка не идёт)
       const imgId = await p.$eval('#img_current', el => el.dataset.img).catch(() => null);
-      const img = imgId && (man.byRole.train_core || []).find(i => i.id === imgId);
+      const img = imgId && man.byId[imgId];
       if (img) {
         await clickIf(p, '#basket_' + img.class);
       } else await clickIf(p, '#btn_next');
@@ -815,7 +817,8 @@ ok('оверлеи: на активном такте раскладки буфе
   for (let guard = 0; guard < 40 && cats < 2; guard++) {
     const cur = await B.$eval('#img_current', el => el.dataset.img);
     const img = man.byId[cur];
-    if (img.class === 'cat') { await B.click('#btn_pick'); cats += 1; }
+    // И4-Т B: разметка ловушки в корзину по МЕТКЕ (кот-на-улице → «Коты»); лишние — «Пропустить»
+    if (img.class === 'cat') { await B.click('#basket_cat'); cats += 1; }
     else await B.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }
@@ -830,13 +833,16 @@ ok('оверлеи: на активном такте раскладки буфе
   let score = (await scoresOf(B)).pop() || '';
   const more = await B.$('#btn_more_traps');
   if (ENGINE !== '&engine=head') {
-    // kNN (demo-синтез калиброван под него): подмножество ловушек чинит слабо → цикл добора
-    ok('слабый замер на подмножестве: 2 из 4', score.includes('2 из 4'), score);
+    // kNN (demo-синтез калиброван под него): подмножество ловушек (только коты) чинит
+    // ОДИН конфликт из двух → 3/4 < порога 4/4 → цикл добора
+    ok('слабый замер на подмножестве: 3 из 4', score.includes('3 из 4'), score);
     ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
     await B.click('#btn_more_traps');
     await waitState(B, s => s.phase === 'traps', 8000, 'B → добор ловушек');
     for (let guard = 0; guard < 20; guard++) {
-      if (!await clickIf(B, '#btn_pick')) break;                // пропущенные вернулись в очередь
+      const cur = await B.$eval('#img_current', el => el.dataset.img).catch(() => null);
+      if (!cur) break;                                          // пул исчерпан
+      if (!await clickIf(B, '#basket_' + man.byId[cur].class)) break;   // размечаем оставшиеся
       await new Promise(r => setTimeout(r, 80));
     }
     await clickIf(B, '#btn_next');                              // «Дальше» (пул исчерпан)
@@ -871,33 +877,33 @@ ok('оверлеи: на активном такте раскладки буфе
      growth.rows === 2 && growth.cells === 8, JSON.stringify(growth));
   ok('В-5: стрелки на изменившихся ячейках есть', growth.arrows >= 1, JSON.stringify(growth));
   ok('В-5: счёт — подписью, не крупным числом (П4)', growth.bigNum === 0, JSON.stringify(growth));
-  // карточка дела: пара «до → после» честная (баг #33) — «до» = авто-замер v1,
-  // который ребёнок видел строкой «Было», «после» — итог добора
+  // карточка дела: пара «до → после» честная (И4-Т A+D) — «до» = проба акта 1 на ОДНОМ
+  // контрольном наборе (2 из 4 в demo: 2 конфликта флипают), «после» — замер того же набора
   await driveLesson(B, man, { code: '4712',
     stopWhen: (st) => !st.entry && st.phase === 'card_view' });
   const factB = await B.evaluate(() =>
     [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
   if (ENGINE !== '&engine=head')
-    ok('карточка дела B: точность «0 → 4 из 4» — та же пара, что на экране замера',
-       factB.includes('0 → 4 из 4'), factB.slice(0, 160));
+    ok('карточка дела B: точность «2 → 4 из 4» — та же пара, что на экране замера',
+       factB.includes('2 → 4 из 4'), factB.slice(0, 160));
   else
     ok('карточка дела B (head): пара «до → после» присутствует и честна',
        /\d+ → 4 из 4/.test(factB), factB.slice(0, 160));
-  // финал (И3 п.7): путь детектива — «Дело №1 ✓» + серые будущие дела из данных курса
-  let casesInfo = null;
-  await driveLesson(B, man, { code: '4712', hook: async (st, p) => {
-    if (!casesInfo && !st.entry && st.phase === 'next_block') {
-      await p.screenshot({ path: '/tmp/z1-cases.png', fullPage: true });   // ревью пути детектива
-      casesInfo = await p.evaluate(() => ({
-        done: document.querySelectorAll('.casechip-done').length,
-        future: document.querySelectorAll('.casechip-future').length,
-        first: (document.querySelector('.casechip-done') || {}).textContent || '',
-      }));
-    }
-  } });
-  ok('финал: «Дело №1 ✓» + 4 серых будущих дела (плашки из данных курса)',
-     !!casesInfo && casesInfo.done === 1 && casesInfo.future === 4 && casesInfo.first.includes('✓'),
-     JSON.stringify(casesInfo));
+  // финал (И4-Т E): только празднование сделанного — «Дело №1 раскрыто ✓», next_block убран
+  const finalId = man.lesson.steps.find(s => s.type === 'final_card').id;
+  let sawCasechip = false;
+  await driveLesson(B, man, { code: '4712',
+    hook: async (st, p) => { if (!sawCasechip && await p.$('.casechip')) sawCasechip = true; },
+    stopWhen: (st) => !st.entry && st.step === finalId && st.phase === 'best_trap' });
+  await clickIf(B, '#btn_pick');                                  // отметить лучшую ловушку
+  await B.waitForSelector('.finaldone', { timeout: 8000 });
+  const celebrate = await B.evaluate(() => (document.querySelector('.finaldone') || {}).textContent || '');
+  await B.screenshot({ path: '/tmp/z1-final.png', fullPage: true });   // ревью финала
+  ok('финал: «Дело №1 раскрыто ✓ — детектив данных», без запертых будущих дел',
+     celebrate.includes('раскрыто') && celebrate.includes('детектив') && !sawCasechip,
+     JSON.stringify({ celebrate: celebrate.slice(0, 80), sawCasechip }));
+  await clickIf(B, '#btn_next');                                 // «Закрыть дело №1»
+  await driveLesson(B, man, { code: '4712' });
   ok('B: занятие пройдено до конца после цикла добора', (await state(B)).done);
 }
 
@@ -921,7 +927,7 @@ ok('оверлеи: на активном такте раскладки буфе
   for (let guard = 0; guard < 40 && cats < 2; guard++) {
     const cur = await C.$eval('#img_current', el => el.dataset.img).catch(() => null);
     if (!cur) break;
-    if (man.byId[cur].class === 'cat') { await C.click('#btn_pick'); cats += 1; }
+    if (man.byId[cur].class === 'cat') { await C.click('#basket_cat'); cats += 1; }
     else await C.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }
@@ -945,7 +951,7 @@ ok('оверлеи: на активном такте раскладки буфе
   for (let guard = 0; guard < 40 && dogs < 1; guard++) {
     const cur = await C.$eval('#img_current', el => el.dataset.img).catch(() => null);
     if (!cur) break;
-    if (man.byId[cur].class === 'dog') { await C.click('#btn_pick'); dogs += 1; }
+    if (man.byId[cur].class === 'dog') { await C.click('#basket_dog'); dogs += 1; }
     else await C.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }
@@ -995,8 +1001,8 @@ ok('оверлеи: на активном такте раскладки буфе
     const cur = await D.$eval('#img_current', el => el.dataset.img).catch(() => null);
     if (!cur) break;
     const cls = man.byId[cur].class;
-    if (cls === 'cat' && gotCat < 1) { await D.click('#btn_pick'); gotCat += 1; }
-    else if (cls === 'dog' && gotDog < 1) { await D.click('#btn_pick'); gotDog += 1; }
+    if (cls === 'cat' && gotCat < 1) { await D.click('#basket_cat'); gotCat += 1; }
+    else if (cls === 'dog' && gotDog < 1) { await D.click('#basket_dog'); gotDog += 1; }
     else await D.click('#btn_skip');
     await new Promise(r => setTimeout(r, 80));
   }

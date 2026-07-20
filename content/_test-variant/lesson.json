@@ -49,9 +49,10 @@
             "id": "check",
             "text": "Проверь коробку на новых фруктах",
             "probe_set": [
-              "vp1",
-              "vp2",
-              "vp3"
+              "vh1",
+              "vh2",
+              "vh3",
+              "vh4"
             ],
             "microcycle_reaction": true,
             "elements": [
@@ -213,10 +214,10 @@
         "phases": [
           {
             "id": "add_traps",
-            "text": "Выбирай фрукты-ловушки по одному. Хватит — проверяем",
+            "text": "Куда положить ловушку? Яблоки — сюда, груши — сюда",
             "elements": [
-              "img_current",
-              "btn_pick",
+              "basket_apple",
+              "basket_pear",
               "btn_skip",
               "btn_next",
               "btn_undo"
@@ -235,7 +236,7 @@
           },
           {
             "id": "score_after",
-            "text": "Считаем: сколько из четырёх?",
+            "text": "Проверь на тех же 4 картинках",
             "elements": [
               "btn_check"
             ],
@@ -289,7 +290,7 @@
             "vh4"
           ],
           "pass": "3/4",
-          "before": "auto",
+          "before": "from_probe",
           "after": "on_retrain"
         },
         "forecast": {
@@ -315,12 +316,7 @@
         "timebox_min": 4,
         "catchup": "Открой карточку дела и отметь лучшую ловушку",
         "action": "mark_best_trap",
-        "presentation": "one_by_one",
-        "next_block": {
-          "cards": [
-            "next/dalshe-preview.png"
-          ]
-        }
+        "presentation": "one_by_one"
       },
       {
         "id": "talk",
@@ -341,6 +337,7 @@
         "type": "cards_quiz",
         "title": "Резерв: угадай, что посоветует лента",
         "catchup": "Резервный квиз: что посоветует лента рекомендаций",
+        "talk_note": "Обсуди с ведущим, почему",
         "cards": [
           {
             "id": "vrq1",
@@ -350,7 +347,8 @@
               "ещё футбол",
               "балет"
             ],
-            "correct": 0
+            "correct": 0,
+            "explain": "Лента смотрит на то, что ты уже выбирал, и предлагает похожее"
           }
         ]
       },

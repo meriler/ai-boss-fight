@@ -128,7 +128,7 @@
      "items": {
       "type": "string"
      },
-     "description": "id картинок роли probe из банка"
+     "description": "id картинок роли control из банка (один контрольный набор — проба акта 1 и замер акта 2)"
     },
     "microcycle_reaction": {
      "type": "boolean"
@@ -259,6 +259,10 @@
     },
     "multi": {
      "type": "boolean"
+    },
+    "explain": {
+     "$ref": "#/$defs/childText",
+     "description": "одна фраза-объяснение после выбора (разговорный резерв kind=talk, И4-Т F)"
     },
     "cells": {
      "type": "integer",
@@ -404,8 +408,10 @@
     },
     "before": {
      "enum": [
-      "auto"
-     ]
+      "auto",
+      "from_probe"
+     ],
+     "description": "auto — авто-замер модели при входе в шаг (резерв-добор); from_probe — «до починки» берётся из пробы акта 1 на том же контрольном наборе (И4-Т: замер по кнопке, не авто)"
     },
     "after": {
      "enum": [
@@ -511,12 +517,16 @@
       },
       "title": {
        "type": "string"
+      },
+      "talk_note": {
+       "$ref": "#/$defs/childText",
+       "description": "строка «Обсуди с ведущим, почему» под ответом разговорного резерва (И4-Т F)"
       }
      }
     }
    ],
    "unevaluatedProperties": false,
-   "description": "Резервный шаг: тело шага + kind/title; замок свой (kind/title оценены веткой рядом)"
+   "description": "Резервный шаг: тело шага + kind/title/talk_note; замок свой (оценены веткой рядом)"
   },
   "stepBody": {
    "allOf": [

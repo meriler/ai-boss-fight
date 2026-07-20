@@ -49,12 +49,13 @@ export function derivePhases(step) {
       return [{ id: 'main', elements: ['free_text'], overlays: [],
                 derived: true, limitCount: 2 }];
     case 'final_card':
-      // карточка дела → «лучшая ловушка» по одной (3 интерактива, аннекс) → блок «что дальше»
+      // карточка дела → «лучшая ловушка» по одной (3 интерактива, аннекс) → закрытие дела.
+      // Блок «что дальше»/next_block УБРАН (И4-Т E, решение владельца): допродавать ребёнку
+      // запертыми будущими делами неэтично — финал только празднует сделанное.
       return [
         { id: 'card_view', elements: ['btn_next'], overlays: [], derived: true, limitCount: 1 },
         { id: 'best_trap', elements: ['img_current', 'btn_pick', 'btn_next'], overlays: [],
           derived: true, limitCount: 3 },
-        { id: 'next_block', elements: ['btn_next'], overlays: [], derived: true, limitCount: 1 },
       ];
     default:
       return [{ id: 'main', elements: [], overlays: [], derived: true, limitCount: 0 }];

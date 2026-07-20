@@ -81,8 +81,19 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
         }
         break;
 
-      case 'baskets': {                                  // раскладка по одной + «вернуть»
-        const train = role('train_core');
+      case 'baskets': {
+        if (step.traps_from_bank) {
+          // акт 2 (И4-Т B): разметка ловушек В КОРЗИНЫ — метка из банка, журналим trap_add
+          const pool = role('trap');
+          if (!pool.length) errors.push(step.id + ': пустой пул ловушек');
+          pool.forEach((img, i) => {
+            if (i === 0 && pool.length > 1) j('trap_skip', { img: img.id });   // «Пропустить»
+            j('trap_add', { img: img.id });
+            if (i === 0) { j('trap_undo', {}); j('trap_add', { img: img.id }); }
+          });
+          break;
+        }
+        const train = role('train_core');                // акт 1: раскладка по одной + «вернуть»
         if (!train.length) errors.push(step.id + ': в банке нет train_core');
         train.forEach((img, i) => {
           j('basket_assign', { img: img.id, basket: img.class });
@@ -191,9 +202,22 @@ export function walkLesson(normalized, bankIndex, { includeReserve = false } = {
     visited.push(step.id);
     // вход в шаг — acked по построению (гейт или step_enter)
     acked.push(m.entryRequirement());
-    // R1 «до» — автозамер при входе в шаг с measure (before: auto)
+    // R1 «до» — автозамер при входе в шаг с measure (before: auto — резерв-добор)
     if (step.measure && step.measure.before === 'auto')
       j('measure_result', { phase: 'before', score: 1, of: step.measure.holdout.length });
+    // «до починки» из ПРОБЫ акта 1 (И4-Т A+D, before: from_probe): тот же контрольный
+    // набор проверен в акте 1 — «Было» это его результат, не скрытый авто-замер
+    if (step.measure && step.measure.before === 'from_probe') {
+      const ids = step.measure.holdout;
+      if (ids.every(id => payload.probes[id])) {
+        const details = ids.map(id => {
+          const v = payload.probes[id]; const img = bankIndex.byId.get(id);
+          return { img: id, label: v.label, conf: v.conf, ok: !!img && v.label === img.class };
+        });
+        j('measure_result', { phase: 'before', score: details.filter(d => d.ok).length,
+          of: ids.length, details, model_sig: 'walk', baskets_sig: 'walk' });
+      }
+    }
 
     // маппинг opt-тактов по порядку: choice → predict → reason
     const optLists = [];

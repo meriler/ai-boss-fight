@@ -15,6 +15,14 @@ import { stableComposition, trainAlreadyCommitted, activeStableModel } from '../
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
 
+/** Такт добавления ловушек в шаге починки/добора. В акте 2 (traps_from_bank) ловушки
+ * РАЗМЕЧАЮТСЯ в корзины (И4-Т B: данные = картинка + метка, кладёт ребёнок) — это такт
+ * с basket_*; в резерве-доборе (images_from_role) — прежний btn_pick «эта!». Все
+ * lookup'ы «где добирать картинки» ходят через этот хелпер. */
+const trapsPhaseOf = (step) => step.traps_from_bank
+  ? step.phases.find(p => (p.elements || []).some(e => e.startsWith('basket_')))
+  : step.phases.find(p => (p.elements || []).includes('btn_pick'));
+
 /** Класс словом в ед. числе для подписей ошибок («кот», «собака»): bank.classes[].label_one,
  * фолбэк — label корзины. */
 const classOne = (ctx, id) => {
@@ -308,7 +316,7 @@ function trainPhase(ctx, step, phase) {
   if (missingClasses) {
     // путь из тупика: «Хватит, проверяем» с одноклассовым набором привёл сюда —
     // без возврата к подаче ребёнок был бы заперт на запертой кнопке
-    const trapsPhase = step.phases.find(p => (p.elements || []).includes('btn_pick'));
+    const trapsPhase = trapsPhaseOf(step);
     const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
     const restN = pool.filter(i => !ctx.payload.traps.includes(i.id)).length;
     if (trapsPhase && restN > 0)
@@ -501,6 +509,118 @@ function trapsFeed(ctx, step, phase) {
   });
 }
 
+/* Разметка ловушек В КОРЗИНЫ (И4-Т B): в акте 2 ребёнок сам кладёт «кота-на-улице» в
+ * корзину «Коты» — как в акте 1, но метка ловушки известна из банка. Кладёт РЕБЁНОК,
+ * банк подтверждает: верная корзина → «Кот на улице — метка „кот" ✓», ловушка идёт в
+ * обучение. Не в ту корзину → мягкая поправка (учим метке, не фону), ловушка не
+ * добавляется. Ядро урока: данные = картинка + МЕТКА, а не «покажи картинку — ответ
+ * машина узнает сама». Картинка — display-only (клик по корзине), поэтому НЕ в elements
+ * и не входит в лимит ≤5: basket×2 + skip + next + undo = 5. Сохранены «по одной»,
+ * undo, «Пропустить», «Хватит — проверяем» (≥1 ловушка). */
+function trapBasketsFeed(ctx, step, phase) {
+  const pool = step.images_from_role ? shuffledRole(ctx, step.images_from_role) : shuffledRole(ctx, 'trap');
+  const added = new Set(ctx.payload.traps);
+  const skipped = new Set(ctx.payload.trap_skips || []);
+  // очередь: сперва невиданные, потом пропущенные (доступны в цикле добора)
+  const rest = [...pool.filter(i => !added.has(i.id) && !skipped.has(i.id)),
+                ...pool.filter(i => !added.has(i.id) && skipped.has(i.id))];
+  const lkey = 'trapptr_' + step.id;
+  const nkey = 'trapnote_' + step.id;
+  const ptr = rest.length ? (ctx.local[lkey] || 0) % rest.length : 0;
+  const current = rest.length ? rest[ptr] : null;
+  const addedInPool = pool.filter(i => added.has(i.id)).length;
+  const canStop = addedInPool >= 1;
+  const baskets = (phase.elements || []).filter(e => e.startsWith('basket_'))
+    .map(e => e.slice('basket_'.length));
+
+  const place = (basket) => {
+    if (!current) return;
+    if (basket === current.class) {
+      ctx.local[nkey] = { img: current.id, ok: true };
+      ctx.j('trap_add', { img: current.id });
+      ctx.tele.push('trap_added', { img: current.id, basket, correct: true });
+    } else {
+      // положил не в ту корзину — не добавляем, поправляем по МЕТКЕ (не по фону)
+      ctx.local[nkey] = { img: current.id, ok: false };
+      ctx.tele.push('trap_misplaced', { img: current.id, basket, truth: current.class });
+    }
+    ctx.render();
+  };
+  const clearNote = () => { ctx.local[nkey] = null; };
+
+  const input = [];
+  if (current) {
+    input.push(h('div', { class: 'feedcount' }, 'размечено ' + addedInPool + ' из ' + pool.length));
+    // display-only (клик по корзине, не drag) → не интерактив, вне лимита ≤5
+    const card = imgCard(ctx.assetsBase + current.src, { big: true, id: 'img_current' });
+    card.dataset.img = current.id;   // e2e/дебаг: какая ловушка в подаче
+    input.push(card);
+    input.push(kidText((current.caption ? current.caption + '. ' : '') +
+      'В какую корзину?', { small: true }));
+  } else {
+    input.push(kidText('Все ' + pool.length + ' ловушек размечены!'));
+  }
+  // подтверждение/поправка последней раскладки (метка — из банка)
+  const note = ctx.local[nkey];
+  if (note) {
+    const nimg = ctx.bankIndex.byId.get(note.img);
+    if (note.ok)
+      input.push(h('div', { class: 'trap-confirm', 'data-kid': '1' },
+        '✓ ' + (nimg && nimg.caption ? nimg.caption : 'Картинка') +
+        ' — метка «' + classOne(ctx, nimg ? nimg.class : '') + '»'));
+    else if (nimg)
+      input.push(h('div', { class: 'trap-correct', 'data-kid': '1' },
+        'Приглядись: это ' + (nimg.caption || classOne(ctx, nimg.class)) +
+        ' — её метка «' + classOne(ctx, nimg.class) + '», положи в «' + classLabel(ctx, nimg.class) + '»'));
+  }
+  const basketRow = h('div', { class: 'row baskets' },
+    ...baskets.map(bid => {
+      const el = h('div', {
+        class: 'basket', id: 'basket_' + bid, role: 'button', tabindex: '0',
+        onclick: () => place(bid),
+        onkeydown: (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); place(bid); }
+        },
+      },
+        h('div', { class: 'basket-lid' }),
+        h('div', { class: 'basket-label' }, classLabel(ctx, bid)),
+        h('div', { class: 'basket-count' },
+          String(pool.filter(i => added.has(i.id) && i.class === bid).length)));
+      return el;
+    }));
+  input.push(basketRow);
+
+  const controls = h('div', { class: 'row' });
+  if (hasEl(phase, 'btn_skip') && current)
+    controls.append(bigBtn('Пропустить', () => {
+      clearNote();
+      ctx.j('trap_skip', { img: current.id });
+      ctx.tele.push('trap_skipped', { img: current.id });
+      ctx.local[lkey] = ptr + 1;
+      ctx.render();
+    }, { kind: 'ghost', id: 'btn_skip' }));
+  if (hasEl(phase, 'btn_undo'))
+    controls.append(bigBtn('Вернуть', () => {
+      if (!ctx.payload.traps.length) return;
+      clearNote();
+      ctx.j('trap_undo', {});
+      ctx.tele.push('basket_undo', { step: step.id });
+      ctx.render();
+    }, { kind: 'ghost', id: 'btn_undo', disabled: !ctx.payload.traps.length }));
+  if (hasEl(phase, 'btn_next') && (canStop || !current))
+    controls.append(bigBtn(current ? 'Хватит, проверяем' : 'Дальше', () => {
+      ctx.tele.push('traps_done', { added: addedInPool, of: pool.length, stopped_early: !!current });
+      ctx.advancePhase();
+    }, { id: 'btn_next', kind: current ? 'secondary' : 'primary' }));
+  input.push(controls);
+
+  return zones(ctx, step, {
+    input: { content: input, active: true },
+    box: { content: kidText(boxStatus(ctx), { small: true }), active: false },
+    output: { content: kidText('Разметил — и научи заново', { small: true }), active: false },
+  });
+}
+
 /** Подписи ошибок замера: «на картинке кот — коробка сказала „собака“» (план-правок п.3). */
 function measureErrors(ctx, m) {
   return (m.details || []).filter(d => !d.ok).map(d => {
@@ -598,7 +718,7 @@ function measurePhase(ctx, step, phase) {
     // цикл добора (фаза 0.5, стык с паттерном r2): замер слабее порога и остались
     // невзятые ловушки → назад к подаче, добрать и переучить (версия состава вырастет)
     const passN = parseInt(String(step.measure.pass).split('/')[0], 10) || m.after.of;
-    const trapsPhase = step.phases.find(p => (p.elements || []).includes('btn_pick'));
+    const trapsPhase = trapsPhaseOf(step);
     const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
     const restN = pool.filter(i => !ctx.payload.traps.includes(i.id)).length;
     const row = h('div', { class: 'row' });
@@ -645,7 +765,9 @@ function measurePhase(ctx, step, phase) {
       ctx.modelGate(btn6);
       out.push(btn6);
     } else {
-      const btn = bigBtn('Проверить коробку', () => {
+      // замер ПО КНОПКЕ (И4-Т D): осознанный эксперимент «изменил данные → проверил
+      // гипотезу» на ТЕХ ЖЕ картинках, что проба акта 1 — не автомагия
+      const btn = bigBtn('Проверить на тех же ' + step.measure.holdout.length + ' картинках', () => {
         const r = ctx.classifier.measure(step.measure.holdout);
         const mi = ctx.classifier.modelInfo();
         ctx.j('measure_result', { phase: 'after', score: r.score, of: r.of, details: r.details,
@@ -660,7 +782,7 @@ function measurePhase(ctx, step, phase) {
     }
   }
   return zones(ctx, step, {
-    input: { content: kidText('Проверяем на НОВЫХ картинках', { small: true }), active: false },
+    input: { content: kidText('Те же ' + step.measure.holdout.length + ' картинки, что в пробе', { small: true }), active: false },
     box: { content: kidText(boxStatus(ctx), { small: true }), active: false },
     output: { content: out, active: true },
   });
@@ -952,6 +1074,10 @@ function quizCard(ctx, step, phase) {
   })));
   if (answered != null) {
     body.push(kidText(answered === card.correct ? 'Верно!' : 'Правильный ответ подсвечен', { small: true }));
+    // разговорный резерв (И4-Т F): короткая реакция + одна фраза-объяснение +
+    // «Обсуди с ведущим, почему» — немой проход держит смысл без голоса ведущего
+    if (card.explain) body.push(kidText(card.explain, { small: true }));
+    if (step.talk_note) body.push(h('div', { class: 'talk-note', 'data-kid': '1' }, step.talk_note));
     // ручной выход с уже отвеченной карточки: авто-переход по setTimeout живёт только
     // в момент клика — после F5 или повторного входа в резерв без этой кнопки тупик;
     // guarded — чтобы не гоняться с авто-таймером свежего ответа
@@ -1099,9 +1225,14 @@ function finalPhase(ctx, step, phase) {
   if (phase.id === 'best_trap') {
     const traps = ctx.payload.traps;
     if (!traps.length || ctx.payload.best_trap) {
-      return h('div', { class: 'taskcard' },
-        kidText(ctx.payload.best_trap ? 'Лучшая ловушка отмечена!' : 'Ловушек не было'),
-        bigBtn('Дальше', () => ctx.advancePhase(), { id: 'btn_next' }));
+      // финал занятия (И4-Т E): только празднование сделанного — «что дальше»/next_block
+      // убран решением владельца (допродавать ребёнку запертыми делами неэтично)
+      return h('div', { class: 'taskcard finalcard finaldone' },
+        h('div', { class: 'reveal-title', 'data-kid': '1' }, 'Дело №1 раскрыто ✓'),
+        kidText('Ты детектив данных!'),
+        kidText(ctx.payload.best_trap ? 'Лучшая ловушка отмечена — её увидят родители'
+                                      : 'Ловушек не было', { small: true }),
+        bigBtn('Закрыть дело №1', () => ctx.finishFinal(), { id: 'btn_next' }));
     }
     const lkey = 'bestptr';
     const ptr = (ctx.local[lkey] || 0) % traps.length;
@@ -1121,23 +1252,8 @@ function finalPhase(ctx, step, phase) {
         }, { id: 'btn_pick' }),
         bigBtn('Дальше', () => { ctx.local[lkey] = ptr + 1; ctx.render(); }, { kind: 'secondary', id: 'btn_next' })));
   }
-  // next_block: «что дальше» — контент, не прайс; у каждой карточки — подпись из манифеста.
-  // Путь детектива (И3-Т п.7, фидбек #30): плашки дел из ДАННЫХ курса — первое «✓»
-  // (пройдено), остальные серые с замком — видимое будущее без усложнения интерфейса
-  const cases = (step.next_block && step.next_block.cases) || [];
-  const cards = (step.next_block && step.next_block.cards) || [];
-  const captions = (step.next_block && step.next_block.captions) || [];
-  return h('div', { class: 'taskcard' },
-    h('div', { class: 'quiz-title', 'data-kid': '1' }, 'Что дальше'),
-    cases.length ? h('div', { class: 'casepath' },
-      ...cases.map((t, i) => h('div', {
-        class: 'casechip ' + (i === 0 ? 'casechip-done' : 'casechip-future'),
-      }, h('span', { class: 'casechip-mark' }, i === 0 ? '✓' : '🔒'),
-         h('span', { class: 'casechip-text', 'data-kid': '1' }, t)))) : null,
-    ...cards.map((c, i) => h('div', { class: 'nextcard' },
-      imgCard(ctx.assetsBase + c),
-      captions[i] ? kidText(captions[i], { small: true }) : null)),
-    bigBtn('Закрыть дело №1', () => ctx.finishFinal(), { id: 'btn_next' }));
+  // финал целиком закрывается на такте best_trap (И4-Т E): next_block удалён
+  return null;
 }
 
 /* ---------- слайд «для поговорить» (тип шага slide, фаза 0.5) ---------- */
@@ -1171,7 +1287,10 @@ export function renderPhase(ctx) {
   if (step.type === 'final_card') return finalPhase(ctx, step, phase);
   if (step.type === 'trainer_act') {
     if (phase.probe_set) return probeFeed(ctx, step, phase);
-    if (hasRe(phase, /^basket_/)) return basketsFeed(ctx, step, phase);
+    // корзины: в шаге починки (traps_from_bank) — разметка ловушек (И4-Т B);
+    // иначе — раскладка train_core акта 1
+    if (hasRe(phase, /^basket_/))
+      return (step.traps_from_bank ? trapBasketsFeed : basketsFeed)(ctx, step, phase);
     if (hasEl(phase, 'btn_pick')) return trapsFeed(ctx, step, phase);
     if (hasEl(phase, 'btn_train')) return trainPhase(ctx, step, phase);
     if (hasRe(phase, /^frag[1-9]$/)) return fragPhase(ctx, step, phase);

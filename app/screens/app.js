@@ -169,7 +169,8 @@ async function submitEntry(data) {
     const step = ctx.machine.step();
     if (step && step.type === 'gate') { finishStep(); return; }
     ctx.seatSave.flushNow();
-    maybeAutoMeasureBefore();   // R1 «до» — автозамер при входе в шаг с measure.before=auto
+    maybeAutoMeasureBefore();       // резерв-добор: авто-«до» при входе (measure.before=auto)
+    maybeCaptureBeforeFromProbe();  // акт 2: «до починки» = проба акта 1 (measure.before=from_probe)
     render();
   } catch (e) {
     if (ctx.entering !== myEntering) return;   // вход уже отменён — ошибку не показываем
@@ -286,6 +287,34 @@ function maybeAutoMeasureBefore() {
                                engine: mi.engine, params_rev: mi.params_rev });
     render();
   });
+}
+
+/** «До починки» из ПРОБЫ акта 1 (И4-Т A+D, measure.before=from_probe): проба и замер
+ * идут по ОДНОМУ контрольному набору, поэтому «Было» — это результат, который ребёнок
+ * САМ увидел в акте 1, а не скрытый авто-замер модели. Деривация из показанных вердиктов
+ * (payload.probes), журналится один раз при входе в шаг починки; переживает F5 как обычный
+ * measure_result. Догоняющий без проб акта 1 → «до» не строим (карточка честно «— → N»). */
+function maybeCaptureBeforeFromProbe() {
+  const step = ctx.machine.step();
+  if (!step || !step.measure || step.measure.before !== 'from_probe') return;
+  if (ctx.payload.measures.before) return;
+  const ids = step.measure.holdout;
+  const details = [];
+  for (const id of ids) {
+    const v = ctx.payload.probes[id];
+    if (!v) return;   // не все контрольные картинки проверены в акте 1 — «до» не строим
+    const img = ctx.bankIndex.byId.get(id);
+    details.push({ img: id, label: v.label, conf: v.conf, ok: !!img && v.label === img.class });
+  }
+  const score = details.filter(d => d.ok).length;
+  const stable = activeStableModel(ctx.payload);
+  const anyV = ctx.payload.probes[ids[0]];
+  ctx.j('measure_result', { phase: 'before', score, of: ids.length, details,
+    model_n: stable ? stable.n : null, model_sig: stable ? stable.sig : null,
+    baskets_sig: basketsSig(ctx),
+    engine: anyV.engine || (stable && stable.engine) || null,
+    ...(anyV.params_rev != null ? { params_rev: anyV.params_rev } : {}) });
+  render();
 }
 
 ctx.modelGate = (btn) => {

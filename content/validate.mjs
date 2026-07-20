@@ -72,8 +72,8 @@ function checkManifestDir(dir) {
     if (!bi.classById.has(img.class))
       err(`банк: у ${img.id} класс ${img.class} вне classes`);
   }
-  if ((bi.byRole.get('holdout') || []).length < 4)
-    err(`банк: отложенный набор (holdout) должен быть ≥4, сейчас ${(bi.byRole.get('holdout') || []).length}`);
+  if ((bi.byRole.get('control') || []).length < 4)
+    err(`банк: контрольный набор (control) должен быть ≥4, сейчас ${(bi.byRole.get('control') || []).length}`);
 
   const needImg = (id, role, where) => {
     const img = bi.byId.get(id);
@@ -135,11 +135,13 @@ function checkManifestDir(dir) {
           if (opts.length !== spec.n) warn(`${step.id}.${p.id}: тактов-опций ${opts.length} ≠ ${spec.n} в ${spec.name}`);
         }
       }
-      if (p.probe_set) for (const id of p.probe_set) needImg(id, 'probe', `${step.id}.${p.id}.probe_set`);
+      if (p.probe_set) for (const id of p.probe_set) needImg(id, 'control', `${step.id}.${p.id}.probe_set`);
     }
 
     // — инвариант 3 (продолжение): ссылки шага в банк
-    if (step.measure) for (const id of step.measure.holdout) needImg(id, 'holdout', `${step.id}.measure.holdout`);
+    // A (И4-Т): проба (акт 1) и замер «до/после» (акт 2) ссылаются на ОДИН контрольный
+    // набор (роль control) — «вот 4 картинки, которых коробка не видела: до X/4 → после Y/4»
+    if (step.measure) for (const id of step.measure.holdout) needImg(id, 'control', `${step.id}.measure.holdout`);
     if (step.forecast) needImg(step.forecast.img, 'forecast', `${step.id}.forecast.img`);
     if (step.traps_from_bank && !(bi.byRole.get('trap') || []).length)
       err(`${step.id}: traps_from_bank, а роли trap в банке нет`);

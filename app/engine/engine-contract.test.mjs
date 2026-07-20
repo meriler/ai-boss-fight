@@ -186,7 +186,7 @@ for (const engine of ENGINE_IDS) {
     // identity модели (§3.1): params_rev — ревизия frozen_params банка
     assert.equal(a.eng.modelInfo().params_rev, BANK.frozen_params.params_rev,
       'modelInfo обязан нести params_rev банка');
-    for (const p of a.bi.byRole.get('probe')) {
+    for (const p of a.bi.byRole.get('control')) {
       const va = a.eng.classify(p.id), vb = b.eng.classify(p.id);
       assert.deepEqual({ l: va.label, c: va.conf, m: va.margin },
                        { l: vb.label, c: vb.conf, m: vb.margin });
@@ -195,7 +195,7 @@ for (const engine of ENGINE_IDS) {
 
   test(`${engine}: spectrum — сумма 1, непрерывные доли по классам`, () => {
     const { bi, eng } = engineOn(BANK, engine, ['train_core']);
-    for (const p of bi.byRole.get('probe')) {
+    for (const p of bi.byRole.get('control')) {
       const v = eng.classify(p.id);
       const vals = Object.values(v.spectrum);
       assert.equal(vals.length, 2, p.id + ': спектр по обоим классам');
@@ -209,7 +209,7 @@ for (const engine of ENGINE_IDS) {
 
   test(`${engine}: measure согласован с classify (score = сумма ok)`, () => {
     const { bi, eng } = engineOn(BANK, engine, ['train_core', 'trap']);
-    const ids = [...bi.byRole.get('holdout')].map(i => i.id);
+    const ids = [...bi.byRole.get('control')].map(i => i.id);
     const r = eng.measure(ids);
     let manual = 0;
     for (const id of ids) {
@@ -223,12 +223,12 @@ for (const engine of ENGINE_IDS) {
 
   test(`${engine}: демо-драматургия — флипы conflict-probe до ловушек, починка после`, () => {
     const { bi, eng } = engineOn(BANK, engine, ['train_core']);
-    for (const p of bi.byRole.get('probe')) {
+    for (const p of bi.byRole.get('control')) {
       const v = eng.classify(p.id);
       if (p.expected_flip) assert.notEqual(v.label, p.class, `${p.id}: ждали флип (${engine})`);
       else assert.equal(v.label, p.class, `${p.id}: обычная должна быть верной (${engine})`);
     }
-    const holdout = [...bi.byRole.get('holdout')].map(i => i.id);
+    const holdout = [...bi.byRole.get('control')].map(i => i.id);
     const r1 = eng.measure(holdout);
     const { eng: eng2 } = engineOn(BANK, engine, ['train_core', 'trap']);
     const r2 = eng2.measure(holdout);

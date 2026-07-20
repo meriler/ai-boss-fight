@@ -285,7 +285,7 @@ body {
 .box-album { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .box-album-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: center; }
 .box-album-label { font-size: 15px; font-weight: 800; color: var(--c-muted); margin-right: 4px; }
-.box-album-thumb { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; border: 2px solid var(--c-border); }
+.box-album-thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 2px solid var(--c-border); }
 .box-album-more { font-size: 15px; font-weight: 800; color: var(--c-muted); }
 
 /* наглядный замер: ряд ячеек по числу картинок отложенного набора */
@@ -406,6 +406,22 @@ body {
 /* панель чата заранее в неактивном виде (линза П5) */
 .chatpanel-preview { opacity: .55; }
 .chatpanel-preview .chatinput { background: #f1f5f9; }
+
+/* разметка ловушек в корзины (И4-Т B): подтверждение метки / мягкая поправка */
+.trap-confirm {
+  font-size: 16px; font-weight: 800; color: #166534;
+  background: #dcfce7; border-radius: 10px; padding: 6px 12px; text-align: center;
+}
+.trap-correct {
+  font-size: 15px; font-weight: 800; color: var(--c-secondary-text);
+  background: #fef3c7; border-radius: 10px; padding: 6px 12px; text-align: center;
+}
+
+/* «Обсуди с ведущим, почему» — разговорный резерв (И4-Т F) */
+.talk-note {
+  font-size: 15px; font-weight: 800; color: var(--c-secondary-text);
+  background: #eef2ff; border-radius: 10px; padding: 6px 12px; text-align: center; margin-top: 6px;
+}
 
 /* ---------- широкая раскладка-«конвейер» (И3-Т, план итерации 3 раздел B) ----------
    На широких окнах (≥1100px CSS) зоны коробки выстраиваются горизонтально:

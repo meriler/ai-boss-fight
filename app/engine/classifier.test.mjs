@@ -45,7 +45,7 @@ test('z1-kot: classify отдаёт КАЛИБРОВАННЫЙ процент (�
   const bi = indexBank(bank);
   const cls = createClassifier({ bankIndex: bi, demo: true });
   cls.train([...bi.byRole.get('train_core')].map(i => ({ img: i.id, class: i.class })));
-  for (const p of bi.byRole.get('probe')) {
+  for (const p of bi.byRole.get('control')) {
     const v = cls.classify(p.id);
     assert.ok(v.conf <= 95, `${p.id}: conf ${v.conf} выше потолка 95`);
     assert.equal(v.conf, scaleConf(v.margin, bank.frozen_params.confidence_scale.anchors),
@@ -58,7 +58,7 @@ for (const dir of ['z1-kot', '_test-variant']) {
 
   test(`${dir}: train_core → конфликтные probe флипают уверенно, обычные верны`, () => {
     const { bi, cls } = trainedOn(bank, ['train_core']);
-    for (const p of bi.byRole.get('probe')) {
+    for (const p of bi.byRole.get('control')) {
       const v = cls.classify(p.id);
       if (p.expected_flip) {
         assert.notEqual(v.label, p.class, `${p.id}: ждали флип`);
@@ -71,7 +71,7 @@ for (const dir of ['z1-kot', '_test-variant']) {
 
   test(`${dir}: замер R1 (до ловушек) на holdout проваливается, R2 (после) проходит`, () => {
     const { bi, cls } = trainedOn(bank, ['train_core']);
-    const holdout = (bi.byRole.get('holdout') || []).map(i => i.id);
+    const holdout = (bi.byRole.get('control') || []).map(i => i.id);
     const r1 = cls.measure(holdout);
     assert.ok(r1.score < holdout.length, `R1 ${r1.score}/${r1.of} — подвох не сработал`);
     const { cls: cls2 } = trainedOn(bank, ['train_core', 'trap']);
@@ -91,7 +91,7 @@ for (const dir of ['z1-kot', '_test-variant']) {
   test(`${dir}: детерминизм — два прогона дают одинаковые вердикты`, () => {
     const a = trainedOn(bank, ['train_core']);
     const b = trainedOn(bank, ['train_core']);
-    for (const p of a.bi.byRole.get('probe')) {
+    for (const p of a.bi.byRole.get('control')) {
       const va = a.cls.classify(p.id), vb = b.cls.classify(p.id);
       assert.deepEqual({ l: va.label, c: va.conf }, { l: vb.label, c: vb.conf });
     }

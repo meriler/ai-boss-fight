@@ -168,7 +168,7 @@
     {
       "id": "p1",
       "class": "cat",
-      "role": "probe",
+      "role": "control",
       "bg": "улица",
       "src": "probe/p1.jpg",
       "expected_flip": true
@@ -176,7 +176,7 @@
     {
       "id": "p2",
       "class": "dog",
-      "role": "probe",
+      "role": "control",
       "bg": "дом",
       "src": "probe/p2.jpg",
       "expected_flip": true
@@ -184,7 +184,7 @@
     {
       "id": "p3",
       "class": "cat",
-      "role": "probe",
+      "role": "control",
       "bg": "дом",
       "src": "probe/p3.jpg",
       "expected_flip": false
@@ -192,7 +192,7 @@
     {
       "id": "p4",
       "class": "dog",
-      "role": "probe",
+      "role": "control",
       "bg": "улица",
       "src": "probe/p4.jpg",
       "expected_flip": false
@@ -260,34 +260,6 @@
       "bg": "дом",
       "src": "traps/tr8.jpg",
       "caption": "Собака дома"
-    },
-    {
-      "id": "h1",
-      "class": "cat",
-      "role": "holdout",
-      "bg": "улица",
-      "src": "holdout/h1.jpg"
-    },
-    {
-      "id": "h2",
-      "class": "dog",
-      "role": "holdout",
-      "bg": "дом",
-      "src": "holdout/h2.jpg"
-    },
-    {
-      "id": "h3",
-      "class": "cat",
-      "role": "holdout",
-      "bg": "улица",
-      "src": "holdout/h3.jpg"
-    },
-    {
-      "id": "h4",
-      "class": "dog",
-      "role": "holdout",
-      "bg": "дом",
-      "src": "holdout/h4.jpg"
     },
     {
       "id": "f1",

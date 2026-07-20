@@ -152,12 +152,12 @@
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
           "class": { "type": "string" },
           "role": {
-            "enum": ["train_core", "probe", "trap", "holdout", "forecast", "buffer", "reserve"],
-            "description": "Реестр ролей ЗАКРЫТ. Непересечение ролей и минимумы (holdout ≥4) проверяет валидатор"
+            "enum": ["train_core", "control", "trap", "forecast", "buffer", "reserve"],
+            "description": "Реестр ролей ЗАКРЫТ. control — ОДИН контрольный набор (проба акта 1 = замер акта 2, И4-Т A; прежние probe+holdout сведены в него). Непересечение ролей и минимум control ≥4 проверяет валидатор"
           },
           "bg": { "type": "string", "description": "значение измерения подвоха (напр. дом/улица)" },
           "src": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор" },
-          "expected_flip": { "type": "boolean", "description": "для probe: ждём ошибку коробки (пилотный порог)" },
+          "expected_flip": { "type": "boolean", "description": "для control: ждём ошибку коробки ДО починки (пилотный порог)" },
           "caption": { "type": "string", "maxLength": 80, "description": "честная подпись подачи (ловушки: «Кот на улице» — план-правок п.5)" }
         }
       }

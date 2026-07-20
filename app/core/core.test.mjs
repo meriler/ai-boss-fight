@@ -109,7 +109,10 @@ test('редьюсер И3-Т: beforeMeasureHonest — «до» не мерит�
 test('Codex-И3 п.1: measureBindingIntact — отложенный авто-«до» привязан к машине/шагу/версии модели', () => {
   const norm = normalizeLesson(Z1);
   const main = createMachine(norm);
-  const measureStep = norm.steps.find(s => s.measure && s.measure.before === 'auto');
+  // привязка отложенного авто-«до» проверяется на любом шаге с measure (мода before
+  // роли не играет — механизм привязки к машине/шагу/версии общий; s6 после И4-Т
+  // читает «до» из пробы, but binding-функция та же для резерв-добора before:auto)
+  const measureStep = norm.steps.find(s => s.measure);
   main.jumpTo(measureStep.id);
   const payload = initialPayload();
   reduce(payload, { type: 'train_commit', args: { version: 1, sig: 'v1', n: 1,
