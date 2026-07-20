@@ -718,6 +718,13 @@ function measurePhase(ctx, step, phase) {
     // цикл добора (фаза 0.5, стык с паттерном r2): замер слабее порога и остались
     // невзятые ловушки → назад к подаче, добрать и переучить (версия состава вырастет)
     const passN = parseInt(String(step.measure.pass).split('/')[0], 10) || m.after.of;
+    // остаточная ошибка (решение владельца, откат порога 3/4): замер ПРОШЁЛ (score ≥ pass),
+    // но не идеален (score < of) → разговорная строка, ведущий разбирает голосом «почему 3, а не 4».
+    // При идеале (score == of) не показываем; данные — measure.residual_talk с {score}/{of}.
+    if (step.measure.residual_talk && m.after.score >= passN && m.after.score < m.after.of)
+      out.push(kidText(step.measure.residual_talk
+        .replaceAll('{score}', m.after.score).replaceAll('{of}', m.after.of),
+        { small: true }));
     const trapsPhase = trapsPhaseOf(step);
     const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
     const restN = pool.filter(i => !ctx.payload.traps.includes(i.id)).length;

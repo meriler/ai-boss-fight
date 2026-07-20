@@ -751,7 +751,7 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
 // счёт замера живёт и в growth-рядах (В-5), и в scoreCard (fallback) — читаем оба вида
 const scoresOf = (p) => p.evaluate(() =>
   [...document.querySelectorAll('.growthcap-score, .score-big')].map(e => e.textContent));
-let chatPreviewSeen = false, shelfOnCard = false, growthSeenA = false;
+let chatPreviewSeen = false, shelfOnCard = false, growthSeenA = false, primerImgSeen = null;
 await driveLesson(A, man, {
   code: '4712',
   hook: async (st, p) => {
@@ -759,6 +759,11 @@ await driveLesson(A, man, {
     // линза П5: панель чата видна заранее в неактивном виде (до think-таймера)
     if (!chatPreviewSeen && step && step.type === 'talk_chat' && !st.entry)
       chatPreviewSeen = !!(await p.$('.chatpanel-preview'));
+    // праймер капчи (правка владельца): слайд «Ты такое уже видел?» показывает мокап капчи
+    // (автобусы), не голый текст — иначе ребёнок спрашивает «где капча?»
+    if (primerImgSeen === null && step && step.type === 'slide' && step.img && !st.entry)
+      primerImgSeen = await p.$eval('.slidecard .slide-pic .imgpic', el => el.getAttribute('src'))
+        .catch(() => null);
     // В-1: полка версий на card_view («спокойный» экран) — тапабельна
     if (!shelfOnCard && step && step.type === 'final_card' && st.phase === 'card_view')
       shelfOnCard = !!(await p.$('#version_shelf'));
@@ -781,6 +786,8 @@ await driveLesson(A, man, {
   },
 });
 ok('A: занятие пройдено целиком до «Дело закрыто»', (await state(A)).done);
+ok('праймер капчи: слайд показывает картинку-мокап (captcha-primer.png), а не голый текст',
+   !!primerImgSeen && primerImgSeen.includes('captcha-primer.png'), String(primerImgSeen));
 /* аудит ядра 18.07, п.5: done живёт в снапшоте — F5 после финала снова «Дело закрыто»,
  * а не перепоказ последнего шага (до фикса boot чтил только acked_step) */
 {
@@ -804,17 +811,20 @@ ok('В-1: полка версий тапабельна на card_view', shelfOnC
 ok('В-5: замер R2 у A — ростом ячейками (два ряда «было/стало»)', growthSeenA);
 ok('оверлеи: на активном такте раскладки буфер НЕ висел', overlayEmptyOnTask === true);
 
-/* --- B: настоящий выбор ловушек + цикл добора (фаза 0.5) ---
- * подмножество (2 кота) → «Хватит, проверяем» → слабый замер 2/4 → «Добрать ловушки» →
- * честная инвалидация старого замера после переобучения → добор до 8 → 4/4 */
+/* --- B: цикл добора + остаточная ошибка на пороге 3/4 (откат порога — решение владельца) ---
+ * СЛАБАЯ раскладка: ОДНА ловушка-кот чинит 0 конфликтов → замер 2/4 < порога 3/4 →
+ * «Добрать ловушки» → добираем РОВНО одного кота → 3/4 (порог взят, но НЕ идеал):
+ * навязанного добора больше нет, зато показана разговорная строка про остаточную ошибку
+ * («почему 3 из 4, а не 4?»). Порог 3/4 — критерий плана курса; happy-path (все ловушки)
+ * даёт 4/4 и меряется отдельно в карточке дела ниже. */
 {
   const fixStep = man.lesson.steps.find(s => s.type === 'trainer_act' && s.mode === 'fix');
   await driveLesson(B, man, {
     code: '4712',
     stopWhen: (st) => !st.entry && st.step === fixStep.id && st.phase === 'traps',
   });
-  let cats = 0;
-  for (let guard = 0; guard < 40 && cats < 2; guard++) {
+  let cats = 0;                       // слабая раскладка: РОВНО одна ловушка-кот
+  for (let guard = 0; guard < 40 && cats < 1; guard++) {
     const cur = await B.$eval('#img_current', el => el.dataset.img);
     const img = man.byId[cur];
     // И4-Т B: разметка ловушки в корзину по МЕТКЕ (кот-на-улице → «Коты»); лишние — «Пропустить»
@@ -823,7 +833,7 @@ ok('оверлеи: на активном такте раскладки буфе
     await new Promise(r => setTimeout(r, 80));
   }
   const fc = await B.$eval('.feedcount', e => e.textContent);
-  ok('выбор ловушек: подмножество 2 из 8 (пропуски не наказуемы)', /2 из 8/.test(fc), fc);
+  ok('выбор ловушек: подмножество 1 из 8 (пропуски не наказуемы)', /1 из 8/.test(fc), fc);
   await B.click('#btn_next');                                   // «Хватит, проверяем»
   await waitState(B, s => s.phase === 'retrain', 8000, 'B → научить заново');
   await B.click('#btn_train');
@@ -833,19 +843,24 @@ ok('оверлеи: на активном такте раскладки буфе
   let score = (await scoresOf(B)).pop() || '';
   const more = await B.$('#btn_more_traps');
   if (ENGINE !== '&engine=head') {
-    // kNN (demo-синтез калиброван под него): подмножество ловушек (только коты) чинит
-    // ОДИН конфликт из двух → 3/4 < порога 4/4 → цикл добора
-    ok('слабый замер на подмножестве: 3 из 4', score.includes('3 из 4'), score);
-    ok('цикл добора: кнопка «Добрать ловушки» при слабом замере', !!more);
+    // kNN (demo-синтез калиброван под него): одна ловушка-кот не перевешивает конфликт →
+    // замер 2/4 < порога 3/4 → цикл добора предлагается
+    ok('слабый замер на одной ловушке: 2 из 4', score.includes('2 из 4'), score);
+    ok('цикл добора: кнопка «Добрать ловушки» при замере ниже порога', !!more);
+    const belowTxt = await B.evaluate(() => document.getElementById('screen').textContent);
+    ok('ниже порога — остаточной строки нет (это не «прошёл, но не идеал»)',
+       !belowTxt.includes('так бывает даже у настоящего ИИ'), belowTxt.slice(0, 120));
     await B.click('#btn_more_traps');
     await waitState(B, s => s.phase === 'traps', 8000, 'B → добор ловушек');
-    for (let guard = 0; guard < 20; guard++) {
+    for (let guard = 0, addedCat = 0; guard < 20 && addedCat < 1; guard++) {
       const cur = await B.$eval('#img_current', el => el.dataset.img).catch(() => null);
       if (!cur) break;                                          // пул исчерпан
-      if (!await clickIf(B, '#basket_' + man.byId[cur].class)) break;   // размечаем оставшиеся
+      // добираем РОВНО одну кота-ловушку → 3/4 (порог взят, но не идеал); лишние — «Пропустить»
+      if (man.byId[cur].class === 'cat') { await B.click('#basket_cat'); addedCat += 1; }
+      else if (!await clickIf(B, '#btn_skip')) break;
       await new Promise(r => setTimeout(r, 80));
     }
-    await clickIf(B, '#btn_next');                              // «Дальше» (пул исчерпан)
+    await clickIf(B, '#btn_next');                              // «Хватит, проверяем»
     await waitState(B, s => s.phase === 'retrain', 8000, 'B → повторное обучение');
     await B.click('#btn_train');
     await waitState(B, s => s.phase === 'measure_after', 10000, 'B → повторный замер');
@@ -854,15 +869,25 @@ ok('оверлеи: на активном такте раскладки буфе
     await clickIf(B, '#btn_check');
     await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
     score = (await scoresOf(B)).pop() || '';
-    ok('добор починил коробку: 4 из 4', score.includes('4 из 4'), score);
-    ok('после сильного замера кнопки добора нет', !(await B.$('#btn_more_traps')));
+    ok('добор поднял до порога: 3 из 4 (замер 2→3)', score.includes('3 из 4'), score);
+    ok('порог взят — навязанного добора нет (кнопки «Добрать ловушки» нет)',
+       !(await B.$('#btn_more_traps')));
+    const screenTxt = await B.evaluate(() => document.getElementById('screen').textContent);
+    ok('успех на пороге 3/4: «Коробка починилась!»', screenTxt.includes('Коробка починилась'),
+       screenTxt.slice(0, 120));
+    ok('остаточная ошибка: разговорная строка (нормализация + любопытство, без «не 4 из 4») показана',
+       screenTxt.includes('так бывает даже у настоящего ИИ') && screenTxt.includes('почему именно эту'),
+       screenTxt.slice(0, 200));
   } else {
     // head на demo-фичах генерализует с односторонних ловушек (ТЗ v3 §2.2: коэффициенты
     // demo-синтеза подбирались под kNN — для head подвижка честная, реальный банк даёт
-    // слабый замер 1/4 и добор; см. pilot/head-pilot-report.md). Проверяем честность UI:
-    // сильный замер → кнопки добора нет
-    ok('head: подмножество ловушек уже чинит демо-коробку (4 из 4), добор честно не предлагается',
+    // слабый замер и добор; см. pilot/head-pilot-report.md). Проверяем честность UI:
+    // сильный замер (идеал 4/4) → ни кнопки добора, ни остаточной строки
+    const headTxt = await B.evaluate(() => document.getElementById('screen').textContent);
+    ok('head: одна ловушка уже чинит демо-коробку (4 из 4), добор честно не предлагается',
        score.includes('4 из 4') && !more, score + (more ? ' + кнопка добора' : ''));
+    ok('head: при идеале 4/4 остаточной строки нет (score == of)',
+       !headTxt.includes('так бывает даже у настоящего ИИ'), headTxt.slice(0, 120));
   }
   // В-5: рост ячейками — два ряда одних holdout-миниатюр, стрелки на изменившихся,
   // счёт — подписью (число не заголовком: .score-big в growth-режиме отсутствует)
@@ -878,14 +903,16 @@ ok('оверлеи: на активном такте раскладки буфе
   ok('В-5: стрелки на изменившихся ячейках есть', growth.arrows >= 1, JSON.stringify(growth));
   ok('В-5: счёт — подписью, не крупным числом (П4)', growth.bigNum === 0, JSON.stringify(growth));
   // карточка дела: пара «до → после» честная (И4-Т A+D) — «до» = проба акта 1 на ОДНОМ
-  // контрольном наборе (2 из 4 в demo: 2 конфликта флипают), «после» — замер того же набора
+  // контрольном наборе (2 из 4 в demo: 2 конфликта флипают), «после» — замер того же набора.
+  // У B дошли до порога 3/4 (слабая раскладка + добор одной ловушкой) — карточка честно несёт
+  // «2 → 3 из 4» (та же пара, что на экране замера: остаточная ошибка на p2 сохранена)
   await driveLesson(B, man, { code: '4712',
     stopWhen: (st) => !st.entry && st.phase === 'card_view' });
   const factB = await B.evaluate(() =>
     [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
   if (ENGINE !== '&engine=head')
-    ok('карточка дела B: точность «2 → 4 из 4» — та же пара, что на экране замера',
-       factB.includes('2 → 4 из 4'), factB.slice(0, 160));
+    ok('карточка дела B: точность «2 → 3 из 4» — та же пара, что на экране замера',
+       factB.includes('2 → 3 из 4'), factB.slice(0, 160));
   else
     ok('карточка дела B (head): пара «до → после» присутствует и честна',
        /\d+ → 4 из 4/.test(factB), factB.slice(0, 160));
