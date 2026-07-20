@@ -15,6 +15,11 @@ import { stableComposition, trainAlreadyCommitted, activeStableModel } from '../
 
 const role = (ctx, r) => ctx.bankIndex.byRole.get(r) || [];
 
+/** Разговорная приписка для solo: строки «обсуди/подумай» рассчитаны на разбор голосом
+ * ведущего. Проходящему в одиночку добавляем контекст, чтобы момент не читался как
+ * «непонятно, чего от меня хотят». В живом ?ws=1 приписки НЕТ. */
+const soloTalkSuffix = (ctx) => ctx.solo ? ' (в живом занятии это обсуждают с ведущим)' : '';
+
 /** Такт добавления ловушек в шаге починки/добора. В акте 2 (traps_from_bank) ловушки
  * РАЗМЕЧАЮТСЯ в корзины (И4-Т B: данные = картинка + метка, кладёт ребёнок) — это такт
  * с basket_*; в резерве-доборе (images_from_role) — прежний btn_pick «эта!». Все
@@ -723,7 +728,7 @@ function measurePhase(ctx, step, phase) {
     // При идеале (score == of) не показываем; данные — measure.residual_talk с {score}/{of}.
     if (step.measure.residual_talk && m.after.score >= passN && m.after.score < m.after.of)
       out.push(kidText(step.measure.residual_talk
-        .replaceAll('{score}', m.after.score).replaceAll('{of}', m.after.of),
+        .replaceAll('{score}', m.after.score).replaceAll('{of}', m.after.of) + soloTalkSuffix(ctx),
         { small: true }));
     const trapsPhase = trapsPhaseOf(step);
     const pool = step.images_from_role ? role(ctx, step.images_from_role) : role(ctx, 'trap');
@@ -944,6 +949,17 @@ function optPhase(ctx, step, phase) {
 }
 
 function waitingPhase(ctx, step, phase) {
+  // solo (N=1): не ждём остальных — как только своя версия записана и причина выбрана,
+  // разгадку открывает сам проходящий кнопкой на СВОЁМ экране. «Ждём остальных» в solo
+  // было бы вечным тупиком (ведущего с дашбордом нет)
+  if (ctx.solo && step.reveal) {
+    return h('div', { class: 'taskcard waiting' },
+      kidText('Твоя версия записана.'),
+      bigBtn('Показать разгадку', () => {
+        ctx.soloReveal(step.id);
+        ctx.advancePhase();
+      }, { id: 'btn_reveal_solo' }));
+  }
   return h('div', { class: 'taskcard waiting' },
     h('div', { class: 'waitspin' }),
     kidText(ctx.ui.waiting || 'Принято — ждём остальных'));
@@ -1084,7 +1100,7 @@ function quizCard(ctx, step, phase) {
     // разговорный резерв (И4-Т F): короткая реакция + одна фраза-объяснение +
     // «Обсуди с ведущим, почему» — немой проход держит смысл без голоса ведущего
     if (card.explain) body.push(kidText(card.explain, { small: true }));
-    if (step.talk_note) body.push(h('div', { class: 'talk-note', 'data-kid': '1' }, step.talk_note));
+    if (step.talk_note) body.push(h('div', { class: 'talk-note', 'data-kid': '1' }, step.talk_note + soloTalkSuffix(ctx)));
     // ручной выход с уже отвеченной карточки: авто-переход по setTimeout живёт только
     // в момент клика — после F5 или повторного входа в резерв без этой кнопки тупик;
     // guarded — чтобы не гоняться с авто-таймером свежего ответа
@@ -1146,6 +1162,8 @@ function talkPhase(ctx, step, phase) {
   const started = ctx.local[key];
   const thinkSec = ctx.demo ? Math.min(2, step.think_sec || 30) : (step.think_sec || 30);
   const body = [h('div', { class: 'quiz-title', 'data-kid': '1' }, step.prompt || '')];
+  // solo: «подумай — напечатай» рассчитано на разбор с ведущим; поясняем контекст
+  if (ctx.solo) body.push(kidText('В живом занятии это обсуждают с ведущим — здесь просто запиши свою мысль', { small: true }));
   // поле действия видно ДО того, как понадобится (линза П5, решение владельца 17.07):
   // панель чата показана заранее в неактивном виде — не появляется «из ниоткуда»
   const chatPreview = (hint) => h('div', { class: 'chatpanel chatpanel-preview' },

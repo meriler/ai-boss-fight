@@ -160,7 +160,7 @@ export function createOverlays(ctx) {
     // подпись роли при первом показе (И3-Т п.5, фидбек #34): кнопка объясняет, куда
     // уходит сигнал; после первого нажатия за занятие подпись больше не нужна
     if (!reacted.size && !(key in reactionNotes))
-      wrap.append(kidText('Жми, когда получится — ведущий это видит', { small: true }));
+      wrap.append(kidText(ctx.solo ? 'Жми, когда получится' : 'Жми, когда получится — ведущий это видит', { small: true }));
     wrap.append(bigBtn(ui.reaction_btn || 'Получилось!', async (ev) => {
       const btn = ev.currentTarget;
       btn.disabled = true;
@@ -186,8 +186,11 @@ export function createOverlays(ctx) {
     }, { kind: 'primary', id: 'btn_react', disabled: reacted.has(key) }));
     if (reacted.has(key)) {
       const n = reactionNotes[key];
+      // solo: ведущего нет — самоподтверждение вместо «ведущий увидел» (в живом ?ws=1
+      // сигнал реально уходит ведущему, текст прежний)
       wrap.append(h('div', { class: 'reaction-note', 'data-kid': '1' },
-        'Ведущий увидел 👍' + (n > 1 ? ' · в группе уже ' + n + '!' : '')));
+        ctx.solo ? 'Получилось! 👍'
+                 : 'Ведущий увидел 👍' + (n > 1 ? ' · в группе уже ' + n + '!' : '')));
     }
     return wrap;
   }

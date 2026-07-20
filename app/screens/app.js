@@ -20,6 +20,7 @@ import { createJournal } from '../core/journal.js';
 import { fetchRestore, applyRestore, createSeatSave, claimInstanceId } from '../core/save.js';
 import { createAcked } from '../core/acked.js';
 import { createPoll } from '../core/poll.js';
+import { createSoloStore, createSoloAcked, createSoloSeatSave, createSoloPoll } from '../core/solo.js';
 import { createTele } from '../core/tele.js';
 import { createClassifier, allowedEngines } from '../engine/classifier.js';
 import { h, bigBtn, kidText } from './dom.js';
@@ -35,6 +36,10 @@ const ctx = {
   QP,
   seat: QP.get('seat'),
   demo: QP.has('demo'),
+  // solo (?solo=1): самостоятельный проход по ссылке без ведущего — полностью клиентский
+  // транспорт (см. core/solo.js). НЕ тянет demo: движок настоящий, как у детей
+  solo: QP.has('solo'),
+  soloStore: null,
   variant: QP.get('variant') || QP.get('lesson') || 'z1-kot',
   local: {},                 // локальное между рендерами такта (указатели лент и т.п.)
   chatLog: [],
@@ -131,7 +136,9 @@ function renderDone() {
 function renderEntry() {
   const { req, error } = ctx.entering;
   const step = ctx.normalized.stepById.get(req.step);
-  if (req.ack === 'gate_enter' && req.kind === 'code') {
+  // solo: кода с голоса ведущего нет — гейт становится простой кнопкой «Дальше» (никого
+  // не ждём). Живой ?ws=1 по-прежнему требует код
+  if (req.ack === 'gate_enter' && req.kind === 'code' && !ctx.solo) {
     const input = h('input', { class: 'kinput', id: 'gate_code', inputmode: 'numeric',
       maxlength: '8', placeholder: 'Код от ведущего' });
     screen.replaceChildren(h('div', { class: 'taskcard gatecard' },
@@ -141,9 +148,11 @@ function renderEntry() {
       bigBtn('Войти', () => submitEntry({ code: input.value.trim() }), { id: 'btn_gate' })));
     input.focus();
   } else if (req.ack === 'gate_enter') {
+    const title = (ctx.solo && req.kind === 'code') ? 'Занятие начинается — поехали!'
+      : ((step && step.catchup) || 'Собираемся вместе');
     screen.replaceChildren(h('div', { class: 'taskcard gatecard' },
-      h('div', { class: 'quiz-title', 'data-kid': '1' }, (step && step.catchup) || 'Собираемся вместе'),
-      bigBtn('Я тут!', () => submitEntry({}), { id: 'btn_gate' })));
+      h('div', { class: 'quiz-title', 'data-kid': '1' }, title),
+      bigBtn(ctx.solo ? 'Дальше' : 'Я тут!', () => submitEntry({}), { id: 'btn_gate' })));
   } else {
     screen.replaceChildren(h('div', { class: 'taskcard gatecard' },
       kidText(ctx.ui.sending || 'Отправляю…')));
@@ -436,6 +445,13 @@ ctx.commit = async (type, data) => {
 ctx.commitDone = (type, stepId) => !!(ctx.ackedCommits[stepId] && ctx.ackedCommits[stepId][type]);
 
 ctx.postSeat = async (path, body) => {
+  // solo: /react и /chat не имеют сервера — резолвим локально (fire-and-forget). Своё
+  // сообщение чата дописываем в локальную ленту, чтобы оно показалось (в живом классе
+  // это приносит /sync). Проход не встаёт в ожидание сети
+  if (ctx.solo) {
+    if (path === '/chat') ctx.chatLog.push({ seat: ctx.seat, step: body && body.step, text: body && body.text });
+    return { ok: true };
+  }
   const r = await fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -466,7 +482,13 @@ function onOtherTab() {
 
 /* ---------- sync ---------- */
 
-ctx.revealInfo = (stepId) => (ctx.syncData && ctx.syncData.reveal && ctx.syncData.reveal[stepId]) || null;
+// reveal: в живом классе открывает ведущий с дашборда при N/N (данные приходят в /sync);
+// в solo N=1 — разгадку открывает сам проходящий (soloReveal), состояние в solo-store
+ctx.revealInfo = (stepId) => {
+  if (ctx.solo && ctx.soloStore) return ctx.soloStore.revealInfo(stepId);
+  return (ctx.syncData && ctx.syncData.reveal && ctx.syncData.reveal[stepId]) || null;
+};
+ctx.soloReveal = (stepId) => { if (ctx.soloStore) ctx.soloStore.openReveal(stepId); };
 
 let lastResetEpoch = 0;
 function onSync(resp) {
@@ -635,21 +657,27 @@ async function boot() {
   ctx.tele.resend();
   ctx.overlays = createOverlays(ctx);
 
-  // /restore: занятие могло ещё не начаться (no_run) — ждём старта ведущего
+  // solo: синтетический view из localStorage — серверный run НЕ нужен. Иначе /restore:
+  // занятие могло ещё не начаться (no_run/409) — ждём старта ведущего
   let view;
-  try {
-    view = await fetchRestore({ seat: ctx.seat });
-  } catch (e) {
-    if (String(e.message).includes('409')) {
+  if (ctx.solo) {
+    ctx.soloStore = createSoloStore({ seat: ctx.seat });
+    view = ctx.soloStore.buildView({ firstStepId: normalized.steps[0].id });
+  } else {
+    try {
+      view = await fetchRestore({ seat: ctx.seat });
+    } catch (e) {
+      if (String(e.message).includes('409')) {
+        screen.replaceChildren(h('div', { class: 'taskcard' },
+          kidText('Занятие ещё не началось — подожди, ведущий вот-вот запустит')));
+        setTimeout(boot, 4000);
+        return;
+      }
       screen.replaceChildren(h('div', { class: 'taskcard' },
-        kidText('Занятие ещё не началось — подожди, ведущий вот-вот запустит')));
+        kidText(ctx.ui.offline_retry || 'Нет связи — повторю сам')));
       setTimeout(boot, 4000);
       return;
     }
-    screen.replaceChildren(h('div', { class: 'taskcard' },
-      kidText(ctx.ui.offline_retry || 'Нет связи — повторю сам')));
-    setTimeout(boot, 4000);
-    return;
   }
 
   ctx.runId = view.run_id;
@@ -706,37 +734,47 @@ async function boot() {
     return entry;
   };
 
-  ctx.acked = createAcked({
-    seat: ctx.seat, runId: ctx.runId, instanceId: ctx.instanceId,
-    getGeneration: () => ctx.generation, getEpoch: () => ctx.epoch,
-    storageKey: 'z1_acked_' + ctx.runId + '_' + ctx.seat,
-    onStatus: (st) => {
-      if (st === 'sending') ctx.overlays.showPill(ctx.ui.sending || 'Отправляю…', 'info', true);
-      else if (st === 'offline_retry') ctx.overlays.showPill(ctx.ui.offline_retry || 'Нет связи — повторю сам', 'warn', true);
-      else ctx.overlays.hidePill();
-    },
-    onOtherTab,
-  });
+  const getState = () => {
+    const pos = ctx.machine ? ctx.machine.position() : {};
+    return pos.done ? 'done' : (pos.step || 'boot');
+  };
+  const getSuspended = () => (ctx.inReserve && ctx.suspendedMain) || null;
 
-  ctx.seatSave = createSeatSave({
-    seat: ctx.seat, runId: ctx.runId, lessonId: normalized.lesson.id, instanceId: ctx.instanceId,
-    getGeneration: () => ctx.generation, setGeneration: (g) => { ctx.generation = g; },
-    getEpoch: () => ctx.epoch,          // epoch в /save: задержанный снапшот не переживает сброс
-    getState: () => {
-      const pos = ctx.machine ? ctx.machine.position() : {};
-      return pos.done ? 'done' : (pos.step || 'boot');
-    },
-    getPayload: () => ctx.payload,
-    // позиция основной машины при уходе в резерв — в снапшоте (аудит 18.07, п.7)
-    getSuspended: () => (ctx.inReserve && ctx.suspendedMain) || null,
-    journal: ctx.journal,
-    // нумерация вех продолжается с серверной (хвост ревью 19.07, п.1): иначе после
-    // F5 первая честная веха выглядела бы для сервера «поздним повтором»
-    initialSaveSeq: view.save_seq || 0,
-    onOtherTab,
-  });
+  // solo — локальные транспорты (core/solo.js): коммит/снапшот в localStorage, poll
+  // инертный. Ни одного серверного вызова ядра (/commit·/save·/sync) — проход не встаёт
+  // в ожидание сети/ведущего
+  ctx.acked = ctx.solo
+    ? createSoloAcked({ store: ctx.soloStore })
+    : createAcked({
+      seat: ctx.seat, runId: ctx.runId, instanceId: ctx.instanceId,
+      getGeneration: () => ctx.generation, getEpoch: () => ctx.epoch,
+      storageKey: 'z1_acked_' + ctx.runId + '_' + ctx.seat,
+      onStatus: (st) => {
+        if (st === 'sending') ctx.overlays.showPill(ctx.ui.sending || 'Отправляю…', 'info', true);
+        else if (st === 'offline_retry') ctx.overlays.showPill(ctx.ui.offline_retry || 'Нет связи — повторю сам', 'warn', true);
+        else ctx.overlays.hidePill();
+      },
+      onOtherTab,
+    });
 
-  ctx.poll = createPoll({
+  ctx.seatSave = ctx.solo
+    ? createSoloSeatSave({ store: ctx.soloStore, getState, getSuspended, initialSaveSeq: view.save_seq || 0 })
+    : createSeatSave({
+      seat: ctx.seat, runId: ctx.runId, lessonId: normalized.lesson.id, instanceId: ctx.instanceId,
+      getGeneration: () => ctx.generation, setGeneration: (g) => { ctx.generation = g; },
+      getEpoch: () => ctx.epoch,          // epoch в /save: задержанный снапшот не переживает сброс
+      getState,
+      getPayload: () => ctx.payload,
+      // позиция основной машины при уходе в резерв — в снапшоте (аудит 18.07, п.7)
+      getSuspended,
+      journal: ctx.journal,
+      // нумерация вех продолжается с серверной (хвост ревью 19.07, п.1): иначе после
+      // F5 первая честная веха выглядела бы для сервера «поздним повтором»
+      initialSaveSeq: view.save_seq || 0,
+      onOtherTab,
+    });
+
+  ctx.poll = ctx.solo ? createSoloPoll() : createPoll({
     seat: ctx.seat,
     intervalMs: ctx.demo ? 1500 : 5000,
     onUpdate: onSync,

@@ -179,7 +179,7 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
         if (await p.$('#gate_code')) {
           await p.fill('#gate_code', code || '');
           await clickIf(p, '#btn_gate');
-        }
+        } else await clickIf(p, '#btn_gate');   // solo: код не нужен — просто «Дальше»
       } else if (step && step.gate) await clickIf(p, '#btn_gate');
       await new Promise(r => setTimeout(r, 150));
       continue;
@@ -295,8 +295,9 @@ async function driveLesson(p, man, { code, stopWhen, hook } = {}) {
       await clickIf(p, '#opt' + (lists[idx] + 1));
       await waitState(p, s2 => s2.phase !== st.phase, 15000, 'после opt');
     } else if (!els.length) {
-      // ожидание reveal — двигает внешний актор (второй клиент + дашборд)
-      await new Promise(r => setTimeout(r, 300));
+      // ожидание reveal: в ws двигает внешний актор (второй клиент + дашборд); в solo
+      // разгадку открывает сам проходящий кнопкой «Показать разгадку»
+      if (!await clickIf(p, '#btn_reveal_solo')) await new Promise(r => setTimeout(r, 300));
     } else if (els.includes('btn_check')) {
       if (!await clickIf(p, '#btn_check')) await clickIf(p, '#btn_next');
     } else if (els.includes('btn_next')) {
@@ -1562,6 +1563,50 @@ await V1.close(); await V2.close();
      low.visible && !low.hscroll, JSON.stringify(low));
   await domCheck(W, 'low683x750:baskets');
   await W.close(); await c.close();
+}
+
+/* ================================================================== */
+/* RUN SOLO: полностью клиентский проход ?solo=1 — доказательство       */
+/* «не блокируется»: НОЛЬ вызовов /host/* · /restore · /sync · /commit  */
+/* · /save и НОЛЬ ожиданий внешнего события; проход управляется САМИМ   */
+/* проходящим (гейт без кода, «Показать разгадку» вместо ведущего) и    */
+/* всё равно доходит до done. Плюс F5 посреди прохода восстанавливается */
+/* из localStorage (seat-save клиентский). Демо-движок — для            */
+/* детерминизма CI; в проде ?solo=1 БЕЗ demo даёт настоящий MobileNet.  */
+/* ================================================================== */
+{
+  const sc = await browser.newContext({ viewport: { width: 640, height: 760 } });
+  const S = await sc.newPage();
+  S.setDefaultTimeout(30000);
+  let coreHits = 0, teleHits = 0;
+  const coreHitPaths = new Set();
+  S.on('request', (req) => {
+    let pth = '';
+    try { pth = new URL(req.url()).pathname; } catch (e) { return; }
+    if (pth === '/tele') { teleHits += 1; return; }
+    if (pth === '/restore' || pth === '/sync' || pth === '/commit' || pth === '/save'
+        || pth.startsWith('/host')) { coreHits += 1; coreHitPaths.add(pth); }
+  });
+  await S.goto(`${BASE}/z1.html?solo=1&demo=1&seat=7`);
+
+  // до середины (вошли в шаг починки s6), затем F5 — клиентский restore из localStorage
+  await driveLesson(S, man, { stopWhen: (st) => st.step === 's6' && !st.entry });
+  const midSolo = await state(S);
+  ok('solo: дошёл до s6 без ведущего и без серверного run', midSolo.step === 's6', JSON.stringify(midSolo));
+  await f5restore(S, 'solo — клиентский restore из localStorage', '#stuck');
+  const afterF5 = await state(S);
+  ok('solo F5: не выкинуло к началу (шаг сохранён локально)',
+     ['s6', 's7', 's8'].includes(afterF5.step), JSON.stringify(afterF5));
+
+  // до финала
+  await driveLesson(S, man, {});
+  const doneSolo = await waitState(S, (st) => st.done, 30000, 'solo done');
+  ok('solo: проход дошёл до финала (done) — нигде не встал в ожидание', doneSolo.done === true);
+  ok('solo: НОЛЬ серверных вызовов ядра (/restore·/sync·/commit·/save·/host)',
+     coreHits === 0, [...coreHitPaths].join(',') || 'нет');
+  ok('solo: телеметрия /tele fire-and-forget работает (дампы улетали)', teleHits > 0, String(teleHits));
+
+  await S.close(); await sc.close();
 }
 
 /* ---------- свод одноразовых проверок И3-Т ---------- */
