@@ -124,11 +124,29 @@ if (window.matchMedia) {
 }
 
 function renderDone() {
-  screen.replaceChildren(h('div', { class: 'taskcard donecard' },
+  const card = h('div', { class: 'taskcard donecard' },
     h('div', { class: 'reveal-title', 'data-kid': '1' }, 'Дело закрыто!'),
-    kidText('Отличная работа, детектив. До встречи!')));
+    kidText('Отличная работа, детектив. До встречи!'));
+  // solo: дать самому начать занятие заново (в живом классе это делает ведущий новым run'ом).
+  // Без этого рефреш восстанавливает завершённый проход и «дело закрыто» не сбросить.
+  if (ctx.solo) card.append(bigBtn('Пройти заново', () => { clearSoloState(); location.reload(); },
+    { id: 'btn_restart_solo', kind: 'secondary' }));
+  screen.replaceChildren(card);
   ctx.overlays.refreshOverlays();
   document.getElementById('stuck').disabled = true;
+}
+
+/** Стереть весь solo-прогресс из localStorage (ключи с текущим seat + z1_solo_seat).
+ * Solo-места вида 'soloNNN' — реальный класс (числовые seat) не задеваем. */
+function clearSoloState() {
+  try {
+    const kill = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k === 'z1_solo_seat' || (ctx.seat && k.includes(ctx.seat)) || k.startsWith('z1_solo'))) kill.push(k);
+    }
+    kill.forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* приватный режим/квота — не критично, новый seat всё равно сгенерится */ }
 }
 
 /* ---------- вход в шаг (acked по построению) ---------- */
@@ -643,10 +661,23 @@ function clampToAcked() {
 async function boot() {
   // solo: голая ссылка ?solo=1 без seat должна работать сама (её и дают Сергею/родителю).
   // Место генерим и держим в localStorage — F5 продолжает ТОТ ЖЕ проход, не начинает заново.
-  if (!ctx.seat && ctx.solo) {
-    let s = localStorage.getItem('z1_solo_seat');
-    if (!s) { s = 'solo' + Math.floor(Math.random() * 1e9); localStorage.setItem('z1_solo_seat', s); }
-    ctx.seat = s;
+  if (ctx.solo) {
+    // ?solo=1&fresh=1 — начать занятие с нуля (сбросить прошлый проход): reset-ссылка
+    if (ctx.QP.has('fresh')) {
+      try {
+        const kill = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.includes('solo')) kill.push(k);   // стор, указатель, журнал solo-места
+        }
+        kill.forEach(k => localStorage.removeItem(k));
+      } catch (e) { /* приватный режим — не критично */ }
+    }
+    if (!ctx.seat) {
+      let s = localStorage.getItem('z1_solo_seat');
+      if (!s) { s = 'solo' + Math.floor(Math.random() * 1e9); localStorage.setItem('z1_solo_seat', s); }
+      ctx.seat = s;
+    }
   }
   if (!ctx.seat) { fatal('В ссылке нет места. Попроси ведущего дать твою ссылку'); return; }
 
