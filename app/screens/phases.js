@@ -638,7 +638,7 @@ function measureOutcome(before, after, beforeValid) {
   if (!after) return null;
   if (!before || !beforeValid) return null;
   if (before.details && after.details && !sameMeasureSet(before, after)) return null;
-  if (after.score > before.score) return 'Коробка починилась!';
+  if (after.score > before.score) return 'Коробка стала работать лучше!';
   if (after.score === before.score && after.score === after.of) return 'Держит идеал — все ответы верные!';
   if (after.score === before.score) return 'Пока без изменений — можно добрать картинок';
   return 'Стало хуже — так бывает, можно добрать картинок';
