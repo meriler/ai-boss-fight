@@ -641,6 +641,13 @@ function clampToAcked() {
 /* ---------- boot ---------- */
 
 async function boot() {
+  // solo: голая ссылка ?solo=1 без seat должна работать сама (её и дают Сергею/родителю).
+  // Место генерим и держим в localStorage — F5 продолжает ТОТ ЖЕ проход, не начинает заново.
+  if (!ctx.seat && ctx.solo) {
+    let s = localStorage.getItem('z1_solo_seat');
+    if (!s) { s = 'solo' + Math.floor(Math.random() * 1e9); localStorage.setItem('z1_solo_seat', s); }
+    ctx.seat = s;
+  }
   if (!ctx.seat) { fatal('В ссылке нет места. Попроси ведущего дать твою ссылку'); return; }
 
   const t0 = performance.now();
