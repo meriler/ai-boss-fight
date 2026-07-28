@@ -1,0 +1,318 @@
+{
+ "comment": "новый банк gpt_image 2026-07-28, 44 картинки 512/q85",
+ "spurious": "bg",
+ "classes": [
+  "cat",
+  "dog"
+ ],
+ "images": [
+  {
+   "id": "nc1",
+   "file": "nc1.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc2",
+   "file": "nc2.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc3",
+   "file": "nc3.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc4",
+   "file": "nc4.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc5",
+   "file": "nc5.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc6",
+   "file": "nc6.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc7",
+   "file": "nc7.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nc8",
+   "file": "nc8.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "train"
+  },
+  {
+   "id": "nd1",
+   "file": "nd1.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd2",
+   "file": "nd2.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd3",
+   "file": "nd3.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd4",
+   "file": "nd4.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd5",
+   "file": "nd5.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd6",
+   "file": "nd6.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd7",
+   "file": "nd7.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "nd8",
+   "file": "nd8.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "train"
+  },
+  {
+   "id": "ntc1",
+   "file": "ntc1.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "trap"
+  },
+  {
+   "id": "ntc2",
+   "file": "ntc2.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "trap"
+  },
+  {
+   "id": "ntc3",
+   "file": "ntc3.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "trap"
+  },
+  {
+   "id": "ntc4",
+   "file": "ntc4.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "trap"
+  },
+  {
+   "id": "ntd1",
+   "file": "ntd1.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "trap"
+  },
+  {
+   "id": "ntd2",
+   "file": "ntd2.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "trap"
+  },
+  {
+   "id": "ntd3",
+   "file": "ntd3.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "trap"
+  },
+  {
+   "id": "ntd4",
+   "file": "ntd4.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "trap"
+  },
+  {
+   "id": "nr1",
+   "file": "nr1.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "pseudo_strange"
+  },
+  {
+   "id": "nr2",
+   "file": "nr2.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "reserve"
+  },
+  {
+   "id": "nr3",
+   "file": "nr3.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "holdout"
+  },
+  {
+   "id": "nr4",
+   "file": "nr4.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "reserve"
+  },
+  {
+   "id": "np1",
+   "file": "np1.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "normal"
+  },
+  {
+   "id": "np2",
+   "file": "np2.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "normal"
+  },
+  {
+   "id": "np3",
+   "file": "np3.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "normal"
+  },
+  {
+   "id": "np4",
+   "file": "np4.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "normal"
+  },
+  {
+   "id": "np5",
+   "file": "np5.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "normal"
+  },
+  {
+   "id": "np6",
+   "file": "np6.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "normal"
+  },
+  {
+   "id": "nx1",
+   "file": "nx1.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "holdout"
+  },
+  {
+   "id": "nx2",
+   "file": "nx2.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "pseudo_strange"
+  },
+  {
+   "id": "nx3",
+   "file": "nx3.jpg",
+   "class": "cat",
+   "bg": "улица",
+   "role": "holdout"
+  },
+  {
+   "id": "nx4",
+   "file": "nx4.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "pseudo_strange"
+  },
+  {
+   "id": "nx5",
+   "file": "nx5.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "holdout"
+  },
+  {
+   "id": "nx6",
+   "file": "nx6.jpg",
+   "class": "dog",
+   "bg": "дом",
+   "role": "pseudo_strange"
+  },
+  {
+   "id": "nf1",
+   "file": "nf1.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "forecast"
+  },
+  {
+   "id": "nb1",
+   "file": "nb1.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "buffer"
+  },
+  {
+   "id": "nb2",
+   "file": "nb2.jpg",
+   "class": "cat",
+   "bg": "дом",
+   "role": "buffer"
+  },
+  {
+   "id": "nb3",
+   "file": "nb3.jpg",
+   "class": "dog",
+   "bg": "улица",
+   "role": "buffer"
+  }
+ ]
+}

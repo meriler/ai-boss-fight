@@ -1,321 +1,445 @@
 {
-  "id": "z1-cats-dogs",
-  "classes": [
-    {
-      "id": "cat",
-      "label": "Коты",
-      "label_one": "Кот"
-    },
-    {
-      "id": "dog",
-      "label": "Собаки",
-      "label_one": "Собака"
-    }
-  ],
-  "spurious": "фон: помещение/улица",
-  "pilot_status": "frozen",
-  "frozen_params": {
-    "frozen_at": "2026-07-17",
-    "params_rev": 1,
-    "embedder": "mobilenet_v3_small_embedder.tflite (MediaPipe ImageEmbedder, models/)",
-    "k": {
-      "small": 3,
-      "large": 5,
-      "min_class_size_for_large": 10
-    },
-    "weights": {
-      "embed": 0.65,
-      "pixel": 0.35
-    },
-    "confidence_map": "conf = 100·sigmoid((d̄_проигравшего − d̄_победителя)/T), T=0.03; d̄ класса — среднее комбинированное расстояние до k ближайших примеров класса (k — по правилу поля k); расстояние = 0.65·(1−cosE)+0.35·(1−cosP), ветки как в v5 (эмбеддинг L2-норм; 32×32 grayscale, минус среднее, L2-норм). ЭКРАННЫЙ процент с фазы 0.5 — по confidence_scale; сигмоида остаётся legacy-порогом сырой маржи (флип ≥75% ⇔ margin ≥ T·ln3 = 0.033) и parity-сверкой с пилотом",
-    "confidence_scale": {
-      "calibrated_at": "2026-07-17",
-      "anchors": [[0, 50], [0.033, 75], [0.06, 85], [0.2, 95]],
-      "note": "кусочно-линейная монотонная шкала margin→conf% (план-правок 17.07, фаза 0.5): сигмоида T=0.03 насыщалась (медиана ≈97%). Точки по маржам пилота (pilot/calibrate_scale.mjs): 0→50 (ничья), 0.033→75 (порог пилотного флипа), 0.06→85 (низ чистых normal-маржей), 0.2→95 (потолок; выше не показываем). Отрицательная маржа — зеркально ниже 50"
-    },
-    "engines": {
-      "head": {
-        "piloted_at": "2026-07-18",
-        "pilot": "мини-пилот §6 H1 (пилот-R1-параметры §8, pilot/run_head_pilot.mjs): флипы 8/8, лже-странные 0, обычные 8/8, holdout после ловушек 4/4, худший флип маржа 0.454 ≥ порога T·ln3=0.439; отчёт pilot/head-pilot-report.md, эталон pilot/parity-head-fixture.json. Обучаемая голова TM-типа: softmax-логрегрессия поверх того же эмбеддера, детерминизм по построению (W=0, full-batch, канонизация состава, Float64) — app/engine/head.js. В прод-манифест НЕ включена: только флаг ?engine=head (переключение — решение владельца)",
-        "feat_scale_pix": 1.0,
-        "epochs": 1000,
-        "lr": 0.5,
-        "l2": 0.0002,
-        "class_balance": true,
-        "min_per_class": 3,
-        "T": 0.4,
-        "confidence_scale": {
-          "calibrated_at": "2026-07-18",
-          "anchors": [[0, 50], [0.4394, 75], [1.2, 85], [4.3, 95]],
-          "note": "правило §8.4 пилот-дока: 0→50 (ничья), T·ln3=0.4394→75 (замороженный порог флипа), 1.2→85 (низ чистых normal logit-маржей R1), 4.3→95 (потолок = верх чистых маржей). Маржа головы — logit-разрыв top−second"
-        }
-      }
-    }
+ "id": "z1-cats-dogs",
+ "classes": [
+  {
+   "id": "cat",
+   "label": "Коты",
+   "label_one": "Кот"
   },
-  "images": [
-    {
-      "id": "t1",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t1.jpg"
-    },
-    {
-      "id": "t2",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t2.jpg"
-    },
-    {
-      "id": "t3",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t3.jpg"
-    },
-    {
-      "id": "t4",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t4.jpg"
-    },
-    {
-      "id": "t5",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t5.jpg"
-    },
-    {
-      "id": "t6",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t6.jpg"
-    },
-    {
-      "id": "t7",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t7.jpg"
-    },
-    {
-      "id": "t8",
-      "class": "cat",
-      "role": "train_core",
-      "bg": "дом",
-      "src": "cats/t8.jpg"
-    },
-    {
-      "id": "t9",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t9.jpg"
-    },
-    {
-      "id": "t10",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t10.jpg"
-    },
-    {
-      "id": "t11",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t11.jpg"
-    },
-    {
-      "id": "t12",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t12.jpg"
-    },
-    {
-      "id": "t13",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t13.jpg"
-    },
-    {
-      "id": "t14",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t14.jpg"
-    },
-    {
-      "id": "t15",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t15.jpg"
-    },
-    {
-      "id": "t16",
-      "class": "dog",
-      "role": "train_core",
-      "bg": "улица",
-      "src": "dogs/t16.jpg"
-    },
-    {
-      "id": "p1",
-      "class": "cat",
-      "role": "control",
-      "bg": "улица",
-      "src": "probe/p1.jpg",
-      "expected_flip": true
-    },
-    {
-      "id": "p2",
-      "class": "dog",
-      "role": "control",
-      "bg": "дом",
-      "src": "probe/p2.jpg",
-      "expected_flip": true
-    },
-    {
-      "id": "p3",
-      "class": "cat",
-      "role": "control",
-      "bg": "дом",
-      "src": "probe/p3.jpg",
-      "expected_flip": false
-    },
-    {
-      "id": "p4",
-      "class": "dog",
-      "role": "control",
-      "bg": "улица",
-      "src": "probe/p4.jpg",
-      "expected_flip": false
-    },
-    {
-      "id": "tr1",
-      "class": "cat",
-      "role": "trap",
-      "bg": "улица",
-      "src": "traps/tr1.jpg",
-      "caption": "Кот на улице"
-    },
-    {
-      "id": "tr2",
-      "class": "cat",
-      "role": "trap",
-      "bg": "улица",
-      "src": "traps/tr2.jpg",
-      "caption": "Кот на улице"
-    },
-    {
-      "id": "tr3",
-      "class": "cat",
-      "role": "trap",
-      "bg": "улица",
-      "src": "traps/tr3.jpg",
-      "caption": "Кот на улице"
-    },
-    {
-      "id": "tr4",
-      "class": "cat",
-      "role": "trap",
-      "bg": "улица",
-      "src": "traps/tr4.jpg",
-      "caption": "Кот на улице"
-    },
-    {
-      "id": "tr5",
-      "class": "dog",
-      "role": "trap",
-      "bg": "дом",
-      "src": "traps/tr5.jpg",
-      "caption": "Собака дома"
-    },
-    {
-      "id": "tr6",
-      "class": "dog",
-      "role": "trap",
-      "bg": "дом",
-      "src": "traps/tr6.jpg",
-      "caption": "Собака дома"
-    },
-    {
-      "id": "tr7",
-      "class": "dog",
-      "role": "trap",
-      "bg": "дом",
-      "src": "traps/tr7.jpg",
-      "caption": "Собака дома"
-    },
-    {
-      "id": "tr8",
-      "class": "dog",
-      "role": "trap",
-      "bg": "дом",
-      "src": "traps/tr8.jpg",
-      "caption": "Собака дома"
-    },
-    {
-      "id": "f1",
-      "class": "cat",
-      "role": "forecast",
-      "bg": "дом",
-      "src": "forecast/f1.jpg"
-    },
-    {
-      "id": "b1",
-      "class": "dog",
-      "role": "buffer",
-      "bg": "дом",
-      "src": "buffer/b1.jpg"
-    },
-    {
-      "id": "b2",
-      "class": "cat",
-      "role": "buffer",
-      "bg": "улица",
-      "src": "buffer/b2.jpg"
-    },
-    {
-      "id": "b3",
-      "class": "dog",
-      "role": "buffer",
-      "bg": "улица",
-      "src": "buffer/b3.jpg"
-    },
-    {
-      "id": "r1",
-      "class": "cat",
-      "role": "reserve",
-      "bg": "улица",
-      "src": "reserve/r1.jpg"
-    },
-    {
-      "id": "r2",
-      "class": "cat",
-      "role": "reserve",
-      "bg": "улица",
-      "src": "reserve/r2.jpg"
-    },
-    {
-      "id": "r3",
-      "class": "dog",
-      "role": "reserve",
-      "bg": "дом",
-      "src": "reserve/r3.jpg"
-    },
-    {
-      "id": "r4",
-      "class": "dog",
-      "role": "reserve",
-      "bg": "дом",
-      "src": "reserve/r4.jpg"
+  {
+   "id": "dog",
+   "label": "Собаки",
+   "label_one": "Собака"
+  }
+ ],
+ "spurious": "фон: помещение/улица",
+ "pilot_status": "frozen",
+ "frozen_params": {
+  "frozen_at": "2026-07-17",
+  "params_rev": 3,
+  "embedder": "mobilenet_v3_small_embedder.tflite (MediaPipe ImageEmbedder, models/)",
+  "k": {
+   "small": 3,
+   "large": 5,
+   "min_class_size_for_large": 10
+  },
+  "weights": {
+   "embed": 0.65,
+   "pixel": 0.35
+  },
+  "confidence_map": "conf = 100·sigmoid((d̄_проигравшего − d̄_победителя)/T), T=0.03; d̄ класса — среднее комбинированное расстояние до k ближайших примеров класса (k — по правилу поля k); расстояние = 0.65·(1−cosE)+0.35·(1−cosP), ветки как в v5 (эмбеддинг L2-норм; 32×32 grayscale, минус среднее, L2-норм). ЭКРАННЫЙ процент с фазы 0.5 — по confidence_scale; сигмоида остаётся legacy-порогом сырой маржи (флип ≥75% ⇔ margin ≥ T·ln3 = 0.033) и parity-сверкой с пилотом",
+  "confidence_scale": {
+   "calibrated_at": "2026-07-17",
+   "anchors": [
+    [
+     0,
+     50
+    ],
+    [
+     0.033,
+     75
+    ],
+    [
+     0.06,
+     85
+    ],
+    [
+     0.2,
+     95
+    ]
+   ],
+   "note": "кусочно-линейная монотонная шкала margin→conf% (план-правок 17.07, фаза 0.5): сигмоида T=0.03 насыщалась (медиана ≈97%). Точки по маржам пилота (pilot/calibrate_scale.mjs): 0→50 (ничья), 0.033→75 (порог пилотного флипа), 0.06→85 (низ чистых normal-маржей), 0.2→95 (потолок; выше не показываем). Отрицательная маржа — зеркально ниже 50"
+  },
+  "engines": {
+   "head": {
+    "piloted_at": "2026-07-18",
+    "pilot": "мини-пилот §6 H1 (пилот-R1-параметры §8, pilot/run_head_pilot.mjs): флипы 8/8, лже-странные 0, обычные 8/8, holdout после ловушек 4/4, худший флип маржа 0.454 ≥ порога T·ln3=0.439; отчёт pilot/head-pilot-report.md, эталон pilot/parity-head-fixture.json. Обучаемая голова TM-типа: softmax-логрегрессия поверх того же эмбеддера, детерминизм по построению (W=0, full-batch, канонизация состава, Float64) — app/engine/head.js. В прод-манифест НЕ включена: только флаг ?engine=head (переключение — решение владельца)",
+    "feat_scale_pix": 1.0,
+    "epochs": 1000,
+    "lr": 0.5,
+    "l2": 0.0002,
+    "class_balance": true,
+    "min_per_class": 3,
+    "T": 0.4,
+    "confidence_scale": {
+     "calibrated_at": "2026-07-28",
+     "anchors": [
+      [
+       0,
+       50
+      ],
+      [
+       0.4394,
+       75
+      ],
+      [
+       1.3,
+       85
+      ],
+      [
+       5.6,
+       95
+      ]
+     ],
+     "note": "правило §8.4: 0→50 (ничья), T·ln3=0.4394→75 (порог флипа), 1.38→85 (низ чистых normal logit-маржей R1 на банке gpt_image 2026-07), 5.53→95 (верх). Пересчитано при смене банка: у чистых генераций маржи выше, старые якоря 1.2/4.3 сжимали шкалу"
     }
-  ]
+   }
+  },
+  "gen_engine": "gpt_image",
+  "gen_batch": "2026-07-28 (весь банк одной партией, 512×512 JPEG q85 4:2:0)"
+ },
+ "images": [
+  {
+   "id": "nc1",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc1.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc2",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc2.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc3",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc3.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc4",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc4.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc5",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc5.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc6",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc6.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc7",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc7.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nc8",
+   "class": "cat",
+   "role": "train_core",
+   "bg": "дом",
+   "src": "cats/nc8.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd1",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd1.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd2",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd2.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd3",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd3.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd4",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd4.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd5",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd5.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd6",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd6.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd7",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd7.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nd8",
+   "class": "dog",
+   "role": "train_core",
+   "bg": "улица",
+   "src": "dogs/nd8.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "ntc1",
+   "class": "cat",
+   "role": "trap",
+   "bg": "улица",
+   "src": "traps/ntc1.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntc2",
+   "class": "cat",
+   "role": "trap",
+   "bg": "улица",
+   "src": "traps/ntc2.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntc3",
+   "class": "cat",
+   "role": "trap",
+   "bg": "улица",
+   "src": "traps/ntc3.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntc4",
+   "class": "cat",
+   "role": "trap",
+   "bg": "улица",
+   "src": "traps/ntc4.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntd1",
+   "class": "dog",
+   "role": "trap",
+   "bg": "дом",
+   "src": "traps/ntd1.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntd2",
+   "class": "dog",
+   "role": "trap",
+   "bg": "дом",
+   "src": "traps/ntd2.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntd3",
+   "class": "dog",
+   "role": "trap",
+   "bg": "дом",
+   "src": "traps/ntd3.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "ntd4",
+   "class": "dog",
+   "role": "trap",
+   "bg": "дом",
+   "src": "traps/ntd4.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "np1",
+   "class": "cat",
+   "role": "control",
+   "bg": "дом",
+   "src": "probe/np1.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nx1",
+   "class": "cat",
+   "role": "control",
+   "bg": "улица",
+   "src": "probe/nx1.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "np2",
+   "class": "cat",
+   "role": "control",
+   "bg": "дом",
+   "src": "probe/np2.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nx3",
+   "class": "cat",
+   "role": "control",
+   "bg": "улица",
+   "src": "probe/nx3.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "np3",
+   "class": "cat",
+   "role": "control",
+   "bg": "дом",
+   "src": "probe/np3.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nx5",
+   "class": "dog",
+   "role": "control",
+   "bg": "дом",
+   "src": "probe/nx5.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "np4",
+   "class": "dog",
+   "role": "control",
+   "bg": "улица",
+   "src": "probe/np4.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nr3",
+   "class": "dog",
+   "role": "control",
+   "bg": "дом",
+   "src": "probe/nr3.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "np5",
+   "class": "dog",
+   "role": "control",
+   "bg": "улица",
+   "src": "probe/np5.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "np6",
+   "class": "dog",
+   "role": "control",
+   "bg": "улица",
+   "src": "probe/np6.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nx2",
+   "class": "cat",
+   "role": "reserve",
+   "bg": "улица",
+   "src": "reserve/nx2.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nx4",
+   "class": "dog",
+   "role": "reserve",
+   "bg": "дом",
+   "src": "reserve/nx4.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nx6",
+   "class": "dog",
+   "role": "reserve",
+   "bg": "дом",
+   "src": "reserve/nx6.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nr1",
+   "class": "cat",
+   "role": "reserve",
+   "bg": "улица",
+   "src": "reserve/nr1.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nr2",
+   "class": "cat",
+   "role": "reserve",
+   "bg": "улица",
+   "src": "reserve/nr2.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nr4",
+   "class": "dog",
+   "role": "reserve",
+   "bg": "дом",
+   "src": "reserve/nr4.jpg",
+   "expected_flip": true
+  },
+  {
+   "id": "nf1",
+   "class": "cat",
+   "role": "forecast",
+   "bg": "дом",
+   "src": "forecast/nf1.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nb1",
+   "class": "cat",
+   "role": "buffer",
+   "bg": "дом",
+   "src": "buffer/nb1.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nb2",
+   "class": "cat",
+   "role": "buffer",
+   "bg": "дом",
+   "src": "buffer/nb2.jpg",
+   "expected_flip": false
+  },
+  {
+   "id": "nb3",
+   "class": "dog",
+   "role": "buffer",
+   "bg": "улица",
+   "src": "buffer/nb3.jpg",
+   "expected_flip": false
+  }
+ ]
 }

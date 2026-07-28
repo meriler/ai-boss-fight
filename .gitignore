@@ -7,3 +7,7 @@ pilot/images512/
 pilot/.venv.nosync/
 pilot/sheet_*.png
 server/yougile-mcp-debug.log
+pilot/raw/
+pilot/gen-bank-2026-07/
+pilot/gen-gpt-2026-07/
+pilot/gen-z2-fruits-2026-07/

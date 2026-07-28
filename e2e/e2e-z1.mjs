@@ -23,7 +23,11 @@ process.on('exit', () => { try { server.kill(); } catch (e) {} });
 const log = [];
 let fails = 0;
 const ok = (name, cond, extra = '') => {
-  log.push((cond ? 'PASS ' : 'FAIL ') + name + (extra && !cond ? ' — ' + extra : ''));
+  const line = (cond ? 'PASS ' : 'FAIL ') + name + (extra && !cond ? ' — ' + extra : '');
+  log.push(line);
+  // E2E_VERBOSE=1 — печать по ходу в stderr: без неё зависший прогон молчит до конца,
+  // и непонятно, на каком сценарии он встал (диагностика 28.07)
+  if (process.env.E2E_VERBOSE) console.error(new Date().toTimeString().slice(0, 8) + ' ' + line);
   if (!cond) fails += 1;
 };
 // крэш посреди матрицы не должен глотать накопленный лог — печатаем всё и падаем
@@ -56,8 +60,15 @@ const host = (p, body) => fetch(BASE + p, {
 /* ---------- браузер ---------- */
 const browser = await chromium.launch({ executablePath: EXE, headless: true });
 // ENGINE=head node e2e-z1.mjs — та же матрица на другом движке (флаг ?engine=, §2.2);
-// без переменной — дефолт занятия (kNN), как у детей
+// без переменной — дефолт занятия из манифеста (сейчас head), как у детей
 const ENGINE = process.env.ENGINE ? `&engine=${process.env.ENGINE}` : '';
+// Движок ПРОГОНА: env перекрывает манифест; без env — фактический дефолт занятия
+// (lesson.engine). Раньше тут стояло жёсткое 'knn' — после включения head дефолтом
+// тест ждал kNN-паттерн на head-прогоне и падал на ветке добора ловушек.
+const RUN_ENGINE = process.env.ENGINE
+  || JSON.parse(readFileSync(path.join(ROOT, 'content', 'z1-kot', 'lesson.json'), 'utf-8')).lesson.engine
+  || 'knn';
+const IS_HEAD = RUN_ENGINE === 'head';
 const mkChild = async (seat, variant) => {
   const c = await browser.newContext({ viewport: { width: 640, height: 760 } });   // узкая половина 13"
   const p = await c.newPage();
@@ -661,7 +672,8 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   let alertSeen = false;   // акцент на ошибке пробы (аудит линзы): «Стоп… она уверена — и ошибается!»
   let alertBeforeAnswer = false;
   let dblChecked = false, f5probeChecked = false;
-  for (let i = 0; i < 4; i++) {
+  const PROBE_N = man.lesson.steps[2].phases[3].probe_set.length;
+  for (let i = 0; i < PROBE_N; i++) {
     await clickIf(A, '#btn_check');
     await A.waitForSelector('.verdict', { timeout: 8000 });
     // обязательный вопрос (И3 п.8): акцент не подсказывает ДО ответа; отвечаем «Права»
@@ -743,7 +755,7 @@ await waitState(B, s => s.phase === lastPhase, 12000, 'reveal у B');
   await A.goto(`${BASE}/z1.html?ws=1&demo=1&seat=1`);   // URL сознательно без engine-флага
   await waitState(A, s => !!s.step, 20000, 'boot после захода без флага движка');
   const engRestored = await A.evaluate(() => document.getElementById('screen').dataset.engine);
-  const wantEng = process.env.ENGINE || 'knn';
+  const wantEng = RUN_ENGINE;
   ok(`restore: движок версии восстановлен без URL-флага (${engRestored})`,
      engRestored === wantEng, `ждали ${wantEng}, получили ${engRestored}`);
 }
@@ -762,7 +774,8 @@ await driveLesson(A, man, {
       chatPreviewSeen = !!(await p.$('.chatpanel-preview'));
     // праймер капчи (правка владельца): слайд «Ты такое уже видел?» показывает мокап капчи
     // (автобусы), не голый текст — иначе ребёнок спрашивает «где капча?»
-    if (primerImgSeen === null && step && step.type === 'slide' && step.img && !st.entry)
+    // именно шаг s4 (в занятии теперь есть и другие слайды — например вывод угадайки)
+    if (primerImgSeen === null && step && step.id === 's4' && step.img && !st.entry)
       primerImgSeen = await p.$eval('.slidecard .slide-pic .imgpic', el => el.getAttribute('src'))
         .catch(() => null);
     // В-1: полка версий на card_view («спокойный» экран) — тапабельна
@@ -843,10 +856,10 @@ ok('оверлеи: на активном такте раскладки буфе
   await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
   let score = (await scoresOf(B)).pop() || '';
   const more = await B.$('#btn_more_traps');
-  if (ENGINE !== '&engine=head') {
+  if (!IS_HEAD) {
     // kNN (demo-синтез калиброван под него): одна ловушка-кот не перевешивает конфликт →
     // замер 2/4 < порога 3/4 → цикл добора предлагается
-    ok('слабый замер на одной ловушке: 2 из 4', score.includes('2 из 4'), score);
+    ok('слабый замер на одной ловушке: 6 из 10', score.includes('6 из 10'), score);
     ok('цикл добора: кнопка «Добрать ловушки» при замере ниже порога', !!more);
     const belowTxt = await B.evaluate(() => document.getElementById('screen').textContent);
     ok('ниже порога — остаточной строки нет (это не «прошёл, но не идеал»)',
@@ -870,11 +883,11 @@ ok('оверлеи: на активном такте раскладки буфе
     await clickIf(B, '#btn_check');
     await B.waitForSelector('.growthcap-score, .score-big', { timeout: 8000 });
     score = (await scoresOf(B)).pop() || '';
-    ok('добор поднял до порога: 3 из 4 (замер 2→3)', score.includes('3 из 4'), score);
+    ok('добор поднял до порога: 8 из 10 (замер 6→8)', score.includes('8 из 10'), score);
     ok('порог взят — навязанного добора нет (кнопки «Добрать ловушки» нет)',
        !(await B.$('#btn_more_traps')));
     const screenTxt = await B.evaluate(() => document.getElementById('screen').textContent);
-    ok('успех на пороге 3/4: «Коробка стала работать лучше!»', screenTxt.includes('Коробка стала работать лучше'),
+    ok('успех на пороге 8/10: «Коробка стала работать лучше!»', screenTxt.includes('Коробка стала работать лучше'),
        screenTxt.slice(0, 120));
     ok('остаточная ошибка: разговорная строка (нормализация + любопытство, без «не 4 из 4») показана',
        screenTxt.includes('так бывает даже у настоящего ИИ') && screenTxt.includes('почему именно эту'),
@@ -885,9 +898,9 @@ ok('оверлеи: на активном такте раскладки буфе
     // слабый замер и добор; см. pilot/head-pilot-report.md). Проверяем честность UI:
     // сильный замер (идеал 4/4) → ни кнопки добора, ни остаточной строки
     const headTxt = await B.evaluate(() => document.getElementById('screen').textContent);
-    ok('head: одна ловушка уже чинит демо-коробку (4 из 4), добор честно не предлагается',
-       score.includes('4 из 4') && !more, score + (more ? ' + кнопка добора' : ''));
-    ok('head: при идеале 4/4 остаточной строки нет (score == of)',
+    ok('head: одна ловушка уже чинит демо-коробку (10 из 10), добор честно не предлагается',
+       score.includes('10 из 10') && !more, score + (more ? ' + кнопка добора' : ''));
+    ok('head: при идеале 10/10 остаточной строки нет (score == of)',
        !headTxt.includes('так бывает даже у настоящего ИИ'), headTxt.slice(0, 120));
   }
   // В-5: рост ячейками — два ряда одних holdout-миниатюр, стрелки на изменившихся,
@@ -899,24 +912,26 @@ ok('оверлеи: на активном такте раскладки буфе
     bigNum: document.querySelectorAll('.score-big').length,
   }));
   await B.screenshot({ path: '/tmp/z1-growth.png' });   // ревью интерфейса В-5
-  ok('В-5: два ряда ячеек (было/стало) по 4 holdout-миниатюры',
-     growth.rows === 2 && growth.cells === 8, JSON.stringify(growth));
+  const HOLD_N = man.lesson.steps.find(s => s.measure)?.measure.holdout.length
+    || man.lesson.steps[2].phases[3].probe_set.length;
+  ok(`В-5: два ряда ячеек (было/стало) по ${HOLD_N} holdout-миниатюр`,
+     growth.rows === 2 && growth.cells === HOLD_N * 2, JSON.stringify(growth));
   ok('В-5: стрелки на изменившихся ячейках есть', growth.arrows >= 1, JSON.stringify(growth));
   ok('В-5: счёт — подписью, не крупным числом (П4)', growth.bigNum === 0, JSON.stringify(growth));
   // карточка дела: пара «до → после» честная (И4-Т A+D) — «до» = проба акта 1 на ОДНОМ
-  // контрольном наборе (2 из 4 в demo: 2 конфликта флипают), «после» — замер того же набора.
-  // У B дошли до порога 3/4 (слабая раскладка + добор одной ловушкой) — карточка честно несёт
-  // «2 → 3 из 4» (та же пара, что на экране замера: остаточная ошибка на p2 сохранена)
+  // контрольном наборе (6 из 10 в demo: 4 конфликтных проваливаются), «после» — замер того же
+  // набора. У B дошли до порога 8/10 (слабая раскладка + добор) — карточка честно несёт
+  // «6 → 8 из 10» (та же пара, что на экране замера: остаточные ошибки сохранены)
   await driveLesson(B, man, { code: '4712',
     stopWhen: (st) => !st.entry && st.phase === 'card_view' });
   const factB = await B.evaluate(() =>
     [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
-  if (ENGINE !== '&engine=head')
-    ok('карточка дела B: точность «2 → 3 из 4» — та же пара, что на экране замера',
-       factB.includes('2 → 3 из 4'), factB.slice(0, 160));
+  if (!IS_HEAD)
+    ok('карточка дела B: точность «6 → 8 из 10» — та же пара, что на экране замера',
+       factB.includes('6 → 8 из 10'), factB.slice(0, 160));
   else
     ok('карточка дела B (head): пара «до → после» присутствует и честна',
-       /\d+ → 4 из 4/.test(factB), factB.slice(0, 160));
+       /\d+ → 10 из 10/.test(factB), factB.slice(0, 160));
   // финал (И4-Т E): только празднование сделанного — «Дело №1 раскрыто ✓», next_block убран
   const finalId = man.lesson.steps.find(s => s.type === 'final_card').id;
   let sawCasechip = false;
@@ -999,8 +1014,8 @@ ok('оверлеи: на активном такте раскладки буфе
     stopWhen: (st) => !st.entry && st.phase === 'card_view' });
   const factC = await C.evaluate(() =>
     [...document.querySelectorAll('.factrow')].map(e => e.textContent).join(' | '));
-  ok('баг #33: карточка дела догоняющего — «— → N из 4», а не «N → N из 4»',
-     /— → \d из 4/.test(factC), factC.slice(0, 160));
+  ok('баг #33: карточка дела догоняющего — «— → N из M», а не «N → N из M»',
+     /— → \d+ из \d+/.test(factC), factC.slice(0, 160));
   await driveLesson(C, man, { code: '4712' });
   ok('C: догоняющий дошёл до конца занятия', (await state(C)).done);
   await C.close();
@@ -1179,7 +1194,7 @@ for (const t of ['gate_enter', 'quiz_click', 'basket_undo', 'trained', 'probe', 
                  'buffer_forecast', 'chat_msg', 'card_opened', 'best_trap_marked', 'artifact_saved',
                  'baskets_cleared', 'experiment_start', 'trap_skipped', 'traps_done',
                  // traps_more шлётся только в цикле добора — на head-прогоне demo его нет (см. выше)
-                 ...(ENGINE === '&engine=head' ? [] : ['traps_more'])])
+                 ...(IS_HEAD ? [] : ['traps_more'])])
   ok('телеметрия: событие ' + t + ' в JSONL', evTypes.has(t));
 const measureEvents = jsonl.flatMap(r => (r.data.events || []).filter(e => e.type === 'measure'));
 ok('телеметрия: замер несёт версию состава (model_sig)', measureEvents.some(e => e.model_sig));
@@ -1187,7 +1202,7 @@ ok('телеметрия: замер несёт версию состава (mod
 // params сделаны замер/проба/обучение. КАЖДОЕ событие несёт engine+params_rev; события
 // движка прогона обязаны присутствовать (в head-прогоне RUN 3 на _test-variant банке
 // честно откатывается на knn — там head не пилотирован, поэтому не every по engRun)
-const engRun = ENGINE === '&engine=head' ? 'head' : 'knn';
+const engRun = RUN_ENGINE;
 ok('телеметрия: каждый замер несёт engine+params_rev',
    measureEvents.length > 0 && measureEvents.every(e => e.engine && e.params_rev != null),
    JSON.stringify(measureEvents.map(e => [e.engine, e.params_rev]).slice(0, 3)));
@@ -1215,7 +1230,15 @@ ok('телеметрия: hint с уровнями (1 и 2)', hintEvents.some(e 
 // --- дашборд: замеры и прогресс живьём (DoD п.5) ---
 await dash.reload();
 html = await dash.content();
-ok('дашборд: замер R1→R2 в таблице', /0\/4 → [34]\/4/.test(html), html.match(/[0-9]\/4 → [0-9]\/4/)?.[0] || 'нет');
+// ищем РЕАЛЬНЫЙ замер ребёнка «до → после» на текущем наборе проб, а не пример из
+// подсказки: прежний паттерн 0/4 → 3/4 совпадал с текстом help и держал тест зелёным
+// даже когда данных в таблице не было
+{
+  const N = man.lesson.steps.find(s => s.measure)?.measure.holdout.length || 10;
+  const re = new RegExp('\\d+\\/' + N + ' → \\d+\\/' + N);
+  ok(`дашборд: замер R1→R2 в таблице (набор из ${N})`, re.test(html),
+     html.match(re)?.[0] || 'нет');
+}
 ok('дашборд: уровень помощи виден', html.includes('ур.2'));
 
 /* --- автообновление дашборда без потери контекста (Codex-ревью И3, минор 4):
@@ -1357,6 +1380,10 @@ await A.close(); await B.close();
     const c4 = await browser.newContext({ viewport: { width: 640, height: 760 } });
     const E = await c4.newPage();
     E.setDefaultTimeout(45000);
+    // полный отказ = НИ готовых фич банка, НИ MediaPipe (с 28.07 фичи считаются заранее,
+    // и одного блока вендора мало — приложение штатно поднимется на файле)
+    await E.route('**/features.json', r => r.abort());
+    await E.route('**/features-*.bin', r => r.abort());
     await E.route('**/vendor/mediapipe/**', r => r.abort());
     await E.goto(`${BASE}/z1.html?ws=1&seat=4`);   // БЕЗ demo: настоящий warmup
     await driveLesson(E, man, { code: '4712',
@@ -1396,6 +1423,8 @@ export class ImageEmbedder {
     ok('эмбеддер восстановился: «Научить» ожила после retry (' +
        Math.round((Date.now() - t0e) / 1000) + ' c)', revived);
     ok('после восстановления плашка ошибки исчезла', !(await E.$('.model-error')));
+    ok('восстановление прошло аварийным путём (готовые фичи всё ещё недоступны)',
+       await E.evaluate(() => document.getElementById('screen').dataset.features === 'mediapipe'));
     await E.close(); await c4.close();
   }
 }
@@ -1467,6 +1496,9 @@ await dash.waitForLoadState('networkidle');
 await waitState(V1, s => s.phase === vLast, 12000, 'reveal V1');
 await driveLesson(V1, man2, { code: '7' });
 ok('тест-вариант: полный проход ТЕМ ЖЕ кодом до done (критерий фазы 0)', (await state(V1)).done);
+// ВАЖНО: условие именно про ФЛАГ в адресе, а не про движок занятия. Откат ждём только
+// когда head запрошен явно через ?engine=head — манифест тест-варианта на knn, и без
+// флага откатываться нечему (поймано прогоном 28.07)
 if (ENGINE === '&engine=head') {
   // находка 5: откат непилотированного движка — СОБЫТИЕ телеметрии, не console.warn.
   // На _test-variant банке head не пилотирован → boot V1/V2 обязан дать engine_fallback
@@ -1610,7 +1642,9 @@ await V1.close(); await V2.close();
 }
 
 /* ---------- свод одноразовых проверок И3-Т ---------- */
-if (ENGINE === '&engine=head')
+// движок прогона берётся из манифеста, а не из наличия env-флага: с 27.07 дефолт
+// занятия — head, и без ENGINE= прогон идёт именно на нём (иначе ждём kNN-поведения)
+if (IS_HEAD)
   ok('движки различимы: head показывает полоску эпох при «Научить»', trainbarSeen === true);
 else
   ok('движки различимы: kNN мгновенен — полоски эпох нет', trainbarSeen === false);

@@ -635,6 +635,21 @@ function measureErrors(ctx, m) {
   });
 }
 
+/** Счёт ОТДЕЛЬНО по «хитрым» картинкам (expected_flip: конфликт класса и фона).
+ * Общий счёт наказывает мусорную раскладку (при инверсии он падает), но плохо
+ * показывает починку: ловушки чинят именно конфликтные пробы, а те растворяются
+ * среди согласных. Две цифры разводят это честно: общий — «стало ли лучше вообще»,
+ * хитрые — «прозрела ли она там, где путалась». Заодно ловит неполную починку:
+ * порог по общему счёту можно взять, оставив половину хитрых сломанными. */
+function trickyScore(ctx, m) {
+  const rows = (m && m.details || []).filter(d => {
+    const img = ctx.bankIndex.byId.get(d.img);
+    return img && img.expected_flip === true;
+  });
+  if (!rows.length) return null;
+  return { score: rows.filter(d => d.ok).length, of: rows.length };
+}
+
 /** Честный итог замера по факту (план-правок п.3/п.6): лучше / держит идеал / без
  * изменений / хуже. beforeValid=false → сравнивать не с чем (stale-«Было»).
  * Сравнение честно только на ОДНОМ holdout-наборе (В-5, §3.1) — иначе null,
@@ -720,6 +735,22 @@ function measurePhase(ctx, step, phase) {
     }
     const outcome = measureOutcome(m.before, m.after, beforeValid);
     if (outcome) out.push(kidText(outcome, { small: true }));
+    // вторая цифра: что стало с ХИТРЫМИ картинками (кот на улице / собака дома) —
+    // именно их чинят ловушки, и именно на них видно, прозрела коробка или счёт
+    // вырос за счёт лёгких проб
+    const trickyAfter = trickyScore(ctx, m.after);
+    if (trickyAfter) {
+      const trickyBefore = beforeValid ? trickyScore(ctx, m.before) : null;
+      const same = !(m.before && m.after && m.before.details && m.after.details) ||
+                   sameMeasureSet(m.before, m.after);
+      const trickyEl = kidText(
+        trickyBefore && same
+          ? `На хитрых картинках: было ${trickyBefore.score} из ${trickyBefore.of} — стало ${trickyAfter.score} из ${trickyAfter.of}`
+          : `На хитрых картинках: ${trickyAfter.score} из ${trickyAfter.of}`,
+        { small: true });
+      trickyEl.id = 'tricky_score';
+      out.push(trickyEl);
+    }
     // цикл добора (фаза 0.5, стык с паттерном r2): замер слабее порога и остались
     // невзятые ловушки → назад к подаче, добрать и переучить (версия состава вырастет)
     const passN = parseInt(String(step.measure.pass).split('/')[0], 10) || m.after.of;

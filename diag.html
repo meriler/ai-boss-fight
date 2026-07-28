@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Диагностика движка</title>
+<style>
+  body { font: 16px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; background: #111; color: #eee; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #999; font-size: 14px; margin-bottom: 18px; }
+  .row { padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; background: #1c1c1c; border-left: 4px solid #444; }
+  .ok { border-left-color: #3ba55d; }
+  .bad { border-left-color: #e04545; }
+  .wait { border-left-color: #d9a441; }
+  .name { font-weight: 600; }
+  .det { color: #aaa; font-size: 13px; white-space: pre-wrap; word-break: break-word; margin-top: 4px; }
+  #verdict { margin-top: 18px; padding: 14px; border-radius: 10px; background: #222; font-size: 15px; }
+  #ua { color: #777; font-size: 12px; margin-top: 20px; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Диагностика движка</h1>
+<div class="sub">Проверяю, почему коробка-модель не заводится. Ничего не меняет, просто мерит.</div>
+<div id="rows"></div>
+<div id="verdict">Иду по тестам…</div>
+<div id="ua"></div>
+
+<script type="module">
+const rowsEl = document.getElementById('rows');
+const results = [];
+
+function row(name) {
+  const el = document.createElement('div');
+  el.className = 'row wait';
+  el.innerHTML = '<div class="name">' + name + '</div><div class="det">…</div>';
+  rowsEl.appendChild(el);
+  return {
+    ok(det) { el.className = 'row ok'; el.querySelector('.det').textContent = det || 'работает'; results.push({ name, ok: true, det: det || '' }); },
+    bad(det) { el.className = 'row bad'; el.querySelector('.det').textContent = det || 'не работает'; results.push({ name, ok: false, det: det || '' }); },
+  };
+}
+
+const short = (e) => String((e && e.message) || e).slice(0, 240);
+
+// --- 1. WebGL2 на обычном canvas (DOM-путь) ---
+let domGlOk = false;
+{
+  const r = row('1. WebGL2 на обычном canvas');
+  try {
+    const c = document.createElement('canvas'); c.width = 224; c.height = 224;
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) throw new Error('контекст не создался');
+    const t = gl.createTexture();
+    if (!t) throw new Error('createTexture вернул null');
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 224, 224, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const err = gl.getError();
+    if (err) throw new Error('glGetError ' + err);
+    domGlOk = true;
+    r.ok('контекст + текстура 224×224 — ок');
+  } catch (e) { r.bad(short(e)); }
+}
+
+// --- 2. WebGL2 на OffscreenCanvas (путь, который выбирает MediaPipe) ---
+let offGlOk = false;
+{
+  const r = row('2. WebGL2 на OffscreenCanvas(1,1) — путь MediaPipe');
+  try {
+    if (typeof OffscreenCanvas === 'undefined') throw new Error('OffscreenCanvas не поддерживается');
+    const c = new OffscreenCanvas(1, 1);
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) throw new Error('контекст не создался');
+    const t = gl.createTexture();
+    if (!t) throw new Error('createTexture вернул null');
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 224, 224, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const err = gl.getError();
+    if (err) throw new Error('glGetError ' + err);
+    offGlOk = true;
+    r.ok('контекст + текстура — ок');
+  } catch (e) { r.bad(short(e)); }
+}
+
+// --- 3. Сколько WebGL-контекстов держит браузер ---
+{
+  const r = row('3. Сколько WebGL-контекстов живёт одновременно');
+  try {
+    const keep = [];
+    let n = 0;
+    for (let i = 0; i < 24; i++) {
+      const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+      const gl = c.getContext('webgl2');
+      if (!gl) break;
+      const t = gl.createTexture();
+      if (!t) break;
+      keep.push(gl); n++;
+    }
+    // сразу освобождаем
+    keep.forEach(gl => { const ext = gl.getExtension('WEBGL_lose_context'); ext && ext.loseContext(); });
+    (n >= 8 ? r.ok : r.bad)('создалось подряд: ' + n + ' из 24');
+  } catch (e) { r.bad(short(e)); }
+}
+
+// --- готовим тестовую картинку ---
+const testCanvas = document.createElement('canvas');
+testCanvas.width = 224; testCanvas.height = 224;
+{
+  const cx = testCanvas.getContext('2d');
+  cx.fillStyle = '#7ab'; cx.fillRect(0, 0, 224, 224);
+  cx.fillStyle = '#e63'; cx.fillRect(40, 40, 120, 120);
+}
+
+async function tryEmbedder(label, suppressOffscreen) {
+  const r = row(label);
+  const saved = globalThis.OffscreenCanvas;
+  let restored = false;
+  try {
+    if (suppressOffscreen) {
+      try { delete globalThis.OffscreenCanvas; } catch (_) {}
+      if (typeof globalThis.OffscreenCanvas !== 'undefined') {
+        Object.defineProperty(globalThis, 'OffscreenCanvas', { value: undefined, configurable: true, writable: true });
+      }
+      if (typeof globalThis.OffscreenCanvas !== 'undefined') throw new Error('подавить OffscreenCanvas не вышло');
+    }
+    const bust = '?diag=' + (suppressOffscreen ? 'dom' : 'off');
+    const { ImageEmbedder, FilesetResolver } = await import('./vendor/mediapipe/vision_bundle.mjs' + bust);
+    const vision = await FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+    const emb = await ImageEmbedder.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: './models/mobilenet_v3_small_embedder.tflite', delegate: 'CPU' },
+      quantize: false,
+    });
+    const out = emb.embed(testCanvas).embeddings[0].floatEmbedding;
+    try { emb.close(); } catch (_) {}
+    r.ok('эмбеддинг посчитан, длина ' + out.length);
+    return true;
+  } catch (e) {
+    r.bad(short(e));
+    return false;
+  } finally {
+    if (suppressOffscreen && !restored) { globalThis.OffscreenCanvas = saved; restored = true; }
+  }
+}
+
+// --- 4. MediaPipe как сейчас (CPU-делегат, OffscreenCanvas внутри) ---
+const asIsOk = await tryEmbedder('4. MediaPipe как сейчас (CPU-делегат)', false);
+
+// --- 5. MediaPipe с обычным canvas вместо OffscreenCanvas ---
+const domOk = await tryEmbedder('5. MediaPipe на обычном canvas (проверка фикса)', true);
+
+// --- 6. GPU-делегат, чтобы увидеть его собственную ошибку ---
+{
+  const r = row('6. MediaPipe на GPU-делегате');
+  try {
+    const { ImageEmbedder, FilesetResolver } = await import('./vendor/mediapipe/vision_bundle.mjs?diag=gpu');
+    const vision = await FilesetResolver.forVisionTasks('./vendor/mediapipe/wasm');
+    const emb = await ImageEmbedder.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: './models/mobilenet_v3_small_embedder.tflite', delegate: 'GPU' },
+      quantize: false,
+    });
+    const out = emb.embed(testCanvas).embeddings[0].floatEmbedding;
+    try { emb.close(); } catch (_) {}
+    r.ok('эмбеддинг посчитан, длина ' + out.length);
+  } catch (e) { r.bad(short(e)); }
+}
+
+// --- вердикт ---
+const v = document.getElementById('verdict');
+let text;
+if (asIsOk) text = 'Здесь всё считается. Значит поломка плавающая или зависит от состояния вкладки — покажи этот экран Алексею.';
+else if (domOk) text = 'НАШЛОСЬ: MediaPipe падает на OffscreenCanvas, а на обычном canvas считает. Фикс известен — переключить движок на обычный canvas.';
+else if (!domGlOk && !offGlOk) text = 'WebGL в этом браузере не даёт текстур вообще. Дело не в MediaPipe — это браузер или графика.';
+else text = 'Оба пути MediaPipe падают, хотя WebGL сам по себе работает. Нужен разбор глубже — данные уже отправлены.';
+v.textContent = text;
+
+document.getElementById('ua').textContent = navigator.userAgent;
+
+// отправляем результат в телеметрию (тот же эндпоинт, что у тренажёра)
+try {
+  await fetch('/tele', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sid: 'diag' + Date.now().toString(36),
+      seat: 'diag',
+      started: new Date().toISOString(),
+      now: Date.now(),
+      os: 'mac', mobile: false, demo: false, ws: false,
+      events: [{ t: 0, type: 'diag', ua: navigator.userAgent, verdict: text, results }],
+    }),
+  });
+} catch (_) {}
+</script>
+</body>
+</html>

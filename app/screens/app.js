@@ -77,6 +77,9 @@ function render() {
   screen.dataset.phase = ctx.entering || pos.done ? '' : pos.phase;
   screen.dataset.entry = ctx.entering ? '1' : '';
   screen.dataset.done = pos.done ? '1' : '';
+  // каким путём взялись фичи — видно в DOM: и e2e читает отсюда, и в классе можно
+  // глянуть инспектором, штатно машина работает или на аварийном откате
+  screen.dataset.features = (ctx.classifier && ctx.classifier.featureSource) || '';
   // счётчик визитов такта: «первый показ» отличим от повторного захода на тот же такт
   // (миниатюра разгадки, строка о первом v2) — поллинг-ререндеры визит не меняют
   const posKey = screen.dataset.step + '|' + screen.dataset.phase + '|' + screen.dataset.entry;
@@ -368,12 +371,24 @@ ctx.modelGate = (btn) => {
   return btn;
 };
 
+/** Прогрев с ЖИВЫМ процентом в плашке. Страница тянет ~20 МБ (wasm + модель + банк),
+ * на медленной сети это десятки секунд — без процента «Пробую загрузить…» читается как
+ * «зависло», и ребёнок (или ведущий) жмёт F5 посреди загрузки. Колбэк прогресса у
+ * warmup был всегда, просто его игнорировали. */
+function warmupWithProgress(label) {
+  ctx.overlays.showPill(label + ' 0%', 'info', true);
+  return ctx.classifier.warmup((p) => {
+    const pct = Math.max(0, Math.min(100, Math.round((p || 0) * 100)));
+    ctx.overlays.showPill(label + ' ' + pct + '%', 'info', true);
+  });
+}
+
 /** Плашка ошибки эмбеддера с рабочим путём восстановления (закалка 18.07): повторный
  * warmup; при успехе модель тихо пересобирается и кнопки оживают штатным modelGate. */
 ctx.retryWarmup = () => {
   if (ctx.classifier.ready) return;
-  ctx.overlays.showPill('Пробую загрузить…', 'info', true);
-  ctx.classifier.warmup(() => {}).then(() => {
+  warmupWithProgress('Пробую загрузить…').then(() => {
+    ctx.tele.push('boot_ok', { features: ctx.classifier.featureSource, after: 'retry' });
     ctx.overlays.hidePill();
     rebuildModelIfTrained();
     maybeAutoMeasureBefore();
@@ -389,8 +404,10 @@ function modelErrorBanner() {
   if (ctx.demo || !ctx.classifier || ctx.classifier.ready || !ctx.classifier.error) return '';
   const step = ctx.machine && !ctx.machine.done && ctx.machine.step();
   if (!step || step.type !== 'trainer_act') return '';   // модель нужна только тренажёру
+  const why = ctx.classifier.error && String(ctx.classifier.error.message || ctx.classifier.error);
   return h('div', { class: 'model-error' },
     kidText('Коробка-модель не загрузилась — обучение и проверки пока не работают', { small: true }),
+    why ? kidText('Причина: ' + why.slice(0, 240), { small: true }) : '',
     bigBtn('Попробовать ещё раз', () => ctx.retryWarmup(), { kind: 'secondary', id: 'btn_model_retry' }));
 }
 
@@ -845,8 +862,17 @@ async function boot() {
 
   // фон: эмбеддер + переобучение из payload (restore ≤3 c — не ждём модель)
   if (!ctx.demo) {
-    ctx.classifier.warmup(() => {}).catch(() => {
-      ctx.tele.push('boot_fail', { what: 'embedder' });
+    warmupWithProgress('Гружу коробку…').then(() => {
+      // каким путём посчитались фичи: precomputed — штатно (файл банка), mediapipe —
+      // сработал аварийный откат (значит на этой машине файл не подошёл, надо знать)
+      const src = ctx.classifier.featureSource;
+      ctx.tele.push('boot_ok', { features: src,
+        ...(src === 'mediapipe' ? { why: String(ctx.classifier.precomputedError
+                                                && ctx.classifier.precomputedError.message || '').slice(0, 120) } : {}) });
+      ctx.overlays.hidePill();
+      render();
+    }).catch((e) => {
+      ctx.tele.push('boot_fail', { what: 'embedder', why: String(e && e.message || e).slice(0, 240) });
       ctx.overlays.showPill('Модель не загрузилась', 'warn', true);
       render();   // плашка с «Попробовать ещё раз» (закалка 18.07: честный отказ + восстановление)
     });

@@ -11,6 +11,7 @@ export function createTele({ url = '/tele', seat = null, demo = false, ws = fals
   const IMM = new Set(['seat', 'gate_enter', 'version_committed', 'reveal_seen', 'measure',
                        'stuck_pressed', 'hint', 'override', 'artifact_saved', 'boot_fail',
                        'engine_fallback',   // откат движка — диагностика, дамп сразу
+                       'boot_ok',           // каким путём взялись фичи (готовые/аварийный MediaPipe)
                        ...immediateTypes]);
   const t = {
     sid: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),

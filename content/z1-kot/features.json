@@ -1,0 +1,235 @@
+{
+ "format": "f32-emb-pix-v1",
+ "bank": "z1-cats-dogs",
+ "params_rev": 3,
+ "dim_emb": 1024,
+ "dim_pix": 1024,
+ "count": 44,
+ "generated_by": "precompute-features.mjs (webkit, delegate CPU)",
+ "order": [
+  "nc1",
+  "nc2",
+  "nc3",
+  "nc4",
+  "nc5",
+  "nc6",
+  "nc7",
+  "nc8",
+  "nd1",
+  "nd2",
+  "nd3",
+  "nd4",
+  "nd5",
+  "nd6",
+  "nd7",
+  "nd8",
+  "ntc1",
+  "ntc2",
+  "ntc3",
+  "ntc4",
+  "ntd1",
+  "ntd2",
+  "ntd3",
+  "ntd4",
+  "np1",
+  "nx1",
+  "np2",
+  "nx3",
+  "np3",
+  "nx5",
+  "np4",
+  "nr3",
+  "np5",
+  "np6",
+  "nx2",
+  "nx4",
+  "nx6",
+  "nr1",
+  "nr2",
+  "nr4",
+  "nf1",
+  "nb1",
+  "nb2",
+  "nb3"
+ ],
+ "images": {
+  "nc1": {
+   "src": "cats/nc1.jpg",
+   "sha": "0c7905c836cd6921"
+  },
+  "nc2": {
+   "src": "cats/nc2.jpg",
+   "sha": "0fe57a59f8cab39c"
+  },
+  "nc3": {
+   "src": "cats/nc3.jpg",
+   "sha": "bd324b46356171f2"
+  },
+  "nc4": {
+   "src": "cats/nc4.jpg",
+   "sha": "0dfea3e474239a2f"
+  },
+  "nc5": {
+   "src": "cats/nc5.jpg",
+   "sha": "06a1dddf8e7c54c4"
+  },
+  "nc6": {
+   "src": "cats/nc6.jpg",
+   "sha": "fcf5b2df48f71f69"
+  },
+  "nc7": {
+   "src": "cats/nc7.jpg",
+   "sha": "3bc5ac3b195491b3"
+  },
+  "nc8": {
+   "src": "cats/nc8.jpg",
+   "sha": "c63e7c176944f214"
+  },
+  "nd1": {
+   "src": "dogs/nd1.jpg",
+   "sha": "f026f7bbf6f387f6"
+  },
+  "nd2": {
+   "src": "dogs/nd2.jpg",
+   "sha": "699bf204f97f2296"
+  },
+  "nd3": {
+   "src": "dogs/nd3.jpg",
+   "sha": "7585a01769bba3a0"
+  },
+  "nd4": {
+   "src": "dogs/nd4.jpg",
+   "sha": "20a9fa73e36fe5af"
+  },
+  "nd5": {
+   "src": "dogs/nd5.jpg",
+   "sha": "89508958ef2caa2a"
+  },
+  "nd6": {
+   "src": "dogs/nd6.jpg",
+   "sha": "866081aaba960bfe"
+  },
+  "nd7": {
+   "src": "dogs/nd7.jpg",
+   "sha": "a0841074bd0c187f"
+  },
+  "nd8": {
+   "src": "dogs/nd8.jpg",
+   "sha": "2672e8b56170fa07"
+  },
+  "ntc1": {
+   "src": "traps/ntc1.jpg",
+   "sha": "5b4c5bd533654880"
+  },
+  "ntc2": {
+   "src": "traps/ntc2.jpg",
+   "sha": "9c5fd2cddc51876e"
+  },
+  "ntc3": {
+   "src": "traps/ntc3.jpg",
+   "sha": "218422cf62ecaba2"
+  },
+  "ntc4": {
+   "src": "traps/ntc4.jpg",
+   "sha": "1f21f3fdc82136e7"
+  },
+  "ntd1": {
+   "src": "traps/ntd1.jpg",
+   "sha": "aaa68f819ee79d55"
+  },
+  "ntd2": {
+   "src": "traps/ntd2.jpg",
+   "sha": "fe13e844a92a5880"
+  },
+  "ntd3": {
+   "src": "traps/ntd3.jpg",
+   "sha": "a5fd6ff50fbbf861"
+  },
+  "ntd4": {
+   "src": "traps/ntd4.jpg",
+   "sha": "00974508abe8cdfc"
+  },
+  "np1": {
+   "src": "probe/np1.jpg",
+   "sha": "a917247bd35eaad7"
+  },
+  "nx1": {
+   "src": "probe/nx1.jpg",
+   "sha": "ef3af74e41ec37c9"
+  },
+  "np2": {
+   "src": "probe/np2.jpg",
+   "sha": "e7980107eee40642"
+  },
+  "nx3": {
+   "src": "probe/nx3.jpg",
+   "sha": "fc5403151e8c966f"
+  },
+  "np3": {
+   "src": "probe/np3.jpg",
+   "sha": "6b07fb624ed3c338"
+  },
+  "nx5": {
+   "src": "probe/nx5.jpg",
+   "sha": "29acd93ab4905641"
+  },
+  "np4": {
+   "src": "probe/np4.jpg",
+   "sha": "f08daf280d903d67"
+  },
+  "nr3": {
+   "src": "probe/nr3.jpg",
+   "sha": "50df0c27c04cb895"
+  },
+  "np5": {
+   "src": "probe/np5.jpg",
+   "sha": "1c774ff47f6ab8cc"
+  },
+  "np6": {
+   "src": "probe/np6.jpg",
+   "sha": "a0f2e2471e254256"
+  },
+  "nx2": {
+   "src": "reserve/nx2.jpg",
+   "sha": "77dc6d6c78f05b24"
+  },
+  "nx4": {
+   "src": "reserve/nx4.jpg",
+   "sha": "408f09001eef0cc8"
+  },
+  "nx6": {
+   "src": "reserve/nx6.jpg",
+   "sha": "ec6467395040b328"
+  },
+  "nr1": {
+   "src": "reserve/nr1.jpg",
+   "sha": "4342f3e2f6276d86"
+  },
+  "nr2": {
+   "src": "reserve/nr2.jpg",
+   "sha": "584b5ccf7a7339db"
+  },
+  "nr4": {
+   "src": "reserve/nr4.jpg",
+   "sha": "08dbd66251bda50b"
+  },
+  "nf1": {
+   "src": "forecast/nf1.jpg",
+   "sha": "6b2db725cbcb745f"
+  },
+  "nb1": {
+   "src": "buffer/nb1.jpg",
+   "sha": "8b9bd5d03a009bf6"
+  },
+  "nb2": {
+   "src": "buffer/nb2.jpg",
+   "sha": "4ea23b28d62b08d7"
+  },
+  "nb3": {
+   "src": "buffer/nb3.jpg",
+   "sha": "e56a9597bbe0d727"
+  }
+ },
+ "bin": "features-75df71c9bf8c.bin",
+ "bin_sha256": "75df71c9bf8c0f182dd4448c90da2ddef3436d96fdb1e4807926b29332f49e36"
+}

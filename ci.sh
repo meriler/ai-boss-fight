@@ -14,10 +14,15 @@ echo "── калибровка шкалы уверенности (спект�
 node pilot/calibrate_scale.mjs > /dev/null && echo "✓ шкала: чистые 85–95, спорные ≤75, потолок 95, legacy-флипы держатся"
 echo "── мини-пилот §6 обучаемой головы (гейт H1, дорожка Б) ──"
 node pilot/run_head_pilot.mjs > /dev/null && echo "✓ head: флипы 8/8, лже-странные 0, обычные 8/8, holdout после ловушек 4/4, живость шкалы"
+echo "── готовые фичи банка = живой расчёт в браузере (побитово) ──"
+node tools/verify-precomputed.mjs | tail -1
 echo "── тесты серверного контура §4.1 ──"
 python3 -m unittest discover -s server
-echo "── e2e занятия З1 — движок kNN (дефолт занятия) ──"
+# Дефолт занятия — head (lesson.engine, решение владельца 27.07). Матрицу гоняем на обоих
+# движках: без env берётся дефолт из манифеста, вторым прогоном — kNN за флагом ?engine=
+# (он остаётся поддерживаемым: на нём живёт _test-variant и любой непилотированный банк).
+echo "── e2e занятия З1 — движок head (дефолт занятия) ──"
 (cd e2e && node e2e-z1.mjs | tail -1)
-echo "── e2e занятия З1 — движок head (та же матрица за флагом ?engine=) ──"
-(cd e2e && ENGINE=head node e2e-z1.mjs | tail -1)
+echo "── e2e занятия З1 — движок kNN (та же матрица за флагом ?engine=) ──"
+(cd e2e && ENGINE=knn node e2e-z1.mjs | tail -1)
 echo "✅ CI-набор зелёный"

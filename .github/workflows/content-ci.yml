@@ -6,9 +6,9 @@
 name: content-ci
 on:
   push:
-    paths: ['content/**', 'app/**', 'server/**', '.github/workflows/content-ci.yml']
+    paths: ['content/**', 'app/**', 'server/**', 'tools/**', 'ci.sh', '.github/workflows/content-ci.yml']
   pull_request:
-    paths: ['content/**', 'app/**', 'server/**', '.github/workflows/content-ci.yml']
+    paths: ['content/**', 'app/**', 'server/**', 'tools/**', 'ci.sh', '.github/workflows/content-ci.yml']
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -22,5 +22,14 @@ jobs:
         run: node content/validate.mjs
       - name: Тесты клиент-ядра (журнал/редьюсер/restore/машина/acked)
         run: node --test 'app/**/*.test.mjs'
+      # готовые фичи банка обязаны лежать в репозитории: без них прод уедет на аварийный
+      # MediaPipe-путь, ради ухода от которого всё и делалось (Codex-ревью 28.07)
+      - name: Готовые фичи банка на месте
+        run: |
+          for d in content/z1-kot; do
+            test -f "$d/features.json" || { echo "нет $d/features.json — node tools/precompute-features.mjs"; exit 1; }
+            bin=$(node -e "process.stdout.write(require('./$d/features.json').bin)")
+            test -f "$d/$bin" || { echo "нет $d/$bin"; exit 1; }
+          done
       - name: Тесты серверного контура §4.1 (tele.py + lesson_state.py)
         run: python3 -m unittest discover -s server -v

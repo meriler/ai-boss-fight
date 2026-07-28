@@ -36,14 +36,14 @@ export function allowedEngines(bank) {
 }
 
 export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorBase = '',
-                               engine = 'knn' } = {}) {
+                               featuresBase = null, engine = 'knn' } = {}) {
   if (!ENGINE_IDS.includes(engine)) throw new Error('неизвестный движок: ' + engine);
   const frozen = bankIndex.bank.frozen_params || {};
   // ревизия frozen_params банка — часть identity модели (ТЗ-платформа-v3 §3.1):
   // модель = чистая функция (состав, engine, params_rev); уходит в train_commit/
   // probe_result/measure_result и телеметрию. Старый банк без params_rev → frozen_at
   const paramsRev = frozen.params_rev != null ? frozen.params_rev : (frozen.frozen_at || null);
-  const src = createFeatureSource({ bankIndex, assetsBase, demo, vendorBase });
+  const src = createFeatureSource({ bankIndex, assetsBase, demo, vendorBase, featuresBase });
 
   let composition = [];        // [{img, class}] — состав активной версии
   let headModel = null;        // только для engine=head
@@ -74,6 +74,11 @@ export function createEngine({ bankIndex, assetsBase = '', demo = false, vendorB
   return {
     get ready() { return src.ready; },
     get error() { return src.error; },
+    /** Чем посчитаны фичи: precomputed (готовый файл банка) | mediapipe (аварийный
+     * путь в браузере) | demo. Уходит в телеметрию — без этого не отличить машину,
+     * где сработал откат, от машины, где всё штатно. */
+    get featureSource() { return src.source; },
+    get precomputedError() { return src.precomputedError; },
     warmup: src.warmup,
     whenReady: src.whenReady,
     engineId: engine,

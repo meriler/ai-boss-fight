@@ -51,7 +51,9 @@ test('parity-head: веса моделей R1/R2 бит-в-бит как в ко
 });
 
 test('parity-head: вердикты всех сценариев пилота воспроизводятся (метка, маржа, conf)', () => {
-  assert.ok(HFX.cases.length >= 28, 'фикстура подозрительно мала');
+  // страховка от битой фикстуры; число кейсов зависит от состава банка
+  // (2026-07 gpt_image: 22 = normal + лже-странные + holdout на двух сценариях)
+  assert.ok(HFX.cases.length >= 20, 'фикстура подозрительно мала');
   for (const c of HFX.cases) {
     const v = headClassify(feat(c.img), models[c.model], { scale: HFX.anchors });
     assert.equal(v.label, c.label, `${c.model}/${c.img} (${c.role}): метка разошлась`);
@@ -64,8 +66,13 @@ test('parity-head: вердикты всех сценариев пилота в�
 test('parity-head: пороги гейта §6 держатся на фикстуре (флипы, чистые, holdout)', () => {
   const img = id => FX.images[id];
   const by = (m, r) => HFX.cases.filter(c => c.model === m && c.role === r);
-  const flips = by('R1', 'conflict').filter(c => c.label !== img(c.img).class);
-  assert.equal(flips.length, 8, 'эталон: 8/8 флипов');
+  // набор флипов: отдельная роль conflict, а если её в банке нет (банк gpt_image 2026-07 —
+  // конфликтные пробы и есть набор замера) — holdout до ловушек
+  const confR1 = by('R1', 'conflict');
+  const flipSet = confR1.length ? confR1 : by('R1', 'holdout');
+  const flips = flipSet.filter(c => c.label !== img(c.img).class);
+  assert.equal(flips.length, flipSet.length,
+    `эталон: все ${flipSet.length} конфликтных флипают на R1`);
   const thr = HFX.hyper.T * Math.log(3);
   for (const c of flips)
     assert.ok(c.margin >= thr, `${c.img}: маржа флипа ${c.margin} ниже порога ${thr}`);

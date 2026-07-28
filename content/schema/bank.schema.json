@@ -1,168 +1,349 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ws.meriler.cc/content/schema/bank.schema.json",
-  "title": "Банк картинок занятия — фаза 0 (нормативная схема, финализирована 2026-07-17)",
-  "description": "Роли картинок не пересекаются (проверяет валидатор). Банко-зависимые экраны кодятся только при pilot_status=frozen (ТЗ §6, §7 п.5).",
-  "type": "object",
-  "required": ["id", "classes", "spurious", "pilot_status", "images"],
-  "additionalProperties": false,
-  "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-    "classes": {
-      "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
-      "items": {
-        "type": "object",
-        "required": ["id", "label"],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-          "label": { "type": "string", "maxLength": 30 },
-          "label_one": { "type": "string", "maxLength": 30, "description": "ед. число для подписей ошибок замера («кот», «собака»); нет — берётся label" }
-        }
-      },
-      "description": "Фаза 0: ровно 2 класса (нода ImageClassifier среза — бинарная)"
-    },
-    "spurious": {
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://ws.meriler.cc/content/schema/bank.schema.json",
+ "title": "Банк картинок занятия — фаза 0 (нормативная схема, финализирована 2026-07-17)",
+ "description": "Роли картинок не пересекаются (проверяет валидатор). Банко-зависимые экраны кодятся только при pilot_status=frozen (ТЗ §6, §7 п.5).",
+ "type": "object",
+ "required": [
+  "id",
+  "classes",
+  "spurious",
+  "pilot_status",
+  "images"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-z0-9][a-z0-9-]*$"
+  },
+  "classes": {
+   "type": "array",
+   "minItems": 2,
+   "maxItems": 2,
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "label"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
       "type": "string",
-      "description": "Тайная примета (подвох). При провале пилота правится ЭТА строка + картинки — не код"
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+     },
+     "label": {
+      "type": "string",
+      "maxLength": 30
+     },
+     "label_one": {
+      "type": "string",
+      "maxLength": 30,
+      "description": "ед. число для подписей ошибок замера («кот», «собака»); нет — берётся label"
+     }
+    }
+   },
+   "description": "Фаза 0: ровно 2 класса (нода ImageClassifier среза — бинарная)"
+  },
+  "spurious": {
+   "type": "string",
+   "description": "Тайная примета (подвох). При провале пилота правится ЭТА строка + картинки — не код"
+  },
+  "pilot_status": {
+   "enum": [
+    "pending",
+    "frozen"
+   ]
+  },
+  "frozen_params": {
+   "type": "object",
+   "required": [
+    "frozen_at",
+    "embedder",
+    "k",
+    "weights",
+    "confidence_map"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "frozen_at": {
+     "type": "string",
+     "format": "date"
     },
-    "pilot_status": { "enum": ["pending", "frozen"] },
-    "frozen_params": {
-      "type": "object",
-      "required": ["frozen_at", "embedder", "k", "weights", "confidence_map"],
-      "additionalProperties": false,
-      "properties": {
-        "frozen_at": { "type": "string", "format": "date" },
-        "params_rev": { "type": ["integer", "string"], "description": "V2 (аддитивно, ТЗ-платформа-v3 §3.1): ревизия frozen_params — уходит в identity модели (train_commit/probe_result/measure_result). Нет поля — клиент берёт frozen_at" },
-        "embedder": { "type": "string", "description": "точная модель, напр. mobilenet_v3_small_embedder.tflite" },
-        "k": {
-          "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            {
-              "type": "object",
-              "required": ["small", "large", "min_class_size_for_large"],
-              "additionalProperties": false,
-              "properties": {
-                "small": { "type": "integer", "minimum": 1 },
-                "large": { "type": "integer", "minimum": 1 },
-                "min_class_size_for_large": { "type": "integer", "minimum": 2 }
-              },
-              "description": "Двухступенчатое правило v5: k=small пока min(примеров на класс) < min_class_size_for_large, иначе k=large"
-            }
-          ]
+    "params_rev": {
+     "type": [
+      "integer",
+      "string"
+     ],
+     "description": "V2 (аддитивно, ТЗ-платформа-v3 §3.1): ревизия frozen_params — уходит в identity модели (train_commit/probe_result/measure_result). Нет поля — клиент берёт frozen_at"
+    },
+    "embedder": {
+     "type": "string",
+     "description": "точная модель, напр. mobilenet_v3_small_embedder.tflite"
+    },
+    "k": {
+     "oneOf": [
+      {
+       "type": "integer",
+       "minimum": 1
+      },
+      {
+       "type": "object",
+       "required": [
+        "small",
+        "large",
+        "min_class_size_for_large"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "small": {
+         "type": "integer",
+         "minimum": 1
         },
-        "weights": {
-          "type": "object",
-          "required": ["embed", "pixel"],
-          "additionalProperties": false,
-          "properties": {
-            "embed": { "type": "number", "minimum": 0, "maximum": 1 },
-            "pixel": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
+        "large": {
+         "type": "integer",
+         "minimum": 1
         },
-        "confidence_map": {
-          "type": "string",
-          "description": "Формула/параметры маппинга расстояние→процент уверенности (фиксируется пилотом ДО заморозки, §6 п.3). С фазы 0.5 сигмоида — legacy-порог сырой маржи; экранный процент задаёт confidence_scale"
+        "min_class_size_for_large": {
+         "type": "integer",
+         "minimum": 2
+        }
+       },
+       "description": "Двухступенчатое правило v5: k=small пока min(примеров на класс) < min_class_size_for_large, иначе k=large"
+      }
+     ]
+    },
+    "weights": {
+     "type": "object",
+     "required": [
+      "embed",
+      "pixel"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "embed": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "pixel": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      }
+     }
+    },
+    "confidence_map": {
+     "type": "string",
+     "description": "Формула/параметры маппинга расстояние→процент уверенности (фиксируется пилотом ДО заморозки, §6 п.3). С фазы 0.5 сигмоида — legacy-порог сырой маржи; экранный процент задаёт confidence_scale"
+    },
+    "confidence_scale": {
+     "type": "object",
+     "required": [
+      "anchors"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "calibrated_at": {
+       "type": "string",
+       "format": "date"
+      },
+      "anchors": {
+       "type": "array",
+       "minItems": 3,
+       "maxItems": 4,
+       "items": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number",
+          "minimum": 0
+         },
+         {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+         }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+       },
+       "description": "Опорные точки [margin, conf%] кусочно-линейной монотонной шкалы (3–4 точки, план-правок фаза 0.5); последняя точка — потолок (95). Монотонность и спектр проверяет pilot/calibrate_scale.mjs"
+      },
+      "note": {
+       "type": "string"
+      }
+     },
+     "description": "Калиброванная шкала экранного процента уверенности (фаза 0.5): выведена из маржей пилота, отчёт pilot/calibration-report.md"
+    },
+    "engines": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "head": {
+       "type": "object",
+       "required": [
+        "piloted_at",
+        "feat_scale_pix",
+        "epochs",
+        "lr",
+        "l2",
+        "T",
+        "confidence_scale"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "piloted_at": {
+         "type": "string",
+         "format": "date"
+        },
+        "pilot": {
+         "type": "string"
+        },
+        "feat_scale_pix": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "epochs": {
+         "type": "integer",
+         "minimum": 1
+        },
+        "lr": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "l2": {
+         "type": "number",
+         "minimum": 0
+        },
+        "class_balance": {
+         "type": "boolean"
+        },
+        "min_per_class": {
+         "type": "integer",
+         "minimum": 1
+        },
+        "T": {
+         "type": "number",
+         "exclusiveMinimum": 0
         },
         "confidence_scale": {
-          "type": "object",
-          "required": ["anchors"],
-          "additionalProperties": false,
-          "properties": {
-            "calibrated_at": { "type": "string", "format": "date" },
-            "anchors": {
-              "type": "array",
-              "minItems": 3,
-              "maxItems": 4,
-              "items": {
-                "type": "array",
-                "prefixItems": [
-                  { "type": "number", "minimum": 0 },
-                  { "type": "number", "minimum": 0, "maximum": 100 }
-                ],
-                "minItems": 2,
-                "maxItems": 2
-              },
-              "description": "Опорные точки [margin, conf%] кусочно-линейной монотонной шкалы (3–4 точки, план-правок фаза 0.5); последняя точка — потолок (95). Монотонность и спектр проверяет pilot/calibrate_scale.mjs"
-            },
-            "note": { "type": "string" }
+         "type": "object",
+         "required": [
+          "anchors"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "calibrated_at": {
+           "type": "string",
+           "format": "date"
           },
-          "description": "Калиброванная шкала экранного процента уверенности (фаза 0.5): выведена из маржей пилота, отчёт pilot/calibration-report.md"
-        },
-        "engines": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "head": {
-              "type": "object",
-              "required": ["piloted_at", "feat_scale_pix", "epochs", "lr", "l2", "T", "confidence_scale"],
-              "additionalProperties": false,
-              "properties": {
-                "piloted_at": { "type": "string", "format": "date" },
-                "pilot": { "type": "string" },
-                "feat_scale_pix": { "type": "number", "exclusiveMinimum": 0 },
-                "epochs": { "type": "integer", "minimum": 1 },
-                "lr": { "type": "number", "exclusiveMinimum": 0 },
-                "l2": { "type": "number", "minimum": 0 },
-                "class_balance": { "type": "boolean" },
-                "min_per_class": { "type": "integer", "minimum": 1 },
-                "T": { "type": "number", "exclusiveMinimum": 0 },
-                "confidence_scale": {
-                  "type": "object",
-                  "required": ["anchors"],
-                  "additionalProperties": false,
-                  "properties": {
-                    "calibrated_at": { "type": "string", "format": "date" },
-                    "anchors": {
-                      "type": "array",
-                      "minItems": 3,
-                      "maxItems": 4,
-                      "items": {
-                        "type": "array",
-                        "prefixItems": [
-                          { "type": "number", "minimum": 0 },
-                          { "type": "number", "minimum": 0, "maximum": 100 }
-                        ],
-                        "minItems": 2,
-                        "maxItems": 2
-                      }
-                    },
-                    "note": { "type": "string" }
-                  },
-                  "description": "Шкала conf% головы по logit-марже (правило §8.4 пилот-дока)"
-                }
-              },
-              "description": "Обучаемая голова TM-типа (Р20, ТЗ-платформа-v3 §2.1): появляется здесь ТОЛЬКО после ALL_PASS мини-пилота §6 (pilot/run_head_pilot.mjs). Гиперпараметры заморожены пилотом — код дефолтов не имеет права расходиться с банком"
-            }
+          "anchors": {
+           "type": "array",
+           "minItems": 3,
+           "maxItems": 4,
+           "items": {
+            "type": "array",
+            "prefixItems": [
+             {
+              "type": "number",
+              "minimum": 0
+             },
+             {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+             }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+           }
           },
-          "description": "Пилотированные движки сверх kNN (ТЗ-платформа-v3 §2.2): движок манифеста обязан быть из этого словаря или knn — инвариант валидатора"
+          "note": {
+           "type": "string"
+          }
+         },
+         "description": "Шкала conf% головы по logit-марже (правило §8.4 пилот-дока)"
         }
+       },
+       "description": "Обучаемая голова TM-типа (Р20, ТЗ-платформа-v3 §2.1): появляется здесь ТОЛЬКО после ALL_PASS мини-пилота §6 (pilot/run_head_pilot.mjs). Гиперпараметры заморожены пилотом — код дефолтов не имеет права расходиться с банком"
       }
+     },
+     "description": "Пилотированные движки сверх kNN (ТЗ-платформа-v3 §2.2): движок манифеста обязан быть из этого словаря или knn — инвариант валидатора"
     },
-    "images": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["id", "class", "role", "src"],
-        "additionalProperties": false,
-        "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-          "class": { "type": "string" },
-          "role": {
-            "enum": ["train_core", "control", "trap", "forecast", "buffer", "reserve"],
-            "description": "Реестр ролей ЗАКРЫТ. control — ОДИН контрольный набор (проба акта 1 = замер акта 2, И4-Т A; прежние probe+holdout сведены в него). Непересечение ролей и минимум control ≥4 проверяет валидатор"
-          },
-          "bg": { "type": "string", "description": "значение измерения подвоха (напр. дом/улица)" },
-          "src": { "type": "string", "description": "путь в assets/ — существование проверяет валидатор" },
-          "expected_flip": { "type": "boolean", "description": "для control: ждём ошибку коробки ДО починки (пилотный порог)" },
-          "caption": { "type": "string", "maxLength": 80, "description": "честная подпись подачи (ловушки: «Кот на улице» — план-правок п.5)" }
-        }
-      }
+    "gen_engine": {
+     "type": "string",
+     "description": "движок генерации ВСЕГО банка (одна партия — смесь движков даёт скрытую примету «стиль рендера»)"
+    },
+    "gen_batch": {
+     "type": "string",
+     "description": "когда и в каком формате собрана партия"
     }
+   }
   },
-  "if": { "properties": { "pilot_status": { "const": "frozen" } } },
-  "then": { "required": ["frozen_params"] }
+  "images": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "class",
+     "role",
+     "src"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+     },
+     "class": {
+      "type": "string"
+     },
+     "role": {
+      "enum": [
+       "train_core",
+       "control",
+       "trap",
+       "forecast",
+       "buffer",
+       "reserve"
+      ],
+      "description": "Реестр ролей ЗАКРЫТ. control — ОДИН контрольный набор (проба акта 1 = замер акта 2, И4-Т A; прежние probe+holdout сведены в него). Непересечение ролей и минимум control ≥4 проверяет валидатор"
+     },
+     "bg": {
+      "type": "string",
+      "description": "значение измерения подвоха (напр. дом/улица)"
+     },
+     "src": {
+      "type": "string",
+      "description": "путь в assets/ — существование проверяет валидатор"
+     },
+     "expected_flip": {
+      "type": "boolean",
+      "description": "для control: ждём ошибку коробки ДО починки (пилотный порог)"
+     },
+     "caption": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "честная подпись подачи (ловушки: «Кот на улице» — план-правок п.5)"
+     }
+    }
+   }
+  }
+ },
+ "if": {
+  "properties": {
+   "pilot_status": {
+    "const": "frozen"
+   }
+  }
+ },
+ "then": {
+  "required": [
+   "frozen_params"
+  ]
+ }
 }
